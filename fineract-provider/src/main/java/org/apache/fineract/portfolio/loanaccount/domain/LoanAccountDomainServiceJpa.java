@@ -714,6 +714,14 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         List<LoanTransaction> newTransactions = new ArrayList<>();
 
         final ScheduleGeneratorDTO scheduleGeneratorDTO = null;
+
+        for (final LoanCharge charge : loan.getActiveCharges()) {
+            if (!charge.isForeclosureCharge()) {
+                continue;
+            }
+            charge.setDueDate(foreClosureDate);
+        }
+
         final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate);
 
         loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions);

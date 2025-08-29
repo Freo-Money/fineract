@@ -244,6 +244,27 @@ public class LoanBalanceService {
         return balances;
     }
 
+    public Money[] calculateForeclosureCharges(final Loan loan, final LocalDate transactionDate) {
+        Money foreclosureFee = Money.zero(loan.getCurrency());
+        Money foreclosurePenalty = Money.zero(loan.getCurrency());
+
+        for (final LoanCharge loanCharge : loan.getActiveForeclosureCharges()) {
+            BigDecimal amount = BigDecimal.ZERO;
+            if (loanCharge.getChargeCalculation().isPercentageBased()) {
+                amount = loan.getSummary().getTotalPrincipalOutstanding().multiply(loanCharge.getPercentage())
+                        .divide(BigDecimal.valueOf(100));
+            } else {
+                amount = loanCharge.getAmountOrPercentage();
+            }
+            if (loanCharge.isFeeCharge()) {
+                foreclosureFee = foreclosureFee.plus(Money.of(loan.getCurrency(), amount));
+            } else if (loanCharge.isPenaltyCharge()) {
+                foreclosurePenalty = foreclosurePenalty.plus(Money.of(loan.getCurrency(), amount));
+            }
+        }
+        return new Money[] { foreclosureFee, foreclosurePenalty };
+    }
+
     private Money[] retrieveIncomeOutstandingTillDate(final Loan loan, final LocalDate paymentDate) {
         Money[] balances = new Money[4];
         final MonetaryCurrency currency = loan.getCurrency();
@@ -287,6 +308,12 @@ public class LoanBalanceService {
             }
 
         }
+
+        Money[] foreclosureCharges = calculateForeclosureCharges(loan, paymentDate);
+
+        fee = fee.plus(foreclosureCharges[0]);
+        penalty = penalty.plus(foreclosureCharges[1]);
+
         balances[0] = interest;
         balances[1] = fee;
         balances[2] = penalty;

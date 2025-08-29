@@ -1246,6 +1246,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         return this.charges == null ? new HashSet<>() : this.charges.stream().filter(LoanCharge::isActive).collect(Collectors.toSet());
     }
 
+    public Set<LoanCharge> getActiveForeclosureCharges() {
+        return this.charges == null ? new HashSet<>()
+                : this.charges.stream().filter(LoanCharge::isActive).filter(LoanCharge::isForeclosureCharge).collect(Collectors.toSet());
+    }
+
     public boolean hasChargesAffectedByBackdatedRepaymentLikeTransaction(@NonNull final LoanTransaction transaction) {
         if (!transaction.isRepaymentLikeType() || CollectionUtils.isEmpty(this.charges) || !isProgressiveSchedule()
                 || !DateUtils.isBeforeBusinessDate(transaction.getTransactionDate())) {
