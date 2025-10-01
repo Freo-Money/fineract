@@ -398,6 +398,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     @OneToOne(cascade = CascadeType.ALL, mappedBy = "loan", orphanRemoval = true, fetch = FetchType.LAZY)
     private LoanTopupDetails loanTopupDetails;
 
+    @OneToOne(cascade = CascadeType.ALL, mappedBy = "loan", orphanRemoval = true, fetch = FetchType.LAZY)
+    private LoanConfigMapping bpiConfig;
+
     @OneToMany(fetch = FetchType.LAZY)
     @JoinTable(name = "m_loan_rate", joinColumns = @JoinColumn(name = "loan_id"), inverseJoinColumns = @JoinColumn(name = "rate_id"))
     private List<Rate> rates;
@@ -1649,6 +1652,14 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     public LoanTopupDetails getTopupLoanDetails() {
         return this.loanTopupDetails;
+    }
+
+    public void setBpiConfig(LoanConfigMapping bpiConfig) {
+        this.bpiConfig = bpiConfig;
+    }
+
+    public LoanConfigMapping getBpiConfig() {
+        return this.bpiConfig;
     }
 
     public Set<LoanCharge> getLoanCharges() {

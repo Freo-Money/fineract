@@ -103,6 +103,7 @@
         <class>org.apache.fineract.portfolio.loanaccount.domain.LoanStatusChangeHistory</class>
         <class>org.apache.fineract.portfolio.loanaccount.domain.LoanTermVariations</class>
         <class>org.apache.fineract.portfolio.loanaccount.domain.LoanTopupDetails</class>
+        <class>org.apache.fineract.portfolio.loanaccount.domain.LoanConfigMapping</class>
         <class>org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheCharge</class>
         <class>org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheDisbursementCharge</class>
         <class>org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction</class>
@@ -113,6 +114,7 @@
         <class>org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanRepaymentScheduleHistory</class>
         <class>org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest</class>
         <class>org.apache.fineract.portfolio.loanproduct.domain.LoanProduct</class>
+        <class>org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigMapping</class>
         <class>org.apache.fineract.portfolio.loanproduct.domain.LoanProductBorrowerCycleVariations</class>
         <class>org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigurableAttributes</class>
         <class>org.apache.fineract.portfolio.loanproduct.domain.LoanProductCreditAllocationRule</class>

@@ -194,6 +194,7 @@ public interface LoanApiConstants {
     String LOAN_FRAUD_DATAVALIDATOR_PREFIX = "loans.fraud";
 
     String INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE = "interestRecognitionOnDisbursementDate";
+    String APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN = "applyBrokenPeriodInterestOnLoan";
 
     String ALLOW_FULL_TERM_FOR_TRANCHE = "allowFullTermForTranche";
 

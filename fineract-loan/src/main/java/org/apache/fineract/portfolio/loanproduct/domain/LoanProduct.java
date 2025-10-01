@@ -231,6 +231,9 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
     @Column(name = "repayment_start_date_type_enum", nullable = false)
     private RepaymentStartDateType repaymentStartDateType;
 
+    @OneToOne(cascade = CascadeType.ALL, mappedBy = "loanProduct", orphanRemoval = true, fetch = FetchType.LAZY)
+    private LoanProductConfigMapping bpiConfig;
+
     public void updateLoanProductInRelatedClasses() {
         if (this.isInterestRecalculationEnabled()) {
             this.productInterestRecalculationDetails.updateProduct(this);
