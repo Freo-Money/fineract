@@ -141,6 +141,7 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
         final LocalDate idealDisbursementDate = getScheduledDateGenerator().idealDisbursementDateBasedOnFirstRepaymentDate(
                 loanApplicationTerms.getLoanTermPeriodFrequencyType(), loanApplicationTerms.getRepaymentEvery(), firstRepaymentDate,
                 loanApplicationTerms.getLoanCalendar(), loanApplicationTerms.getHolidayDetailDTO(), loanApplicationTerms);
+        loanApplicationTerms.setIdealDisbursementDate(idealDisbursementDate);
 
         if (!scheduleParams.isPartialUpdate()) {
             Money calculatedAmortizableAmount = loanApplicationTerms.getPrincipal().minus(loanApplicationTerms.getDownPaymentAmount());
