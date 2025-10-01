@@ -53,6 +53,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeCal
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeStrategy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeType;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeOffBehaviour;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductRelatedDetailMinimumData;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
@@ -247,6 +248,9 @@ public final class LoanApplicationTerms {
     private LoanBuyDownFeeStrategy buyDownFeeStrategy;
     private LoanBuyDownFeeIncomeType buyDownFeeIncomeType;
     private boolean merchantBuyDownFee;
+    private BrokenPeriodInterestConfigDTO bpiConfig;
+    private LocalDate idealDisbursementDate;
+    private Money brokenPeriodInterest;
 
     private LoanApplicationTerms(Builder builder) {
         this.currency = builder.currency;
@@ -579,7 +583,7 @@ public final class LoanApplicationTerms {
             final LoanCapitalizedIncomeStrategy capitalizedIncomeStrategy, final LoanCapitalizedIncomeType capitalizedIncomeType,
             final boolean enableBuyDownFee, final LoanBuyDownFeeCalculationType buyDownFeeCalculationType,
             final LoanBuyDownFeeStrategy buyDownFeeStrategy, final LoanBuyDownFeeIncomeType buyDownFeeIncomeType,
-            final boolean merchantBuyDownFee) {
+            final boolean merchantBuyDownFee, final BrokenPeriodInterestConfigDTO bpiConfig) {
 
         final LoanRescheduleStrategyMethod rescheduleStrategyMethod = null;
         final CalendarHistoryDataWrapper calendarHistoryDataWrapper = null;
@@ -601,7 +605,7 @@ public final class LoanApplicationTerms {
                 fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour,
                 interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
-                buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee);
+                buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, bpiConfig);
 
     }
 
@@ -622,7 +626,8 @@ public final class LoanApplicationTerms {
             final boolean isSkipRepaymentOnFirstDayOfMonth, final HolidayDetailDTO holidayDetailDTO, final boolean allowCompoundingOnEod,
             final boolean isFirstRepaymentDateAllowedOnHoliday, final boolean isInterestToBeRecoveredFirstWhenGreaterThanEMI,
             final BigDecimal fixedPrincipalPercentagePerInstallment, final boolean isPrincipalCompoundingDisabledForOverdueLoans,
-            final RepaymentStartDateType repaymentStartDateType, final LocalDate submittedOnDate) {
+            final RepaymentStartDateType repaymentStartDateType, final LocalDate submittedOnDate,
+            final BrokenPeriodInterestConfigDTO bpiConfig) {
 
         final Integer numberOfRepayments = loanProductRelatedDetail.getNumberOfRepayments();
         final Integer repaymentEvery = loanProductRelatedDetail.getRepayEvery();
@@ -680,7 +685,7 @@ public final class LoanApplicationTerms {
                 loanProductRelatedDetail.getCapitalizedIncomeStrategy(), loanProductRelatedDetail.getCapitalizedIncomeType(),
                 loanProductRelatedDetail.isEnableBuyDownFee(), loanProductRelatedDetail.getBuyDownFeeCalculationType(),
                 loanProductRelatedDetail.getBuyDownFeeStrategy(), loanProductRelatedDetail.getBuyDownFeeIncomeType(),
-                loanProductRelatedDetail.isMerchantBuyDownFee());
+                loanProductRelatedDetail.isMerchantBuyDownFee(), bpiConfig);
     }
 
     private LoanApplicationTerms(final CurrencyData currency, final Integer loanTermFrequency,
@@ -716,7 +721,7 @@ public final class LoanApplicationTerms {
             final LoanCapitalizedIncomeStrategy capitalizedIncomeStrategy, final LoanCapitalizedIncomeType capitalizedIncomeType,
             final boolean enableBuyDownFee, final LoanBuyDownFeeCalculationType buyDownFeeCalculationType,
             final LoanBuyDownFeeStrategy buyDownFeeStrategy, final LoanBuyDownFeeIncomeType buyDownFeeIncomeType,
-            final boolean merchantBuyDownFee) {
+            final boolean merchantBuyDownFee, final BrokenPeriodInterestConfigDTO bpiConfig) {
 
         this.currency = currency;
         this.loanTermFrequency = loanTermFrequency;
@@ -827,6 +832,7 @@ public final class LoanApplicationTerms {
         this.buyDownFeeStrategy = buyDownFeeStrategy;
         this.buyDownFeeIncomeType = buyDownFeeIncomeType;
         this.merchantBuyDownFee = merchantBuyDownFee;
+        this.bpiConfig = bpiConfig;
     }
 
     public Money adjustPrincipalIfLastRepaymentPeriod(final Money principalForPeriod, final Money totalCumulativePrincipalToDate,
@@ -981,7 +987,7 @@ public final class LoanApplicationTerms {
 
     public PrincipalInterest calculateTotalInterestForPeriod(final PaymentPeriodsInOneYearCalculator calculator,
             final BigDecimal interestCalculationGraceOnRepaymentPeriodFraction, final int periodNumber, final MathContext mc,
-            final Money cumulatingInterestPaymentDueToGrace, final Money outstandingBalance, final LocalDate periodStartDate,
+            final Money cumulatingInterestPaymentDueToGrace, final Money outstandingBalance, LocalDate periodStartDate,
             final LocalDate periodEndDate) {
 
         Money interestForInstallment = this.principal.zero();
@@ -1020,6 +1026,13 @@ public final class LoanApplicationTerms {
             break;
             case DECLINING_BALANCE:
 
+                Money brokenPeriodInterest = Money.zero(this.principal.getCurrency());
+                if (periodNumber == 1 && bpiConfig != null && bpiConfig.getStrategy().isAddToFirstInstallmentEmi()) {
+                    brokenPeriodInterest = calculateDecliningBrokenPeriodInterestDueForInstallment(calculator, mc, outstandingBalance,
+                            periodStartDate, getIdealDisbursementDate(), bpiConfig);
+                    periodStartDate = getIdealDisbursementDate();
+                }
+
                 final Money interestForThisInstallmentBeforeGrace = calculateDecliningInterestDueForInstallmentBeforeApplyingGrace(
                         calculator, mc, outstandingBalance, periodStartDate, periodEndDate);
 
@@ -1035,6 +1048,12 @@ public final class LoanApplicationTerms {
                     interestForInstallment = interestForInstallment.zero();
                 } else {
                     interestBroughtForwardDueToGrace = interestBroughtForwardDueToGrace.plus(interestForThisInstallmentBeforeGrace);
+                }
+
+                if (periodNumber == 1 && bpiConfig != null && bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
+                        && brokenPeriodInterest.isGreaterThanZero()) {
+                    interestForInstallment = interestForInstallment.plus(brokenPeriodInterest);
+                    this.brokenPeriodInterest = brokenPeriodInterest;
                 }
             break;
             case INVALID:
@@ -1568,16 +1587,84 @@ public final class LoanApplicationTerms {
         return getFixedEmiAmount().doubleValue();
     }
 
-    private Money calculateDecliningInterestDueForInstallmentBeforeApplyingGrace(final PaymentPeriodsInOneYearCalculator calculator,
-            final MathContext mc, final Money outstandingBalance, LocalDate periodStartDate, LocalDate periodEndDate) {
+    private Money calculateDecliningBrokenPeriodInterestDueForInstallment(final PaymentPeriodsInOneYearCalculator calculator,
+            final MathContext mc, final Money outstandingBalance, final LocalDate periodStartDate, final LocalDate periodEndDate,
+            final BrokenPeriodInterestConfigDTO bpiConfig) {
 
         Money interestDue = Money.zero(outstandingBalance.getCurrency());
 
-        final BigDecimal periodicInterestRate = periodicInterestRate(calculator, mc, this.daysInMonthType, this.daysInYearType,
-                periodStartDate, periodEndDate);// 0.021232877 ob:14911.64
-        interestDue = outstandingBalance.multiplyRetainScale(periodicInterestRate, mc);
+        // Use BPI-specific configuration for days calculation
+        final DaysInMonthType daysInMonthType = bpiConfig.getDaysInMonthType() == null ? this.daysInMonthType
+                : bpiConfig.getDaysInMonthType();
+        final DaysInYearType daysInYearType = bpiConfig.getDaysInYearType() == null ? this.daysInYearType : bpiConfig.getDaysInYearType();
+
+        // Calculate daily interest rate using BPI configuration
+        final BigDecimal periodicDailyInterestRate = calculateBrokenPeriodInterestRate(calculator, mc, daysInMonthType, daysInYearType,
+                periodStartDate, periodEndDate);
+
+        interestDue = outstandingBalance.multiplyRetainScale(periodicDailyInterestRate, mc);
 
         return interestDue;
+    }
+
+    /**
+     * Calculate daily interest rate for BPI using the provided DaysInYearType configuration
+     */
+    private BigDecimal calculateBrokenPeriodInterestRate(final PaymentPeriodsInOneYearCalculator calculator, final MathContext mc,
+            final DaysInMonthType daysInMonthType, final DaysInYearType daysInYearType, final LocalDate periodStartDate,
+            final LocalDate periodEndDate) {
+
+        final long loanTermPeriodsInOneYear = !daysInYearType.getCode().equalsIgnoreCase("DaysInYearType.actual")
+                ? daysInYearType.getValue().longValue()
+                : calculator.calculate(PeriodFrequencyType.DAYS).longValue();
+
+        final BigDecimal divisor = BigDecimal.valueOf(Double.parseDouble("100.0"));
+        final BigDecimal loanTermPeriodsInYearBigDecimal = BigDecimal.valueOf(loanTermPeriodsInOneYear);
+
+        BigDecimal periodicInterestRate = BigDecimal.ZERO;
+        BigDecimal loanTermFrequencyBigDecimal = calculatePeriodsBetweenDates(periodStartDate, periodEndDate);
+        BigDecimal numberOfDaysInPeriod = BigDecimal.valueOf(DateUtils.getDifferenceInDays(periodStartDate, periodEndDate));
+
+        final BigDecimal oneDayOfYearInterestRate = this.annualNominalInterestRate.divide(loanTermPeriodsInYearBigDecimal, mc)
+                .divide(divisor, mc);
+
+        switch (this.repaymentPeriodFrequencyType) {
+            case INVALID:
+            break;
+            case DAYS:
+                periodicInterestRate = oneDayOfYearInterestRate.multiply(numberOfDaysInPeriod, mc);
+            break;
+            case WEEKS:
+                periodicInterestRate = oneDayOfYearInterestRate.multiply(numberOfDaysInPeriod, mc);
+            break;
+            case MONTHS:
+                if (daysInMonthType.isDaysInMonth_30()) {
+                    numberOfDaysInPeriod = loanTermFrequencyBigDecimal.multiply(BigDecimal.valueOf(30), mc);
+                }
+                periodicInterestRate = oneDayOfYearInterestRate.multiply(numberOfDaysInPeriod, mc);
+            break;
+            case YEARS:
+                switch (daysInYearType) {
+                    case DAYS_360:
+                        numberOfDaysInPeriod = loanTermFrequencyBigDecimal.multiply(BigDecimal.valueOf(360), mc);
+                    break;
+                    case DAYS_364:
+                        numberOfDaysInPeriod = loanTermFrequencyBigDecimal.multiply(BigDecimal.valueOf(364), mc);
+                    break;
+                    case DAYS_365:
+                        numberOfDaysInPeriod = loanTermFrequencyBigDecimal.multiply(BigDecimal.valueOf(365), mc);
+                    break;
+                    default:
+                    break;
+                }
+                periodicInterestRate = oneDayOfYearInterestRate.multiply(numberOfDaysInPeriod, mc);
+            break;
+            case WHOLE_TERM:
+            // TODO: Implement getPeriodEndDate for WHOLE_TERM
+            break;
+        }
+
+        return periodicInterestRate;
     }
 
     private Money calculateDecliningInterestDueForInstallmentAfterApplyingGrace(final PaymentPeriodsInOneYearCalculator calculator,
@@ -1611,6 +1698,18 @@ public final class LoanApplicationTerms {
         }
 
         return interest;
+    }
+
+    private Money calculateDecliningInterestDueForInstallmentBeforeApplyingGrace(final PaymentPeriodsInOneYearCalculator calculator,
+            final MathContext mc, final Money outstandingBalance, LocalDate periodStartDate, LocalDate periodEndDate) {
+
+        Money interestDue = Money.zero(outstandingBalance.getCurrency());
+
+        final BigDecimal periodicInterestRate = periodicInterestRate(calculator, mc, this.daysInMonthType, this.daysInYearType,
+                periodStartDate, periodEndDate);// 0.021232877 ob:14911.64
+        interestDue = outstandingBalance.multiplyRetainScale(periodicInterestRate, mc);
+
+        return interestDue;
     }
 
     private boolean isInterestFreeGracePeriodFromDate(BigDecimal interestCalculationGraceOnRepaymentPeriodFraction) {
@@ -2253,6 +2352,18 @@ public final class LoanApplicationTerms {
 
     public void updateVariationDays(final long daysToAdd) {
         this.variationDays += daysToAdd;
+    }
+
+    public LocalDate getIdealDisbursementDate() {
+        LocalDate idealDisbursementDate = this.idealDisbursementDate;
+        if (idealDisbursementDate == null) {
+            idealDisbursementDate = getExpectedDisbursementDate();
+        }
+        return idealDisbursementDate;
+    }
+
+    public void setIdealDisbursementDate(final LocalDate idealDisbursementDate) {
+        this.idealDisbursementDate = idealDisbursementDate;
     }
 
 }
