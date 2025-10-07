@@ -58,6 +58,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.commands.domain.CommandWrapper;
 import org.apache.fineract.commands.service.CommandWrapperBuilder;
@@ -71,8 +73,10 @@ import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDoma
 import org.apache.fineract.infrastructure.core.api.ApiFacingEnum;
 import org.apache.fineract.infrastructure.core.api.ApiParameterHelper;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
+import org.apache.fineract.infrastructure.core.api.DateParam;
 import org.apache.fineract.infrastructure.core.api.JsonQuery;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.data.DateFormat;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.data.UploadRequest;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
@@ -132,6 +136,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanApprovedAmountHistoryD
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanCollateralManagementData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanSummaryData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanDueDetailsDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionBalanceWithLoanId;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
@@ -1410,4 +1415,17 @@ public class LoansApiResource {
         return this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
     }
 
+
+    @GET
+    @Path("{loanId}/due-ason")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Returns the due details for a given loan as on date", description = "")
+    public LoanDueDetailsDTO getLoanDueDetails(
+            @PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId, @QueryParam("asOnDate") @NonNull final DateParam asOnDateParam, @QueryParam("dateFormat") String dateFormat, @QueryParam("locale") String locale, @Context final UriInfo uriInfo) {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        DateFormat df = new DateFormat(dateFormat);
+        LocalDate asOnLocalDate = asOnDateParam.getDate("asOnDate", df, locale);
+        return this.loanReadPlatformService.getLoanDueDetails(loanId, asOnLocalDate);
+    }
 }
