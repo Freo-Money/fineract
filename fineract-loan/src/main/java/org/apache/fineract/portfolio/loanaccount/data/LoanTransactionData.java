@@ -24,6 +24,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+
+import lombok.Builder;
+import lombok.Data;
 import lombok.Getter;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
@@ -37,6 +40,7 @@ import org.springframework.integration.annotation.Default;
  * Immutable data object representing a loan transaction.
  */
 @Getter
+@Data
 public class LoanTransactionData implements Serializable {
 
     @Serial
@@ -74,7 +78,7 @@ public class LoanTransactionData implements Serializable {
     private Collection<LoanChargePaidByData> loanChargePaidByList;
 
     // templates
-    final Collection<PaymentTypeData> paymentTypeOptions;
+     Collection<PaymentTypeData> paymentTypeOptions;
 
     private Collection<CodeValueData> writeOffReasonOptions = null;
 
@@ -103,6 +107,8 @@ public class LoanTransactionData implements Serializable {
     private List<LoanTransactionRelationData> transactionRelations;
 
     private Collection<CodeValueData> chargeOffReasonOptions = null;
+    private LoanOverdueDTO loanOverdueData;
+    private LoanChargesDueDTO loanOverdueChargeData;
 
     public static LoanTransactionData importInstance(BigDecimal repaymentAmount, LocalDate lastRepaymentDate, Long repaymentTypeId,
             Integer rowIndex, String locale, String dateFormat) {
@@ -430,5 +436,9 @@ public class LoanTransactionData implements Serializable {
 
     public boolean supportTransactionRelations() {
         return !type.isAccrual();
+    }
+
+    public void setPaymentTypeOptions(Collection<PaymentTypeData> paymentOptions) {
+        this.paymentTypeOptions = paymentOptions;
     }
 }
