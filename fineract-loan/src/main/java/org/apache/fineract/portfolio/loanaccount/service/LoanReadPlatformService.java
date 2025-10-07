@@ -32,6 +32,7 @@ import org.apache.fineract.portfolio.floatingrates.data.InterestRatePeriodData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovalData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanDueDetailsDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentScheduleInstallmentData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
 import org.apache.fineract.portfolio.loanaccount.data.PaidInAdvanceData;
@@ -42,6 +43,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanScheduleData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
+import org.springframework.cglib.core.Local;
 import org.springframework.data.domain.Pageable;
 import org.springframework.lang.NonNull;
 
@@ -64,7 +66,7 @@ public interface LoanReadPlatformService {
 
     LoanAccountData retrieveTemplateWithGroupAndProductDetails(Long groupId, Long productId);
 
-    LoanTransactionData retrieveLoanTransactionTemplate(Long loanId);
+    LoanTransactionData retrieveLoanTransactionTemplate(Long loanId, LocalDate date);
 
     LoanTransactionData retrieveLoanTransactionTemplate(Long loanId, LoanTransactionType transactionType, Long transactionId);
 
@@ -168,4 +170,6 @@ public interface LoanReadPlatformService {
     LoanTransactionData retrieveLoanReAgeTemplate(Long loanId);
 
     LoanTransactionData retrieveLoanReAmortizationTemplate(Long loanId);
+    LoanDueDetailsDTO getLoanDueDetails(Long loanId, LocalDate asOnLocalDate);
+
 }
