@@ -21,6 +21,8 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import static java.lang.Boolean.TRUE;
 import static org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations.interestType;
 
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.Predicate;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -38,7 +40,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-
+import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
 import org.apache.fineract.infrastructure.codes.service.CodeValueReadPlatformService;
@@ -102,7 +104,6 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargesDueDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanDueDetailsDTO;
-import org.apache.fineract.portfolio.loanaccount.data.LoanInstallmentChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanInterestRecalculationData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanOverdueDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentScheduleInstallmentData;
@@ -166,10 +167,6 @@ import org.springframework.lang.NonNull;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
-import jakarta.persistence.criteria.Join;
-import jakarta.persistence.criteria.Predicate;
-import lombok.RequiredArgsConstructor;
-
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, LoanReadPlatformServiceCommon {
@@ -209,7 +206,6 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     private final LoanMaximumAmountCalculator loanMaximumAmountCalculator;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final LoanChargeReadPlatformService loanChargeReadPlatformService;
-
 
     @Override
     public LoanAccountData retrieveOne(final Long loanId) {
@@ -549,7 +545,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                         paymentOptions, retriveLoanCurrencyData(loanId), classificationOptions);
             break;
             default:
-                loanTransactionData = LoanTransactionData.templateOnTop(retrieveLoanTransactionTemplate(loanId, DateUtils.getLocalDateOfTenant()),
+                loanTransactionData = LoanTransactionData.templateOnTop(
+                        retrieveLoanTransactionTemplate(loanId, DateUtils.getLocalDateOfTenant()),
                         LoanEnumerations.transactionType(transactionType));
             break;
         }
@@ -575,10 +572,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         }
     }
 
-    private LoanTransactionData retrieveLoanOverdueDetails(Long loanId, LoanTransactionData loanTransactionData,
-            LocalDate asOnDate) {
-        final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService
-                .retrieveAllPaymentTypes();
+    private LoanTransactionData retrieveLoanOverdueDetails(Long loanId, LoanTransactionData loanTransactionData, LocalDate asOnDate) {
+        final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         loanTransactionData.setPaymentTypeOptions(paymentOptions);
         LoanChargesDueDTO loanChargesDue = fetchDueChargesAsOn(loanId, asOnDate);
         loanTransactionData.setLoanOverdueChargeData(loanChargesDue);
@@ -617,25 +612,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             }
         }
 
-        return LoanChargesDueDTO.builder()
-                .feeDue(totalFeeDue)
-                .penaltyPostedAsOnDate(totalPenaltyDue)
-                .penaltyPostedTillDate(totalPenaltyDue)
-                .lastChargeAppliedOnDate(lastRunOnDate)
-                .lastRunOnDate(lastRunOnDate)
-                .feeCharges(new ArrayList<>(feeChargeMap.values()))
-                .penaltyCharges(new ArrayList<>(penaltyChargeMap.values()))
-                .build();
+        return LoanChargesDueDTO.builder().feeDue(totalFeeDue).penaltyPostedAsOnDate(totalPenaltyDue).penaltyPostedTillDate(totalPenaltyDue)
+                .lastChargeAppliedOnDate(lastRunOnDate).lastRunOnDate(lastRunOnDate).feeCharges(new ArrayList<>(feeChargeMap.values()))
+                .penaltyCharges(new ArrayList<>(penaltyChargeMap.values())).build();
     }
 
     private void mergeChargeIntoMap(Map<Long, LoanChargeData> targetMap, LoanChargeData charge, BigDecimal amount) {
         targetMap.compute(charge.getChargeId(), (id, existing) -> {
             if (existing == null) {
-                LoanChargeData newCharge = new LoanChargeData(
-                        null, charge.getChargeId(), charge.getName(), null, null, null,
-                        null, null, amount, null, charge.getSubmittedOnDate(), null,
-                        null, null, null, charge.isPenalty(), null, false,
-                        false, null, null, null, null, null, null, null);
+                LoanChargeData newCharge = new LoanChargeData(null, charge.getChargeId(), charge.getName(), null, null, null, null, null,
+                        amount, null, charge.getSubmittedOnDate(), null, null, null, null, charge.isPenalty(), null, false, false, null,
+                        null, null, null, null, null, null);
                 return newCharge;
             } else {
                 existing.setAmountOutstanding(existing.getAmountOutstanding().add(amount));
@@ -657,20 +644,16 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         StringBuilder sql = new StringBuilder("SELECT ");
         sql.append(loanDueDetailsExtractor.schema());
         sql.append(" WHERE ls.loan_id = ? AND ls.duedate <= ?  and ls.completed_derived = false ");
-        LoanDueDetailsDTO dueDetails = this.jdbcTemplate.queryForObject(sql.toString(),
-                new Object[] { loanId, asOnLocalDate }, loanDueDetailsExtractor);
+        LoanDueDetailsDTO dueDetails = this.jdbcTemplate.queryForObject(sql.toString(), new Object[] { loanId, asOnLocalDate },
+                loanDueDetailsExtractor);
         LoanChargesDueDTO loanChargesDue = fetchDueChargesAsOn(loanId, asOnLocalDate);
-        dueDetails = LoanDueDetailsDTO.builder().principalDue(dueDetails.getPrincipalDue())
-                .interestDue(dueDetails.getInterestDue())
-                .feeChargesDue(dueDetails.getFeeChargesDue())
-                .penaltyChargesDue(dueDetails.getPenaltyChargesDue())
-                .feeChargesDueDetails(loanChargesDue.getFeeCharges())
-                .penaltyChargesDueDetails(loanChargesDue.getPenaltyCharges())
-                .build();
+        dueDetails = LoanDueDetailsDTO.builder().principalDue(dueDetails.getPrincipalDue()).interestDue(dueDetails.getInterestDue())
+                .feeChargesDue(dueDetails.getFeeChargesDue()).penaltyChargesDue(dueDetails.getPenaltyChargesDue())
+                .feeChargesDueDetails(loanChargesDue.getFeeCharges()).penaltyChargesDueDetails(loanChargesDue.getPenaltyCharges()).build();
         return dueDetails;
     }
 
-    private static class LoanDueDetailsExtractor implements RowMapper<LoanDueDetailsDTO> {
+    private static final class LoanDueDetailsExtractor implements RowMapper<LoanDueDetailsDTO> {
 
         public String schema() {
             StringBuilder sqlBuilder = new StringBuilder();
@@ -692,12 +675,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             final BigDecimal interestDue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestDue");
             final BigDecimal feeChargesDue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "feeChargesDue");
             final BigDecimal penaltyChargesDue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penaltyChargesDue");
-            return LoanDueDetailsDTO.builder()
-                    .principalDue(principalDue)
-                    .interestDue(interestDue)
-                    .feeChargesDue(feeChargesDue)
-                    .penaltyChargesDue(penaltyChargesDue)
-                    .build();
+            return LoanDueDetailsDTO.builder().principalDue(principalDue).interestDue(interestDue).feeChargesDue(feeChargesDue)
+                    .penaltyChargesDue(penaltyChargesDue).build();
         }
     }
 
@@ -2578,15 +2557,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             sqlBuilder.append("rc.display_symbol AS currencyDisplaySymbol, ");
             sqlBuilder.append("rc.internationalized_name_code AS currencyNameCode ");
             sqlBuilder.append("FROM m_loan l ");
-            sqlBuilder.append("JOIN m_currency rc ON rc.").append(sqlGenerator.escape("code"))
-                    .append(" = l.currency_code ");
+            sqlBuilder.append("JOIN m_currency rc ON rc.").append(sqlGenerator.escape("code")).append(" = l.currency_code ");
 
             sqlBuilder.append("LEFT JOIN ( ");
             sqlBuilder.append("  SELECT loan_id, ");
             sqlBuilder.append("         MIN(duedate) AS overdueFromDate, ");
             sqlBuilder.append("         MAX(duedate) AS latestUnpaidInstallmentDate, ");
-            sqlBuilder.append(
-                    "         SUM(COALESCE(principal_amount, 0.0) - COALESCE(principal_completed_derived, 0.0)) AS principalDue, ");
+            sqlBuilder
+                    .append("         SUM(COALESCE(principal_amount, 0.0) - COALESCE(principal_completed_derived, 0.0)) AS principalDue, ");
             sqlBuilder.append(
                     "         SUM(COALESCE(interest_amount, 0.0) - COALESCE(interest_completed_derived, 0.0) - COALESCE(interest_waived_derived, 0.0)) AS interestDue, ");
             sqlBuilder.append(
@@ -2602,14 +2580,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             return sqlBuilder.toString();
         }
 
-
         @Override
         public LoanTransactionData mapRow(ResultSet rs, int rowNum) throws SQLException {
             final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.REPAYMENT);
 
             final CurrencyData currencyData = this.currencyMapper.mapRow(rs, rowNum);
-            final LocalDate date = (JdbcSupport.getLocalDate(rs, "transactionDate") != null) ? JdbcSupport.getLocalDate(rs, "transactionDate")
-                    : DateUtils.getLocalDateOfTenant();     
+            final LocalDate date = (JdbcSupport.getLocalDate(rs, "transactionDate") != null)
+                    ? JdbcSupport.getLocalDate(rs, "transactionDate")
+                    : DateUtils.getLocalDateOfTenant();
             final BigDecimal principalPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "principalDue");
             final BigDecimal interestDue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interestDue");
             final BigDecimal feeDue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "feeDue");

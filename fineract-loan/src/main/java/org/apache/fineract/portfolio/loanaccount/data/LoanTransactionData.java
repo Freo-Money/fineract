@@ -84,7 +84,7 @@ public class LoanTransactionData implements Serializable {
     private Collection<LoanChargePaidByData> loanChargePaidByList;
 
     // templates
-     Collection<PaymentTypeData> paymentTypeOptions;
+    Collection<PaymentTypeData> paymentTypeOptions;
 
     private Collection<CodeValueData> writeOffReasonOptions = null;
 

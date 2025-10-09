@@ -21,14 +21,13 @@ package org.apache.fineract.portfolio.loanaccount.data;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
-
 import lombok.Builder;
 import lombok.Data;
 
 @Builder
 @Data
 public class LoanChargesDueDTO {
+
     private BigDecimal penaltyPostedAsOnDate;
     private BigDecimal penaltyPostedTillDate;
     private LocalDate lastRunOnDate;
@@ -38,7 +37,6 @@ public class LoanChargesDueDTO {
     List<LoanChargeData> penaltyCharges;
 
     /*
-     * private BigDecimal penaltyToBePostedAsOnDate;
-     * private List<LoanChargeData> chargesToBePostedAsOnDate;
+     * private BigDecimal penaltyToBePostedAsOnDate; private List<LoanChargeData> chargesToBePostedAsOnDate;
      */
 }
