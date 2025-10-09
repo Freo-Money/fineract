@@ -783,8 +783,7 @@ public final class LoanApplicationValidator {
                 }
             }
 
-            if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN,
-                    element)) {
+            if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element)) {
                 final Boolean applyBrokenPeriodInterestOnLoan = this.fromApiJsonHelper
                         .extractBooleanNamed(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element);
                 baseDataValidator.reset().parameter(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN)

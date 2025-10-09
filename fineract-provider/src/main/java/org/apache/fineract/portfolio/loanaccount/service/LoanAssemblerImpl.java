@@ -74,13 +74,11 @@ import org.apache.fineract.portfolio.loanaccount.domain.GroupLoanIndividualMonit
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanConfigMapping;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCreditAllocationRule;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanPaymentAllocationRule;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanConfigMapping;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleTransactionProcessorFactory;
-import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
-import org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigMapping;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTopupDetails;
@@ -220,7 +218,8 @@ public class LoanAssemblerImpl implements LoanAssembler {
         // Extract BPI parameter
         Boolean applyBrokenPeriodInterestOnLoan = false;
         if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element)) {
-            applyBrokenPeriodInterestOnLoan = this.fromApiJsonHelper.extractBooleanNamed(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element);
+            applyBrokenPeriodInterestOnLoan = this.fromApiJsonHelper
+                    .extractBooleanNamed(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element);
         }
 
         Loan loanApplication;

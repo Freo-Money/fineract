@@ -38,23 +38,22 @@ public class DateParam {
         this.dateAsString = dateStr;
     }
 
-   public LocalDate getDate(String parameterName, DateFormat dateFormat, String localeAsString) {
-    try {
-        if (dateAsString == null) {
-            throw new InvalidDateException("Date string is null");
+    public LocalDate getDate(String parameterName, DateFormat dateFormat, String localeAsString) {
+        try {
+            if (dateAsString == null) {
+                throw new InvalidDateException("Date string is null");
+            }
+            if (dateFormat == null) {
+                throw new InvalidDateException("Date format is null");
+            }
+
+            Locale locale = (localeAsString == null || localeAsString.isBlank()) ? Locale.getDefault()
+                    : JsonParserHelper.localeFromString(localeAsString);
+
+            return JsonParserHelper.convertFrom(dateAsString, parameterName, dateFormat, locale);
+
+        } catch (Exception e) {
+            throw new InvalidDateException("Failed to parse date for parameter: " + parameterName, e);
         }
-        if (dateFormat == null) {
-            throw new InvalidDateException("Date format is null");
-        }
-
-        Locale locale = (localeAsString == null || localeAsString.isBlank())
-                ? Locale.getDefault()
-                : JsonParserHelper.localeFromString(localeAsString);
-
-        return JsonParserHelper.convertFrom(dateAsString, parameterName, dateFormat, locale);
-
-    } catch (Exception e) {
-        throw new InvalidDateException("Failed to parse date for parameter: " + parameterName, e);
     }
-}
 }

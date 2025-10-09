@@ -676,8 +676,7 @@ public final class LoanApplicationTerms {
                 loanProductRelatedDetail.isEnableIncomeCapitalization(), loanProductRelatedDetail.getCapitalizedIncomeCalculationType(),
                 loanProductRelatedDetail.getCapitalizedIncomeStrategy(), loanProductRelatedDetail.getCapitalizedIncomeType(),
                 loanProductRelatedDetail.isEnableBuyDownFee(), loanProductRelatedDetail.getBuyDownFeeCalculationType(),
-                loanProductRelatedDetail.getBuyDownFeeStrategy(), loanProductRelatedDetail.getBuyDownFeeIncomeType(),
-                bpiConfig);
+                loanProductRelatedDetail.getBuyDownFeeStrategy(), loanProductRelatedDetail.getBuyDownFeeIncomeType(), bpiConfig);
     }
 
     private LoanApplicationTerms(final CurrencyData currency, final Integer loanTermFrequency,
