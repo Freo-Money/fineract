@@ -24,8 +24,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
-
-import lombok.Builder;
 import lombok.Data;
 import lombok.Getter;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
@@ -78,7 +76,7 @@ public class LoanTransactionData implements Serializable {
     private Collection<LoanChargePaidByData> loanChargePaidByList;
 
     // templates
-     Collection<PaymentTypeData> paymentTypeOptions;
+    Collection<PaymentTypeData> paymentTypeOptions;
 
     private Collection<CodeValueData> writeOffReasonOptions = null;
 

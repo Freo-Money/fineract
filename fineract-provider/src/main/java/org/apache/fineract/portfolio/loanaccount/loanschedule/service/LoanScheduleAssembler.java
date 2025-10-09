@@ -125,6 +125,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanProductRelatedDetai
 import org.apache.fineract.portfolio.loanaccount.service.LoanScheduleService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
@@ -526,6 +527,14 @@ public class LoanScheduleAssembler {
             interestRecognitionOnDisbursementDate = this.fromApiJsonHelper
                     .extractBooleanNamed(LoanApiConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE, element);
         }
+        Boolean applyBrokenPeriodInterestOnLoan = false;
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element)) {
+            applyBrokenPeriodInterestOnLoan = this.fromApiJsonHelper
+                    .extractBooleanNamed(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element);
+        }
+
+        final BrokenPeriodInterestConfigDTO bpiConfig = !applyBrokenPeriodInterestOnLoan || loanProduct.getBpiConfig() == null ? null
+                : loanProduct.getBpiConfig().getBrokenPeriodConfig();
 
         return LoanApplicationTerms.assembleFrom(applicationCurrency.toData(), loanTermFrequency, loanTermPeriodFrequencyType,
                 numberOfRepayments, repaymentEvery, repaymentPeriodFrequencyType, nthDay, weekDayType, amortizationMethod, interestMethod,
@@ -554,7 +563,7 @@ public class LoanScheduleAssembler {
                 loanProduct.getLoanProductRelatedDetail().isEnableBuyDownFee(),
                 loanProduct.getLoanProductRelatedDetail().getBuyDownFeeCalculationType(),
                 loanProduct.getLoanProductRelatedDetail().getBuyDownFeeStrategy(),
-                loanProduct.getLoanProductRelatedDetail().getBuyDownFeeIncomeType());
+                loanProduct.getLoanProductRelatedDetail().getBuyDownFeeIncomeType(), bpiConfig);
     }
 
     private CalendarInstance createCalendarForSameAsRepayment(final Integer repaymentEvery,
