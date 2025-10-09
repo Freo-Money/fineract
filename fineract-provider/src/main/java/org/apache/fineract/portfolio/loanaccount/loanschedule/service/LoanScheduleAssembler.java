@@ -535,7 +535,8 @@ public class LoanScheduleAssembler {
         }
         Boolean applyBrokenPeriodInterestOnLoan = false;
         if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element)) {
-            applyBrokenPeriodInterestOnLoan = this.fromApiJsonHelper.extractBooleanNamed(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element);
+            applyBrokenPeriodInterestOnLoan = this.fromApiJsonHelper
+                    .extractBooleanNamed(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element);
         }
 
         final BrokenPeriodInterestConfigDTO bpiConfig = !applyBrokenPeriodInterestOnLoan || loanProduct.getBpiConfig() == null ? null

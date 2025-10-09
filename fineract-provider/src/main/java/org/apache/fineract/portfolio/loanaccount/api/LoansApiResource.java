@@ -58,7 +58,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.commands.domain.CommandWrapper;
@@ -1415,14 +1414,14 @@ public class LoansApiResource {
         return this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
     }
 
-
     @GET
     @Path("{loanId}/due-ason")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(summary = "Returns the due details for a given loan as on date", description = "")
-    public LoanDueDetailsDTO getLoanDueDetails(
-            @PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId, @QueryParam("asOnDate") @NonNull final DateParam asOnDateParam, @QueryParam("dateFormat") String dateFormat, @QueryParam("locale") String locale, @Context final UriInfo uriInfo) {
+    public LoanDueDetailsDTO getLoanDueDetails(@PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
+            @QueryParam("asOnDate") @NonNull final DateParam asOnDateParam, @QueryParam("dateFormat") String dateFormat,
+            @QueryParam("locale") String locale, @Context final UriInfo uriInfo) {
         context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
         DateFormat df = new DateFormat(dateFormat);
         LocalDate asOnLocalDate = asOnDateParam.getDate("asOnDate", df, locale);

@@ -352,9 +352,10 @@ public class LoanAccountConfiguration {
             LoanForeclosureValidator loanForeclosureValidator, LoanTransactionMapper loanTransactionMapper,
             LoanTransactionProcessingService loanTransactionProcessingService, LoanBalanceService loanBalanceService,
             LoanCapitalizedIncomeBalanceRepository loanCapitalizedIncomeBalanceRepository,
-            LoanBuyDownFeeBalanceRepository loanBuyDownFeeBalanceRepository,@Lazy InterestRefundServiceDelegate interestRefundServiceDelegate,
-            LoanMaximumAmountCalculator loanMaximumAmountCalculator,
-            LoanRepaymentScheduleService loanRepaymentScheduleService, NamedParameterJdbcTemplate namedParameterJdbcTemplate, LoanChargeReadPlatformService loanChargeReadPlatformService) {
+            LoanBuyDownFeeBalanceRepository loanBuyDownFeeBalanceRepository,
+            @Lazy InterestRefundServiceDelegate interestRefundServiceDelegate, LoanMaximumAmountCalculator loanMaximumAmountCalculator,
+            LoanRepaymentScheduleService loanRepaymentScheduleService,
+            NamedParameterJdbcTemplate namedParameterJdbcTemplate, LoanChargeReadPlatformService loanChargeReadPlatformService) {
         return new LoanReadPlatformServiceImpl(jdbcTemplate, context, loanRepositoryWrapper, applicationCurrencyRepository,
                 loanProductReadPlatformService, clientReadPlatformService, groupReadPlatformService, loanDropdownReadPlatformService,
                 fundReadPlatformService, chargeReadPlatformService, codeValueReadPlatformService, calendarReadPlatformService,
