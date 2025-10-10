@@ -1229,6 +1229,8 @@ final class LoansApiResourceSwagger {
         public StringEnumOptionData chargeOffBehaviour;
         @Schema(example = "false")
         public Boolean interestRecognitionOnDisbursementDate;
+        @Schema(example = "false", description = "Whether to apply broken period interest calculation for partial periods between disbursement and first repayment date")
+        public Boolean applyBrokenPeriodInterestOnLoan;
         @Schema(example = "false")
         public Boolean enableIncomeCapitalization;
         @Schema(example = "FLAT")
@@ -1374,6 +1376,8 @@ final class LoansApiResourceSwagger {
         public String buyDownFeeStrategy;
         @Schema(example = "FEE", allowableValues = { "FEE", "INTEREST" })
         public String buyDownFeeIncomeType;
+        @Schema(example = "false", description = "Whether to apply broken period interest calculation for partial periods between disbursement and first repayment date")
+        public Boolean applyBrokenPeriodInterestOnLoan;
         @Schema(example = "List of PostLoansDataTable")
         public List<PostLoansDataTable> datatables;
 
