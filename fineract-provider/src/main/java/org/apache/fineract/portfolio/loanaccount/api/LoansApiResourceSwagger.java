@@ -1863,4 +1863,43 @@ final class LoansApiResourceSwagger {
         @Schema(description = "PutLoansAvailableDisbursementAmountChanges")
         public PutLoansAvailableDisbursementAmountChanges changes;
     }
+
+    @Schema(description = "GetLoanDueDetailsResponse")
+    public static final class GetLoanDueDetailsResponse {
+
+        private GetLoanDueDetailsResponse() {}
+
+        @Schema(example = "1000.000000")
+        public BigDecimal principalDue;
+        @Schema(example = "200.000000")
+        public BigDecimal interestDue;
+        @Schema(example = "50.000000")
+        public BigDecimal feeChargesDue;
+        @Schema(example = "25.000000")
+        public BigDecimal penaltyChargesDue;
+        public List<GetLoanDueDetailsChargeData> feeChargesDueDetails;
+        public List<GetLoanDueDetailsChargeData> penaltyChargesDueDetails;
+    }
+
+    static final class GetLoanDueDetailsChargeData {
+
+        private GetLoanDueDetailsChargeData() {}
+
+        @Schema(example = "3")
+        public Long chargeId;
+        @Schema(example = "MK_PENAL_CHARGE")
+        public String name;
+        @Schema(example = "[2025, 10, 10]")
+        public LocalDate submittedOnDate;
+        @Schema(example = "9783.000000")
+        public Double amountOutstanding;
+        @Schema(example = "true")
+        public Boolean penalty;
+        @Schema(example = "false")
+        public Boolean paid;
+        @Schema(example = "false")
+        public Boolean waived;
+        @Schema(example = "false")
+        public Boolean chargePayable;
+    }
 }
