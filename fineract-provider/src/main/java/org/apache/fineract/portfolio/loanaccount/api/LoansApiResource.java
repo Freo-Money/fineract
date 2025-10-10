@@ -1419,6 +1419,8 @@ public class LoansApiResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @Operation(summary = "Returns the due details for a given loan as on date", description = "")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoansApiResourceSwagger.GetLoanDueDetailsResponse.class))) })
     public LoanDueDetailsDTO getLoanDueDetails(@PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
             @QueryParam("asOnDate") @NonNull final DateParam asOnDateParam, @QueryParam("dateFormat") String dateFormat,
             @QueryParam("locale") String locale, @Context final UriInfo uriInfo) {
