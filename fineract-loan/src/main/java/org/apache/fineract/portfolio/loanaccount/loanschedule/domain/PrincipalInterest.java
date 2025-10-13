@@ -26,6 +26,7 @@ public class PrincipalInterest {
     private final Money interest;
     private final Money interestPaymentDueToGrace;
     private Money rescheduleInterestPortion;
+    private Money brokenPeriodInterest;
 
     public PrincipalInterest(final Money principal, final Money interest, final Money interestPaymentDueToGrace) {
         this.principal = principal;
@@ -51,5 +52,13 @@ public class PrincipalInterest {
 
     public void setRescheduleInterestPortion(Money rescheduleInterestPortion) {
         this.rescheduleInterestPortion = rescheduleInterestPortion;
+    }
+
+    public Money getBrokenPeriodInterest() {
+        return brokenPeriodInterest;
+    }
+
+    public void setBrokenPeriodInterest(Money brokenPeriodInterest) {
+        this.brokenPeriodInterest = brokenPeriodInterest;
     }
 }

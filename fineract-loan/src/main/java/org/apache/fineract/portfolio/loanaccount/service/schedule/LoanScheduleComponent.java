@@ -59,6 +59,9 @@ public class LoanScheduleComponent {
 
         loan.updateLoanScheduleDependentDerivedFields();
         loanBalanceService.updateLoanSummaryDerivedFields(loan);
+
+        loan.setBrokenPeriodInterest(
+                modifiedLoanSchedule.getBrokenPeriodInterest() != null ? modifiedLoanSchedule.getBrokenPeriodInterest().getAmount() : null);
     }
 
     public void updateLoanSchedule(Loan loan, final List<LoanRepaymentScheduleInstallment> installments) {

@@ -346,7 +346,8 @@ allprojects  {
             '**/META-INF/fineract-test.config',
             // Apache-specific GitHub metadata settings file
             '/.asf.yaml',
-            '**/*.sh'
+            '**/*.sh',
+            '.java-version'
         ]
     }
 }

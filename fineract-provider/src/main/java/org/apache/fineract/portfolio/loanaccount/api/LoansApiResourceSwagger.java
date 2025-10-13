@@ -1157,6 +1157,8 @@ final class LoansApiResourceSwagger {
         public GetLoansLoanIdCurrency currency;
         @Schema(example = "1000000.00")
         public BigDecimal principal;
+        @Schema(example = "120.50", description = "The calculated broken period interest for the loan")
+        public BigDecimal brokenPeriodInterest;
         @Schema(example = "1000.000000")
         public BigDecimal approvedPrincipal;
         @Schema(example = "1001.000000")

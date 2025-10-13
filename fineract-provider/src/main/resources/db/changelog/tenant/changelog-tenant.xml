@@ -213,4 +213,5 @@
     <include file="parts/0192_create_loan_approved_amount_history.xml" relativeToChangelogFile="true" />
     <include file="parts/0193_add_column_ip.xml" relativeToChangelogFile="true" />
     <include file="parts/0199_create_broken_period_interest_tables.xml" relativeToChangelogFile="true" />
+    <include file="parts/0200_add_bpi_column_to_loan.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>
