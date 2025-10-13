@@ -433,6 +433,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     @Column(name = "allow_full_term_for_tranche", nullable = false)
     private boolean allowFullTermForTranche = false;
 
+    @Column(name = "broken_period_interest")
+    private BigDecimal brokenPeriodInterest;
+
     public static Loan newIndividualLoanApplication(final String accountNo, final Client client, final AccountType loanType,
             final LoanProduct loanProduct, final Fund fund, final Staff officer, final CodeValue loanPurpose,
             final LoanRepaymentScheduleTransactionProcessor transactionProcessingStrategy,
@@ -1857,5 +1860,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     public boolean hasReAgingTransaction() {
         return getLoanTransactions().stream().anyMatch(t -> t.isReAge() && t.isNotReversed());
+    }
+    public BigDecimal getBrokenPeriodInterest() {
+        return this.brokenPeriodInterest;
+    }
+
+    public void setBrokenPeriodInterest(BigDecimal brokenPeriodInterest) {
+        this.brokenPeriodInterest = brokenPeriodInterest;
     }
 }

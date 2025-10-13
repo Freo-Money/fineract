@@ -344,7 +344,9 @@ allprojects  {
             "**/generated/**/*MapperImpl.java",
             '**/META-INF/fineract-test.config',
             // Apache-specific GitHub metadata settings file
-            '/.asf.yaml'
+            '/.asf.yaml',
+            '**/*.sh',
+            '.java-version'
         ]
     }
 }
