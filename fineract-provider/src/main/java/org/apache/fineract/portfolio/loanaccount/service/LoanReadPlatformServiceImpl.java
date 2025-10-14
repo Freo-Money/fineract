@@ -575,17 +575,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
     private LoanChargesDueDTO fetchDueChargesAsOn(Long loanId, LocalDate date) {
         Collection<LoanChargeData> chargesDue = loanChargeReadPlatformService.retrieveLoanChargesDueAsOn(loanId, date);
-        if (chargesDue.isEmpty()) {
-            return null;
-        }
-
         Map<Long, LoanChargeData> feeChargeMap = new HashMap<>();
         Map<Long, LoanChargeData> penaltyChargeMap = new HashMap<>();
 
         BigDecimal totalFeeDue = BigDecimal.ZERO;
         BigDecimal totalPenaltyDue = BigDecimal.ZERO;
         LocalDate lastRunOnDate = null;
-
+        if (!chargesDue.isEmpty()) {
         for (LoanChargeData charge : chargesDue) {
             BigDecimal amount = charge.getAmountOutstanding();
             if (amount == null || amount.signum() <= 0) {
@@ -604,7 +600,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                 totalFeeDue = totalFeeDue.add(amount);
             }
         }
-
+    }
         return LoanChargesDueDTO.builder().feeDue(totalFeeDue).penaltyPostedAsOnDate(totalPenaltyDue).penaltyPostedTillDate(totalPenaltyDue)
                 .lastChargeAppliedOnDate(lastRunOnDate).lastRunOnDate(lastRunOnDate).feeCharges(new ArrayList<>(feeChargeMap.values()))
                 .penaltyCharges(new ArrayList<>(penaltyChargeMap.values())).build();

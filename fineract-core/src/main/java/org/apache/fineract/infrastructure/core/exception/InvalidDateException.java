@@ -18,13 +18,22 @@
  */
 package org.apache.fineract.infrastructure.core.exception;
 
-public class InvalidDateException extends RuntimeException {
+/**
+ * A {@link RuntimeException} thrown when date parsing fails or date format is invalid.
+ */
+public class InvalidDateException extends AbstractPlatformDomainRuleException {
+
+    public InvalidDateException(String parameterName, String dateValue, String expectedFormat) {
+        super("error.msg.invalid.date.format",
+                "The date value '" + dateValue + "' for parameter '" + parameterName + "' is invalid. Expected format: " + expectedFormat,
+                parameterName, dateValue, expectedFormat);
+    }
 
     public InvalidDateException(String message) {
-        super(message);
+        super("error.msg.invalid.date.format", message);
     }
 
     public InvalidDateException(String message, Throwable cause) {
-        super(message, cause);
+        super("error.msg.invalid.date.format", message + (cause != null ? ": " + cause.getMessage() : ""));
     }
 }
