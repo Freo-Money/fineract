@@ -20,6 +20,7 @@ package org.apache.fineract.infrastructure.core.api;
 
 import java.time.LocalDate;
 import java.util.Locale;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.data.DateFormat;
 import org.apache.fineract.infrastructure.core.exception.InvalidDateException;
 import org.apache.fineract.infrastructure.core.serialization.JsonParserHelper;
@@ -40,20 +41,19 @@ public class DateParam {
 
     public LocalDate getDate(String parameterName, DateFormat dateFormat, String localeAsString) {
         try {
-            if (dateAsString == null) {
-                throw new InvalidDateException("Date string is null");
+            if (StringUtils.isBlank(dateAsString)) {
+                throw new InvalidDateException(
+                        "Date parameter '" + parameterName + "' is required but was not provided");
             }
-            if (dateFormat == null) {
-                throw new InvalidDateException("Date format is null");
-            }
-
-            Locale locale = (localeAsString == null || localeAsString.isBlank()) ? Locale.getDefault()
+            Locale locale = StringUtils.isBlank(localeAsString) ? Locale.getDefault()
                     : JsonParserHelper.localeFromString(localeAsString);
 
             return JsonParserHelper.convertFrom(dateAsString, parameterName, dateFormat, locale);
 
         } catch (Exception e) {
-            throw new InvalidDateException("Failed to parse date for parameter: " + parameterName, e);
+            // Wrap other exceptions with better error message
+            throw new InvalidDateException(parameterName, dateAsString,
+                    dateFormat != null ? dateFormat.getDateFormat() : "unknown");
         }
     }
 }
