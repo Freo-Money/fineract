@@ -1205,6 +1205,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     }
 
     public void addLoanTransaction(final LoanTransaction loanTransaction) {
+        loanTransaction.updateLoan(this);
         this.loanTransactions.add(loanTransaction);
     }
 
