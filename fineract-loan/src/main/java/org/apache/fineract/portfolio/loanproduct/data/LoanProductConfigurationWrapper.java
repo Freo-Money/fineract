@@ -66,8 +66,19 @@ public class LoanProductConfigurationWrapper implements Serializable {
 
         // Add brokenPeriodConfig if present
         if (brokenPeriodConfig != null) {
-            String configJson = jsonHelper.toJson(brokenPeriodConfig);
-            JsonElement configElement = jsonHelper.parse(configJson);
+            JsonObject configElement = new JsonObject();
+
+            // Serialize enum values using their codes to match fromJson expectations
+            if (brokenPeriodConfig.getStrategy() != null) {
+                configElement.addProperty("strategy", brokenPeriodConfig.getStrategy().getCode());
+            }
+            if (brokenPeriodConfig.getDaysInMonthType() != null) {
+                configElement.addProperty("brokenPeriodDaysInMonth", brokenPeriodConfig.getDaysInMonthType().getValue());
+            }
+            if (brokenPeriodConfig.getDaysInYearType() != null) {
+                configElement.addProperty("brokenPeriodDaysInYear", brokenPeriodConfig.getDaysInYearType().getValue());
+            }
+
             wrapper.add("brokenPeriodConfig", configElement);
         }
 

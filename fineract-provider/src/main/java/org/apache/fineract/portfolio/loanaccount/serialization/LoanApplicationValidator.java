@@ -118,6 +118,7 @@ import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.domain.AdvancedPaymentAllocationsValidator;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
+import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
@@ -177,7 +178,8 @@ public final class LoanApplicationValidator {
             LoanProductConstants.ENABLE_AUTO_REPAYMENT_DOWN_PAYMENT, LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT,
             LoanApiConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE, LoanApiConstants.daysInYearCustomStrategyParameterName,
             LoanApiConstants.ALLOW_FULL_TERM_FOR_TRANCHE,
-            LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN));
+            LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR,
+            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH));
     public static final String LOANAPPLICATION_UNDO = "loanapplication.undo";
 
     private final FromJsonHelper fromApiJsonHelper;
@@ -792,12 +794,7 @@ public final class LoanApplicationValidator {
                 }
             }
 
-            if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element)) {
-                final Boolean applyBrokenPeriodInterestOnLoan = this.fromApiJsonHelper
-                        .extractBooleanNamed(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element);
-                baseDataValidator.reset().parameter(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN)
-                        .value(applyBrokenPeriodInterestOnLoan).validateForBooleanValue();
-            }
+            validateBrokenPeriodInterest(element, baseDataValidator);
 
         });
 
@@ -1516,6 +1513,7 @@ public final class LoanApplicationValidator {
                     throw new UnsupportedParameterException(unsupportedParameterList);
                 }
             }
+            validateBrokenPeriodInterest(element, baseDataValidator);
         });
     }
 
@@ -2269,6 +2267,31 @@ public final class LoanApplicationValidator {
             firstDisbursalAmount = loan.getLoanRepaymentScheduleDetail().getPrincipal().getAmount();
         }
         return firstDisbursalAmount;
+    }
+
+    private void validateBrokenPeriodInterest(JsonElement element, DataValidatorBuilder baseDataValidator) {
+        // Broken Period Interest Configuration Validation
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element)) {
+            final String brokenPeriodMethodType = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE,
+                    element);
+            baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE).value(brokenPeriodMethodType).notBlank()
+                    .isOneOfTheseStringValues(BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_EMI.getCode(),
+                            BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE.getCode());
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, element)) {
+            final Integer daysInYear = this.fromApiJsonHelper.extractIntegerNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, element,
+                    Locale.getDefault());
+            baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR).value(daysInYear).ignoreIfNull()
+                    .integerGreaterThanZero().isOneOfTheseValues(1, 360, 364, 365);
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, element)) {
+            final Integer daysInMonth = this.fromApiJsonHelper.extractIntegerNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, element,
+                    Locale.getDefault());
+            baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH).value(daysInMonth).ignoreIfNull()
+                    .integerGreaterThanZero().isOneOfTheseValues(1, 30);
+        }
     }
 
 }

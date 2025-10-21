@@ -57,8 +57,11 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanSchedul
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
 import org.apache.fineract.portfolio.loanproduct.data.AdvancedPaymentData;
 import org.apache.fineract.portfolio.loanproduct.data.AdvancedPaymentData.PaymentAllocationOrder;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigData;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.data.CreditAllocationData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductBorrowerCycleVariationData;
+import org.apache.fineract.portfolio.loanproduct.data.LoanProductConfigurationWrapper;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductGuaranteeData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductInterestRecalculationData;
@@ -301,8 +304,8 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.capitalized_income_strategy as capitalizedIncomeStrategy, " //
                     + "lp.capitalized_income_type as capitalizedIncomeType, lp.is_merchant_buy_down_fee as merchantBuyDownFee, " //
                     + "lp.enable_buy_down_fee as enableBuyDownFee, " + "lp.buy_down_fee_calculation_type as buyDownFeeCalculationType, "
-                    + "lp.buy_down_fee_strategy as buyDownFeeStrategy, " + "lp.buy_down_fee_income_type as buyDownFeeIncomeType "
-                    + " from m_product_loan lp " + " left join m_fund f on f.id = lp.fund_id "
+                    + "lp.buy_down_fee_strategy as buyDownFeeStrategy, " + "lp.buy_down_fee_income_type as buyDownFeeIncomeType, "
+                    + "lpcm.config_json as bpiConfigJson " + " from m_product_loan lp " + " left join m_fund f on f.id = lp.fund_id "
                     + " left join m_product_loan_recalculation_details lpr on lpr.product_id=lp.id "
                     + " left join m_product_loan_guarantee_details lpg on lpg.loan_product_id=lp.id "
                     + " left join m_product_loan_configurable_attributes lca on lca.loan_product_id = lp.id "
@@ -310,6 +313,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + " left join m_floating_rates as fr on lfr.floating_rates_id = fr.id "
                     + " left join m_product_loan_variable_installment_config as lvi on lvi.loan_product_id = lp.id "
                     + " left join m_delinquency_bucket as dbuc on dbuc.id = lp.delinquency_bucket_id "
+                    + " left join fr_loan_product_config_mapping as lpcm on lpcm.loan_product_id = lp.id "
                     + " join m_currency curr on curr.code = lp.currency_code";
 
         }
@@ -582,6 +586,19 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     rs.getString("buyDownFeeIncomeType"));
             final boolean merchantBuyDownFee = rs.getBoolean("merchantBuyDownFee");
 
+            // Extract and parse BPI configuration
+            final String bpiConfigJson = rs.getString("bpiConfigJson");
+            BrokenPeriodConfigData brokenPeriodConfig = null;
+            if (bpiConfigJson != null && !bpiConfigJson.trim().isEmpty()) {
+                try {
+                    final LoanProductConfigurationWrapper configWrapper = LoanProductConfigurationWrapper.fromJson(bpiConfigJson);
+                    final BrokenPeriodInterestConfigDTO bpiDto = configWrapper.getBrokenPeriodConfig();
+                    brokenPeriodConfig = BrokenPeriodConfigData.fromDomainDTO(bpiDto);
+                } catch (Exception e) {
+                    // Failed to parse BPI configuration - skip it
+                }
+            }
+
             return new LoanProductData(id, name, shortName, description, currency, principal, minPrincipal, maxPrincipal, tolerance,
                     numberOfRepayments, minNumberOfRepayments, maxNumberOfRepayments, repaymentEvery, interestRatePerPeriod,
                     minInterestRatePerPeriod, maxInterestRatePerPeriod, annualInterestRate, repaymentFrequencyType,
@@ -608,7 +625,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     loanChargeOffBehaviour.getValueAsStringEnumOptionData(), interestRecognitionOnDisbursementDate,
                     daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                     capitalizedIncome, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                    merchantBuyDownFee, null, null);
+                    merchantBuyDownFee, null, null, brokenPeriodConfig);
         }
     }
 

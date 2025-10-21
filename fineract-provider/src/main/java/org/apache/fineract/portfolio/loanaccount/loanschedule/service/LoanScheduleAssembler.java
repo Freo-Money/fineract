@@ -125,6 +125,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanProductRelatedDetai
 import org.apache.fineract.portfolio.loanaccount.service.LoanScheduleService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
@@ -533,14 +534,11 @@ public class LoanScheduleAssembler {
             interestRecognitionOnDisbursementDate = this.fromApiJsonHelper
                     .extractBooleanNamed(LoanApiConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE, element);
         }
-        Boolean applyBrokenPeriodInterestOnLoan = false;
-        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element)) {
-            applyBrokenPeriodInterestOnLoan = this.fromApiJsonHelper
-                    .extractBooleanNamed(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element);
-        }
 
-        final BrokenPeriodInterestConfigDTO bpiConfig = !applyBrokenPeriodInterestOnLoan || loanProduct.getBpiConfig() == null ? null
-                : loanProduct.getBpiConfig().getBrokenPeriodConfig();
+        BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromJsonElement(element, fromApiJsonHelper);
+        if (bpiConfig == null && loanProduct.getBpiConfig() != null) {
+            bpiConfig = loanProduct.getBpiConfig().getBrokenPeriodConfig();
+        }
 
         return LoanApplicationTerms.assembleFrom(applicationCurrency.toData(), loanTermFrequency, loanTermPeriodFrequencyType,
                 numberOfRepayments, repaymentEvery, repaymentPeriodFrequencyType, nthDay, weekDayType, amortizationMethod, interestMethod,

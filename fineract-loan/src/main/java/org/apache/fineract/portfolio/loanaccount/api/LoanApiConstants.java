@@ -194,7 +194,11 @@ public interface LoanApiConstants {
     String LOAN_FRAUD_DATAVALIDATOR_PREFIX = "loans.fraud";
 
     String INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE = "interestRecognitionOnDisbursementDate";
-    String APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN = "applyBrokenPeriodInterestOnLoan";
+
+    // Broken Period Interest Configuration Parameters
+    String BROKEN_PERIOD_METHOD_TYPE = "brokenPeriodMethodType";
+    String BROKEN_PERIOD_DAYS_IN_YEAR = "brokenPeriodDaysInYear";
+    String BROKEN_PERIOD_DAYS_IN_MONTH = "brokenPeriodDaysInMonth";
 
     String ALLOW_FULL_TERM_FOR_TRANCHE = "allowFullTermForTranche";
 
