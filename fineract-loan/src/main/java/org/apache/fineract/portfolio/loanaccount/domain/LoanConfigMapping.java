@@ -53,7 +53,7 @@ public class LoanConfigMapping extends AbstractAuditableWithUTCDateTimeCustom<Lo
     @Column(name = "config_identity", length = 100, nullable = false)
     private String configIdentity;
 
-    @Column(name = "config_json", columnDefinition = "TEXT", updatable = false)
+    @Column(name = "config_json", columnDefinition = "TEXT")
     private String configJson;
 
     @Transient
@@ -137,5 +137,39 @@ public class LoanConfigMapping extends AbstractAuditableWithUTCDateTimeCustom<Lo
         // Only allow setting from deserialization or internal methods
         this.configJson = configJson;
         this.configurationWrapper = null; // Reset to force re-deserialization
+    }
+
+    /**
+     * Update the existing configuration with new BPI config
+     */
+    public void updateBrokenPeriodConfig(BrokenPeriodInterestConfigDTO brokenPeriodConfig) {
+        if (configurationWrapper == null && configJson != null) {
+            configurationWrapper = LoanProductConfigurationWrapper.fromJson(configJson);
+        }
+        if (configurationWrapper == null) {
+            configurationWrapper = new LoanProductConfigurationWrapper();
+        }
+        configurationWrapper.setBrokenPeriodConfig(brokenPeriodConfig);
+        this.configJson = configurationWrapper.toJson();
+    }
+
+    /**
+     * Update the configuration by copying from product config
+     */
+    public void updateFromProductConfig(LoanProductConfigMapping productConfigMapping) {
+        if (productConfigMapping != null) {
+            this.configIdentity = productConfigMapping.getConfigIdentity();
+            this.configJson = productConfigMapping.getConfigJson();
+            this.configurationWrapper = productConfigMapping.getConfigurationWrapper();
+        }
+    }
+
+    /**
+     * Update the configuration metadata (identity)
+     */
+    public void updateMetadata(String configIdentity) {
+        if (configIdentity != null) {
+            this.configIdentity = configIdentity;
+        }
     }
 }

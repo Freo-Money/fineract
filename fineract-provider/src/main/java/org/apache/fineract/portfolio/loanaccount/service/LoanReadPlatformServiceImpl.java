@@ -589,25 +589,25 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         BigDecimal totalPenaltyDue = BigDecimal.ZERO;
         LocalDate lastRunOnDate = null;
         if (!chargesDue.isEmpty()) {
-        for (LoanChargeData charge : chargesDue) {
-            BigDecimal amount = charge.getAmountOutstanding();
-            if (amount == null || amount.signum() <= 0) {
-                continue;
-            }
+            for (LoanChargeData charge : chargesDue) {
+                BigDecimal amount = charge.getAmountOutstanding();
+                if (amount == null || amount.signum() <= 0) {
+                    continue;
+                }
 
-            boolean isPenalty = charge.isPenalty();
-            Map<Long, LoanChargeData> targetMap = isPenalty ? penaltyChargeMap : feeChargeMap;
+                boolean isPenalty = charge.isPenalty();
+                Map<Long, LoanChargeData> targetMap = isPenalty ? penaltyChargeMap : feeChargeMap;
 
-            mergeChargeIntoMap(targetMap, charge, amount);
+                mergeChargeIntoMap(targetMap, charge, amount);
 
-            if (isPenalty) {
-                totalPenaltyDue = totalPenaltyDue.add(amount);
-                lastRunOnDate = updateLastRunDate(lastRunOnDate, charge.getSubmittedOnDate());
-            } else {
-                totalFeeDue = totalFeeDue.add(amount);
+                if (isPenalty) {
+                    totalPenaltyDue = totalPenaltyDue.add(amount);
+                    lastRunOnDate = updateLastRunDate(lastRunOnDate, charge.getSubmittedOnDate());
+                } else {
+                    totalFeeDue = totalFeeDue.add(amount);
+                }
             }
         }
-    }
         return LoanChargesDueDTO.builder().feeDue(totalFeeDue).penaltyPostedAsOnDate(totalPenaltyDue).penaltyPostedTillDate(totalPenaltyDue)
                 .lastChargeAppliedOnDate(lastRunOnDate).lastRunOnDate(lastRunOnDate).feeCharges(new ArrayList<>(feeChargeMap.values()))
                 .penaltyCharges(new ArrayList<>(penaltyChargeMap.values())).build();
@@ -990,7 +990,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " l.is_charged_off as isChargedOff, l.charge_off_reason_cv_id as chargeOffReasonId, codec.code_value as chargeOffReason, l.charged_off_on_date as chargedOffOnDate, l.enable_down_payment as enableDownPayment, l.disbursed_amount_percentage_for_down_payment as disbursedAmountPercentageForDownPayment, l.enable_auto_repayment_for_down_payment as enableAutoRepaymentForDownPayment,"
                     + " cobu.username as chargedOffByUsername, cobu.firstname as chargedOffByFirstname, cobu.lastname as chargedOffByLastname, l.loan_schedule_type as loanScheduleType, l.loan_schedule_processing_type as loanScheduleProcessingType, "
                     + " l.broken_period_interest as brokenPeriodInterest,"
-                    + " l.charge_off_behaviour as chargeOffBehaviour, l.interest_recognition_on_disbursement_date as interestRecognitionOnDisbursementDate " //
+                    + " l.charge_off_behaviour as chargeOffBehaviour, l.interest_recognition_on_disbursement_date as interestRecognitionOnDisbursementDate, " //
+                    + " lcm.config_json as loanBpiConfigJson " //
                     + " from m_loan l" //
                     + " join m_product_loan lp on lp.id = l.product_id" //
                     + " left join m_loan_recalculation_details lir on lir.loan_id = l.id join m_currency rc on rc."
@@ -1010,7 +1011,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " left join m_code_value codec on codec.id = l.charge_off_reason_cv_id"
                     + " left join m_product_loan_variable_installment_config lpvi on lpvi.loan_product_id = l.product_id"
                     + " left join m_loan_topup as topup on l.id = topup.loan_id"
-                    + " left join m_loan as topuploan on topuploan.id = topup.closure_loan_id ";
+                    + " left join m_loan as topuploan on topuploan.id = topup.closure_loan_id "
+                    + " left join fr_loan_config_mapping as lcm on lcm.loan_id = l.id";
 
         }
 
@@ -1127,6 +1129,22 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
             final BigDecimal principal = rs.getBigDecimal("principal");
             final BigDecimal brokenPeriodInterest = rs.getBigDecimal("brokenPeriodInterest");
+
+            // Extract and parse BPI configuration
+            final String loanBpiConfigJson = rs.getString("loanBpiConfigJson");
+            org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigData brokenPeriodConfig = null;
+            if (loanBpiConfigJson != null && !loanBpiConfigJson.trim().isEmpty()) {
+                try {
+                    final org.apache.fineract.portfolio.loanproduct.data.LoanProductConfigurationWrapper configWrapper = org.apache.fineract.portfolio.loanproduct.data.LoanProductConfigurationWrapper
+                            .fromJson(loanBpiConfigJson);
+                    final org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO bpiDto = configWrapper
+                            .getBrokenPeriodConfig();
+                    brokenPeriodConfig = org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigData.fromDomainDTO(bpiDto);
+                } catch (Exception e) {
+                    // Failed to parse BPI configuration - skip it
+                }
+            }
+
             final BigDecimal approvedPrincipal = rs.getBigDecimal("approvedPrincipal");
             final BigDecimal proposedPrincipal = rs.getBigDecimal("proposedPrincipal");
             final BigDecimal netDisbursalAmount = rs.getBigDecimal("netDisbursalAmount");
@@ -1382,7 +1400,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     rs.getString("buyDownFeeIncomeType"));
             final boolean merchantBuyDownFee = rs.getBoolean("merchantBuyDownFee");
 
-            return LoanAccountData.basicLoanDetails(id, accountNo, status, externalId, clientId, clientAccountNo, clientName,
+            final LoanAccountData loanAccountData =  LoanAccountData.basicLoanDetails(id, accountNo, status, externalId, clientId, clientAccountNo, clientName,
                     clientOfficeId, clientExternalId, groupData, loanType, loanProductId, loanProductName, loanProductDescription,
                     isLoanProductLinkedToFloatingRate, fundId, fundName, loanPurposeId, loanPurposeName, loanOfficerId, loanOfficerName,
                     currencyData, proposedPrincipal, principal, approvedPrincipal, netDisbursalAmount, totalOverpaid, inArrearsTolerance,
@@ -1403,6 +1421,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
                     capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
                     buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, brokenPeriodInterest);
+
+            // Set BPI configuration
+            loanAccountData.setBrokenPeriodConfig(brokenPeriodConfig);
+
+            return loanAccountData;
         }
     }
 

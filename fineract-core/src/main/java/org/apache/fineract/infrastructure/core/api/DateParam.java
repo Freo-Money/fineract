@@ -42,18 +42,15 @@ public class DateParam {
     public LocalDate getDate(String parameterName, DateFormat dateFormat, String localeAsString) {
         try {
             if (StringUtils.isBlank(dateAsString)) {
-                throw new InvalidDateException(
-                        "Date parameter '" + parameterName + "' is required but was not provided");
+                throw new InvalidDateException("Date parameter '" + parameterName + "' is required but was not provided");
             }
-            Locale locale = StringUtils.isBlank(localeAsString) ? Locale.getDefault()
-                    : JsonParserHelper.localeFromString(localeAsString);
+            Locale locale = StringUtils.isBlank(localeAsString) ? Locale.getDefault() : JsonParserHelper.localeFromString(localeAsString);
 
             return JsonParserHelper.convertFrom(dateAsString, parameterName, dateFormat, locale);
 
         } catch (Exception e) {
             // Wrap other exceptions with better error message
-            throw new InvalidDateException(parameterName, dateAsString,
-                    dateFormat != null ? dateFormat.getDateFormat() : "unknown");
+            throw new InvalidDateException(parameterName, dateAsString, dateFormat != null ? dateFormat.getDateFormat() : "unknown");
         }
     }
 }
