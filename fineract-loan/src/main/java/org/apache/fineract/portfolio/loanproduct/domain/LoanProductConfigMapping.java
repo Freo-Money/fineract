@@ -55,7 +55,7 @@ public class LoanProductConfigMapping extends AbstractAuditableWithUTCDateTimeCu
     @Column(name = "config_identity", length = 100, nullable = false)
     private String configIdentity;
 
-    @Column(name = "config_json", columnDefinition = "TEXT", updatable = false)
+    @Column(name = "config_json", columnDefinition = "TEXT")
     private String configJson;
 
     @Transient
@@ -63,6 +63,8 @@ public class LoanProductConfigMapping extends AbstractAuditableWithUTCDateTimeCu
 
     public LoanProductConfigMapping(LoanProduct loanProduct, BrokenPeriodInterestConfigDTO brokenPeriodConfig) {
         this.loanProduct = loanProduct;
+        this.configIdentity = loanProduct.getShortName();
+        this.configDescription = loanProduct.getDescription();
         this.configurationWrapper = new LoanProductConfigurationWrapper(brokenPeriodConfig);
         this.configJson = this.configurationWrapper.toJson();
     }
@@ -81,6 +83,8 @@ public class LoanProductConfigMapping extends AbstractAuditableWithUTCDateTimeCu
      */
     public LoanProductConfigMapping(LoanProduct loanProduct, LoanProductConfigurationWrapper configurationWrapper) {
         this.loanProduct = loanProduct;
+        this.configIdentity = loanProduct.getShortName();
+        this.configDescription = loanProduct.getDescription();
         this.configurationWrapper = configurationWrapper;
         this.configJson = configurationWrapper.toJson();
     }
@@ -131,5 +135,31 @@ public class LoanProductConfigMapping extends AbstractAuditableWithUTCDateTimeCu
         // Only allow setting from deserialization or internal methods
         this.configJson = configJson;
         this.configurationWrapper = null; // Reset to force re-deserialization
+    }
+
+    /**
+     * Update the existing configuration with new BPI config
+     */
+    public void updateBrokenPeriodConfig(BrokenPeriodInterestConfigDTO brokenPeriodConfig) {
+        if (configurationWrapper == null && configJson != null) {
+            configurationWrapper = LoanProductConfigurationWrapper.fromJson(configJson);
+        }
+        if (configurationWrapper == null) {
+            configurationWrapper = new LoanProductConfigurationWrapper();
+        }
+        configurationWrapper.setBrokenPeriodConfig(brokenPeriodConfig);
+        this.configJson = configurationWrapper.toJson();
+    }
+
+    /**
+     * Update the configuration metadata (description and identity)
+     */
+    public void updateMetadata(String configDescription, String configIdentity) {
+        if (configDescription != null) {
+            this.configDescription = configDescription;
+        }
+        if (configIdentity != null) {
+            this.configIdentity = configIdentity;
+        }
     }
 }

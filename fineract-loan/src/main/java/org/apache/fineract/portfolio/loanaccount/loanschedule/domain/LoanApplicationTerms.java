@@ -1017,7 +1017,8 @@ public final class LoanApplicationTerms {
             case DECLINING_BALANCE:
 
                 Money brokenPeriodInterest = Money.zero(this.principal.getCurrency());
-                if (periodNumber == 1 && bpiConfig != null && bpiConfig.getStrategy().isAddToFirstInstallmentEmi()) {
+                if (periodNumber == 1 && bpiConfig != null && bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
+                        && periodStartDate.isBefore(getIdealDisbursementDate())) {
                     brokenPeriodInterest = calculateDecliningBrokenPeriodInterestDueForInstallment(calculator, mc, outstandingBalance,
                             periodStartDate, getIdealDisbursementDate(), bpiConfig);
                     periodStartDate = getIdealDisbursementDate();

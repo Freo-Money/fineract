@@ -732,8 +732,6 @@ final class SelfLoansApiResourceSwagger {
         public Integer fixedEmiAmount;
         @Schema(example = "35000")
         public Long maxOutstandingLoanBalance;
-        @Schema(example = "false", description = "Whether to apply broken period interest calculation for partial periods between disbursement and first repayment date")
-        public Boolean applyBrokenPeriodInterestOnLoan;
         public Set<PostSelfLoansDisbursementData> disbursementData;
         public Set<PostSelfLoansDatatables> datatables;
     }

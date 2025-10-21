@@ -95,6 +95,8 @@ import org.apache.fineract.portfolio.loanaccount.mapper.LoanChargeMapper;
 import org.apache.fineract.portfolio.loanaccount.mapper.LoanCollateralManagementMapper;
 import org.apache.fineract.portfolio.loanaccount.service.schedule.LoanScheduleComponent;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
@@ -215,13 +217,6 @@ public class LoanAssemblerImpl implements LoanAssembler {
         BigDecimal fixedPrincipalPercentagePerInstallment = fromApiJsonHelper
                 .extractBigDecimalWithLocaleNamed(LoanApiConstants.fixedPrincipalPercentagePerInstallmentParamName, element);
 
-        // Extract BPI parameter
-        Boolean applyBrokenPeriodInterestOnLoan = false;
-        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element)) {
-            applyBrokenPeriodInterestOnLoan = this.fromApiJsonHelper
-                    .extractBooleanNamed(LoanApiConstants.APPLY_BROKEN_PERIOD_INTEREST_ON_LOAN, element);
-        }
-
         Loan loanApplication;
         Client client = null;
         Group group = null;
@@ -289,8 +284,17 @@ public class LoanAssemblerImpl implements LoanAssembler {
 
         loanSchedule.updateLoanSchedule(loanApplication, loanScheduleModel);
 
-        // Copy BPI configuration from product to loan if applyBrokenPeriodInterestOnLoan is true
-        if (applyBrokenPeriodInterestOnLoan && loanProduct.getBpiConfig() != null) {
+        // Handle BPI configuration: override if explicit parameters provided, otherwise copy from product
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element)) {
+            // User provided explicit BPI parameters - create loan-specific config (override)
+            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromJsonElement(element, fromApiJsonHelper);
+            if (bpiConfig != null) {
+                final LoanConfigMapping loanConfigMapping = new LoanConfigMapping(loanApplication, loanProduct.getShortName(), bpiConfig);
+                loanApplication.setBpiConfig(loanConfigMapping);
+            }
+        } else
+        // Copy BPI configuration from product to loan if not explicitly provided
+        if (loanProduct.getBpiConfig() != null) {
             copyBpiConfigFromProductToLoan(loanProduct, loanApplication);
         }
 

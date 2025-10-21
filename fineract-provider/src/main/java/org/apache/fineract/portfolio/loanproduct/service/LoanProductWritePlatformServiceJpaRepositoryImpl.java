@@ -34,6 +34,7 @@ import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.ErrorHandler;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
+import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.entityaccess.domain.FineractEntityAccessType;
 import org.apache.fineract.infrastructure.entityaccess.service.FineractEntityAccessUtil;
@@ -58,9 +59,12 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.AprCalculat
 import org.apache.fineract.portfolio.loanaccount.service.LoanProductAssembler;
 import org.apache.fineract.portfolio.loanaccount.service.LoanProductUpdateUtil;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.AdvancedPaymentAllocationsJsonParser;
 import org.apache.fineract.portfolio.loanproduct.domain.CreditAllocationsJsonParser;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
+import org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigMapping;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductCreditAllocationRule;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductPaymentAllocationRule;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
@@ -68,6 +72,7 @@ import org.apache.fineract.portfolio.loanproduct.domain.LoanSupportedInterestRef
 import org.apache.fineract.portfolio.loanproduct.exception.LoanProductCannotBeModifiedDueToNonClosedLoansException;
 import org.apache.fineract.portfolio.loanproduct.exception.LoanProductDateException;
 import org.apache.fineract.portfolio.loanproduct.exception.LoanProductNotFoundException;
+import org.apache.fineract.portfolio.loanproduct.repository.LoanProductConfigMappingRepository;
 import org.apache.fineract.portfolio.loanproduct.serialization.LoanProductDataValidator;
 import org.apache.fineract.portfolio.rate.domain.Rate;
 import org.apache.fineract.portfolio.rate.domain.RateRepositoryWrapper;
@@ -97,6 +102,8 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
     private final CreditAllocationsJsonParser creditAllocationsJsonParser;
     private final LoanProductAssembler loanProductAssembler;
     private final LoanProductUpdateUtil loanProductUpdateUtil;
+    private final LoanProductConfigMappingRepository loanProductConfigMappingRepository;
+    private final FromJsonHelper fromApiJsonHelper;
     private final LoanProductPaymentAllocationRuleMerger loanProductPaymentAllocationRuleMerger = new LoanProductPaymentAllocationRuleMerger();
     private final LoanProductCreditAllocationRuleMerger loanProductCreditAllocationRuleMerger = new LoanProductCreditAllocationRuleMerger();
 
@@ -148,6 +155,13 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
             // i.e. this savings product is specific for this office.
             fineractEntityAccessUtil.checkConfigurationAndAddProductResrictionsForUserOffice(
                     FineractEntityAccessType.OFFICE_ACCESS_TO_LOAN_PRODUCTS, loanProduct.getId());
+
+            // Save Broken Period Interest Configuration if provided
+            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper);
+            if (bpiConfig != null) {
+                final LoanProductConfigMapping configMapping = new LoanProductConfigMapping(loanProduct, bpiConfig);
+                loanProductConfigMappingRepository.saveAndFlush(configMapping);
+            }
 
             businessEventNotifierService.notifyPostBusinessEvent(new LoanProductCreateBusinessEvent(loanProduct));
 
@@ -300,6 +314,25 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
             if (!changes.isEmpty()) {
                 product.validateLoanProductPreSave();
                 this.loanProductRepository.saveAndFlush(product);
+            }
+
+            // Handle Broken Period Interest Configuration update (upsert logic)
+            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper);
+            if (bpiConfig != null) {
+                final var existingConfig = loanProductConfigMappingRepository.findByLoanProductId(loanProductId);
+
+                if (existingConfig.isPresent()) {
+                    final LoanProductConfigMapping configMapping = existingConfig.get();
+                    configMapping.updateBrokenPeriodConfig(bpiConfig);
+                    configMapping.updateMetadata(product.getDescription(), product.getShortName());
+                    loanProductConfigMappingRepository.saveAndFlush(configMapping);
+                } else {
+                    final LoanProductConfigMapping configMapping = new LoanProductConfigMapping(product, bpiConfig);
+                    loanProductConfigMappingRepository.saveAndFlush(configMapping);
+                }
+                changes.put("brokenPeriodConfig", bpiConfig.getStrategy().getCode());
+                changes.put("brokenPeriodDaysInMonth", bpiConfig.getDaysInMonthType().getValue());
+                changes.put("brokenPeriodDaysInYear", bpiConfig.getDaysInYearType().getValue());
             }
 
             return new CommandProcessingResultBuilder() //
