@@ -1017,7 +1017,8 @@ public final class LoanApplicationTerms {
             case DECLINING_BALANCE:
 
                 Money brokenPeriodInterest = Money.zero(this.principal.getCurrency());
-                if (periodNumber == 1 && bpiConfig != null && bpiConfig.getStrategy().isAddToFirstInstallmentEmi()) {
+                if (periodNumber == 1 && bpiConfig != null && bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
+                        && periodStartDate.isBefore(getIdealDisbursementDate())) {
                     brokenPeriodInterest = calculateDecliningBrokenPeriodInterestDueForInstallment(calculator, mc, outstandingBalance,
                             periodStartDate, getIdealDisbursementDate(), bpiConfig);
                     periodStartDate = getIdealDisbursementDate();
@@ -1042,7 +1043,7 @@ public final class LoanApplicationTerms {
 
                 if (periodNumber == 1 && bpiConfig != null && bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
                         && brokenPeriodInterest.isGreaterThanZero()) {
-                    interestForInstallment = interestForInstallment.plus(brokenPeriodInterest);
+                    // Store BPI for EMI calculation instead of adding to interest
                     this.brokenPeriodInterest = brokenPeriodInterest;
                 }
             break;
@@ -1050,7 +1051,9 @@ public final class LoanApplicationTerms {
             break;
         }
 
-        return new PrincipalInterest(null, interestForInstallment, interestBroughtForwardDueToGrace);
+        final PrincipalInterest principalInterest = new PrincipalInterest(null, interestForInstallment, interestBroughtForwardDueToGrace);
+        principalInterest.setBrokenPeriodInterest(brokenPeriodInterest);
+        return principalInterest;
     }
 
     private boolean isLastRepaymentPeriod(final int numberOfRepayments, final int periodNumber) {
@@ -2354,6 +2357,14 @@ public final class LoanApplicationTerms {
 
     public void setIdealDisbursementDate(final LocalDate idealDisbursementDate) {
         this.idealDisbursementDate = idealDisbursementDate;
+    }
+
+    public Money getBrokenPeriodInterest() {
+        return this.brokenPeriodInterest;
+    }
+
+    public BrokenPeriodInterestConfigDTO getBpiConfig() {
+        return this.bpiConfig;
     }
 
 }

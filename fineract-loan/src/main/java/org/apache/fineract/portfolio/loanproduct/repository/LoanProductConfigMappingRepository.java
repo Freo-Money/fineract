@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanproduct.repository;
 
 import java.util.Optional;
+import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigMapping;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
@@ -32,6 +33,11 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface LoanProductConfigMappingRepository
         extends JpaRepository<LoanProductConfigMapping, Long>, JpaSpecificationExecutor<LoanProductConfigMapping> {
+
+    /**
+     * Find BPI configuration for a specific loan product by entity
+     */
+    Optional<LoanProductConfigMapping> findByLoanProduct(LoanProduct loanProduct);
 
     /**
      * Find BPI configuration for a specific loan product

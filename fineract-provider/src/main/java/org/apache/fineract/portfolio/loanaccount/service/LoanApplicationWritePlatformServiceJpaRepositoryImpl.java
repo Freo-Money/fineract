@@ -46,6 +46,7 @@ import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.ErrorHandler;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
+import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.dataqueries.data.EntityTables;
 import org.apache.fineract.infrastructure.dataqueries.data.StatusEnum;
 import org.apache.fineract.infrastructure.dataqueries.service.EntityDatatableChecksWritePlatformService;
@@ -78,6 +79,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.GLIMAccountInfoRepositor
 import org.apache.fineract.portfolio.loanaccount.domain.GroupLoanIndividualMonitoringAccount;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanConfigMapping;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanEvent;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
@@ -86,10 +88,13 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanApplicationNotInSubmittedAndPendingApprovalStateCannotBeDeleted;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleAssembler;
+import org.apache.fineract.portfolio.loanaccount.repository.LoanConfigMappingRepository;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanApplicationTransitionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanApplicationValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTransactionValidator;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.RecalculationFrequencyType;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.apache.fineract.portfolio.note.domain.Note;
@@ -129,6 +134,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final LoanAccrualsProcessingService loanAccrualsProcessingService;
     private final LoanDownPaymentTransactionValidator loanDownPaymentTransactionValidator;
     private final LoanScheduleService loanScheduleService;
+    private final LoanConfigMappingRepository loanConfigMappingRepository;
+    private final FromJsonHelper fromApiJsonHelper;
 
     @Transactional
     @Override
@@ -287,6 +294,34 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
             if (loan.isInterestBearingAndInterestRecalculationEnabled()
                     && changes.containsKey(LoanProductConstants.IS_INTEREST_RECALCULATION_ENABLED_PARAMETER_NAME)) {
                 createAndPersistCalendarInstanceForInterestRecalculation(loan);
+            }
+
+            // Handle Broken Period Interest Configuration update (upsert logic)
+            // Note: validation already ensures loan is in submittedAndPendingApproval state
+            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper);
+
+            // Try to find existing config
+            final var existingConfig = loanConfigMappingRepository.findByLoanId(loanId);
+
+            if (bpiConfig != null) {
+                // User provided explicit BPI parameters in the command
+                if (existingConfig.isPresent()) {
+                    // Update existing config
+                    final LoanConfigMapping configMapping = existingConfig.get();
+                    configMapping.updateBrokenPeriodConfig(bpiConfig);
+                    loanConfigMappingRepository.saveAndFlush(configMapping);
+                    changes.put("brokenPeriodConfig", "updated");
+                } else {
+                    // Create new config
+                    final LoanConfigMapping configMapping = new LoanConfigMapping(loan, bpiConfig);
+                    loanConfigMappingRepository.saveAndFlush(configMapping);
+                    changes.put("brokenPeriodConfig", "created");
+                }
+            } else if (!existingConfig.isPresent() && loan.getLoanProduct().getBpiConfig() != null) {
+                // No config data in command, but product has config - copy from product
+                final LoanConfigMapping configMapping = new LoanConfigMapping(loan, loan.getLoanProduct().getBpiConfig());
+                loanConfigMappingRepository.saveAndFlush(configMapping);
+                changes.put("brokenPeriodConfig", "copied_from_product");
             }
 
             businessEventNotifierService.notifyPostBusinessEvent(new LoanApplicationModifiedBusinessEvent(loan));
