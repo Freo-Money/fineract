@@ -539,8 +539,7 @@ public class LoanAccountData {
                 .setCapitalizedIncomeStrategy(capitalizedIncomeStrategy).setCapitalizedIncomeType(capitalizedIncomeType)
                 .setEnableBuyDownFee(enableBuyDownFee).setBuyDownFeeCalculationType(buyDownFeeCalculationType)
                 .setBuyDownFeeStrategy(buyDownFeeStrategy).setBuyDownFeeIncomeType(buyDownFeeIncomeType)
-                .setMerchantBuyDownFee(merchantBuyDownFee)
-                .setBrokenPeriodInterest(brokenPeriodInterest);
+                .setMerchantBuyDownFee(merchantBuyDownFee).setBrokenPeriodInterest(brokenPeriodInterest);
     }
 
     /*
