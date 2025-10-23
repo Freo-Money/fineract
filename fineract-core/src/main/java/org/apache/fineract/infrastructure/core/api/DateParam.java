@@ -50,7 +50,7 @@ public class DateParam {
 
         } catch (Exception e) {
             // Wrap other exceptions with better error message
-            throw new InvalidDateException(parameterName, dateAsString, dateFormat != null ? dateFormat.getDateFormat() : "unknown");
+            throw new InvalidDateException(parameterName + ": " + dateAsString, e);
         }
     }
 }
