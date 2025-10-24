@@ -63,4 +63,12 @@ public enum BrokenPeriodInterestStrategy {
     public boolean isAddToFirstInstallmentEmi() {
         return this == ADD_TO_FIRST_INSTALLMENT_EMI;
     }
+
+    public boolean isAdjustmentInFirstEMIWithPrincipalGrace() {
+        return this == ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE;
+    }
+
+    public boolean isAddToFirstInstallmentWithPrincipalGrace() {
+        return this == ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE;
+    }
 }
