@@ -26,6 +26,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
@@ -251,6 +252,7 @@ public final class LoanApplicationTerms {
     private BrokenPeriodInterestConfigDTO bpiConfig;
     private LocalDate idealDisbursementDate;
     private Money brokenPeriodInterest;
+    private Boolean isAdditionalPrincipalGracePeriodRequired;
 
     private LoanApplicationTerms(Builder builder) {
         this.currency = builder.currency;
@@ -916,7 +918,7 @@ public final class LoanApplicationTerms {
     }
 
     public Money calculateTotalPrincipalForPeriod(final PaymentPeriodsInOneYearCalculator calculator, final Money outstandingBalance,
-            final int periodNumber, final MathContext mc, Money interestForThisInstallment) {
+            final int periodNumber, final MathContext mc, Money interestForThisInstallment, Money brokenPeriodInterestForInstallment) {
 
         Money principalForInstallment = this.principal.zero();
 
@@ -929,7 +931,7 @@ public final class LoanApplicationTerms {
                     case EQUAL_INSTALLMENTS:
                         Money totalPmtForThisInstallment = pmtForInstallment(calculator, outstandingBalance, periodNumber, mc);
                         principalForInstallment = calculatePrincipalDueForInstallment(periodNumber, totalPmtForThisInstallment,
-                                interestForThisInstallment);
+                                interestForThisInstallment, brokenPeriodInterestForInstallment);
                     break;
                     case EQUAL_PRINCIPAL:
                         principalForInstallment = calculateEqualPrincipalDueForInstallment(mc, periodNumber);
@@ -993,6 +995,7 @@ public final class LoanApplicationTerms {
         Money interestForInstallment = this.principal.zero();
         Money interestBroughtForwardDueToGrace = cumulatingInterestPaymentDueToGrace.copy();
         InterestMethod interestMethod = this.interestMethod;
+        Money brokenPeriodInterestForInstallment = this.principal.zero();
 
         if (this.isEqualAmortization() && this.totalInterestDue != null) {
             interestMethod = InterestMethod.FLAT;
@@ -1026,11 +1029,12 @@ public final class LoanApplicationTerms {
             break;
             case DECLINING_BALANCE:
 
-                Money brokenPeriodInterest = Money.zero(this.principal.getCurrency());
-                if (periodNumber == 1 && bpiConfig != null && bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
-                        && periodStartDate.isBefore(getIdealDisbursementDate())) {
-                    brokenPeriodInterest = calculateDecliningBrokenPeriodInterestDueForInstallment(calculator, mc, outstandingBalance,
-                            periodStartDate, getIdealDisbursementDate(), bpiConfig);
+                Boolean isBrokenPeriodApplicable = this.isBrokenPeriodApplicable(periodNumber, periodStartDate, getIdealDisbursementDate());
+                if (isBrokenPeriodApplicable && bpiConfig != null && (bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
+                        || bpiConfig.getStrategy().isAddToFirstInstallmentWithPrincipalGrace())) {
+                    brokenPeriodInterestForInstallment = calculateDecliningBrokenPeriodInterestDueForInstallment(calculator, mc,
+                            outstandingBalance, periodStartDate, getIdealDisbursementDate(), bpiConfig);
+                    this.brokenPeriodInterest = brokenPeriodInterestForInstallment;
                     periodStartDate = getIdealDisbursementDate();
                 }
 
@@ -1051,18 +1055,13 @@ public final class LoanApplicationTerms {
                     interestBroughtForwardDueToGrace = interestBroughtForwardDueToGrace.plus(interestForThisInstallmentBeforeGrace);
                 }
 
-                if (periodNumber == 1 && bpiConfig != null && bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
-                        && brokenPeriodInterest.isGreaterThanZero()) {
-                    // Store BPI for EMI calculation instead of adding to interest
-                    this.brokenPeriodInterest = brokenPeriodInterest;
-                }
             break;
             case INVALID:
             break;
         }
 
-        final PrincipalInterest principalInterest = new PrincipalInterest(null, interestForInstallment, interestBroughtForwardDueToGrace);
-        principalInterest.setBrokenPeriodInterest(brokenPeriodInterest);
+        final PrincipalInterest principalInterest = new PrincipalInterest(null, interestForInstallment, interestBroughtForwardDueToGrace,
+                brokenPeriodInterestForInstallment);
         return principalInterest;
     }
 
@@ -1761,8 +1760,12 @@ public final class LoanApplicationTerms {
     }
 
     private Money calculatePrincipalDueForInstallment(final int periodNumber, final Money totalDuePerInstallment,
-            final Money periodInterest) {
+            final Money periodInterest, final Money brokenPeriodInterestForInstallment) {
         Money principal = totalDuePerInstallment.minus(periodInterest);
+        if (periodNumber == 1 && this.bpiConfig != null && this.bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
+                && brokenPeriodInterestForInstallment.isGreaterThanZero()) {
+            // principal = totalDuePerInstallment.minus(periodInterest.minus(brokenPeriodInterestForInstallment));
+        }
         if (isPrincipalGraceApplicableForThisPeriod(periodNumber)) {
             principal = principal.zero();
         }
@@ -2377,4 +2380,29 @@ public final class LoanApplicationTerms {
         return this.bpiConfig;
     }
 
+    private Boolean isBrokenPeriodApplicable(int periodNumber, LocalDate periodStartDate, final LocalDate idealDisbursementDate) {
+        Boolean isBrokenPeriodApplicable = false;
+        if (periodNumber == 1 && periodStartDate.isBefore(idealDisbursementDate) && (this.interestCalculationPeriodMethod.isDaily()
+                || (this.interestCalculationPeriodMethod.isSameAsRepaymentPeriod() && this.allowPartialPeriodInterestCalcualtion))) {
+            isBrokenPeriodApplicable = true;
+        }
+        return isBrokenPeriodApplicable;
+    }
+
+    public void addAdditionalPrincipalGracePeriod(boolean isAdditionalPrincipalGracePeriodRequired) {
+        this.isAdditionalPrincipalGracePeriodRequired = isAdditionalPrincipalGracePeriodRequired;
+        if (this.isAdditionalPrincipalGracePeriodRequired) {
+            this.principalGrace = this.principalGrace == null ? 1 : this.principalGrace + 1;
+            updateNumberOfRepayments(getNumberOfRepayments() + 1);
+            final Integer periodNumber = 1;
+            updatePeriodNumberApplicableForPrincipalOrInterestGrace(periodNumber);
+        }
+    }
+
+    public boolean isAdditionalPrincipalGracePeriodRequired() {
+        if (Objects.isNull(this.isAdditionalPrincipalGracePeriodRequired)) {
+            return false;
+        }
+        return this.isAdditionalPrincipalGracePeriodRequired;
+    }
 }

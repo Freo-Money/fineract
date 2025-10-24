@@ -171,7 +171,7 @@ public class CumulativeDecliningBalanceInterestLoanScheduleGenerator extends Abs
         }
 
         Money principalForThisInstallment = loanApplicationTerms.calculateTotalPrincipalForPeriod(calculator, outstandingBalance,
-                periodNumber, mc, interestForPeriod);
+                periodNumber, mc, interestForPeriod, result.getBrokenPeriodInterest());
         if (loanApplicationTerms.isInterestToBeRecoveredFirstWhenGreaterThanEMIEnabled() && principalForThisInstallment.isLessThanZero()
                 && !loanApplicationTerms.isLastRepaymentPeriod(periodNumber)) {
             loanApplicationTerms.setInterestTobeApproppriated(principalForThisInstallment.abs());

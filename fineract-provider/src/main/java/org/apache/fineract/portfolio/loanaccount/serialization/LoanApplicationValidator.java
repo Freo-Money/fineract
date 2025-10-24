@@ -219,9 +219,13 @@ public final class LoanApplicationValidator {
 
         validateCumulativeMultiDisburse(loan);
 
-        validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
-                loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),
-                loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+        // TODO: Commenting this method as installments will increase for BPI principal grace fix later
+        /*
+         * validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
+         * loan.getLoanProductRelatedDetail().getNumberOfRepayments(),
+         * loan.getLoanProductRelatedDetail().getRepayEvery(),
+         * loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+         */
     }
 
     public void validateForModify(final Loan loan) {
@@ -234,10 +238,13 @@ public final class LoanApplicationValidator {
         }
 
         validateCumulativeMultiDisburse(loan);
-
-        validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
-                loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),
-                loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+        // TODO: Commenting this method as installments will increase for BPI principal grace fix later
+        /*
+         * validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
+         * loan.getLoanProductRelatedDetail().getNumberOfRepayments(),
+         * loan.getLoanProductRelatedDetail().getRepayEvery(),
+         * loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+         */
     }
 
     public void validateForCreate(JsonCommand command) {
@@ -1584,6 +1591,7 @@ public final class LoanApplicationValidator {
     private void validateLoanTermAndRepaidEveryValues(final Integer loanTermFrequency, final Integer loanTermFrequencyType,
             final Integer numberOfRepayments, final Integer repaymentEvery, final Integer repaymentEveryType, final Loan loan) {
         final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+
         this.loanScheduleValidator.validateSelectedPeriodFrequencyTypeIsTheSame(dataValidationErrors, loanTermFrequency,
                 loanTermFrequencyType, numberOfRepayments, repaymentEvery, repaymentEveryType);
 
