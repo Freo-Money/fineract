@@ -50,6 +50,7 @@ import org.apache.fineract.portfolio.group.data.GroupGeneralData;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.guarantor.data.IGuarantor;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleData;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductBorrowerCycleVariationData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
@@ -97,6 +98,8 @@ public class LoanAccountData {
     // terms
     private CurrencyData currency;
     private BigDecimal principal;
+    private BigDecimal brokenPeriodInterest;
+    private BrokenPeriodConfigData brokenPeriodConfig;
     private BigDecimal approvedPrincipal;
     private BigDecimal proposedPrincipal;
     private BigDecimal netDisbursalAmount;
@@ -485,7 +488,7 @@ public class LoanAccountData {
             final StringEnumOptionData capitalizedIncomeStrategy, StringEnumOptionData capitalizedIncomeType,
             final boolean enableBuyDownFee, final StringEnumOptionData buyDownFeeCalculationType,
             final StringEnumOptionData buyDownFeeStrategy, final StringEnumOptionData buyDownFeeIncomeType,
-            final boolean merchantBuyDownFee) {
+            final boolean merchantBuyDownFee, final BigDecimal brokenPeriodInterest) {
 
         final CollectionData delinquent = CollectionData.template();
 
@@ -536,7 +539,7 @@ public class LoanAccountData {
                 .setCapitalizedIncomeStrategy(capitalizedIncomeStrategy).setCapitalizedIncomeType(capitalizedIncomeType)
                 .setEnableBuyDownFee(enableBuyDownFee).setBuyDownFeeCalculationType(buyDownFeeCalculationType)
                 .setBuyDownFeeStrategy(buyDownFeeStrategy).setBuyDownFeeIncomeType(buyDownFeeIncomeType)
-                .setMerchantBuyDownFee(merchantBuyDownFee);
+                .setMerchantBuyDownFee(merchantBuyDownFee).setBrokenPeriodInterest(brokenPeriodInterest);
     }
 
     /*

@@ -125,6 +125,8 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanProductRelatedDetai
 import org.apache.fineract.portfolio.loanaccount.service.LoanScheduleService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
@@ -527,6 +529,11 @@ public class LoanScheduleAssembler {
                     .extractBooleanNamed(LoanApiConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE, element);
         }
 
+        BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromJsonElement(element, fromApiJsonHelper);
+        if (bpiConfig == null && loanProduct.getBpiConfig() != null) {
+            bpiConfig = loanProduct.getBpiConfig().getBrokenPeriodConfig();
+        }
+
         return LoanApplicationTerms.assembleFrom(applicationCurrency.toData(), loanTermFrequency, loanTermPeriodFrequencyType,
                 numberOfRepayments, repaymentEvery, repaymentPeriodFrequencyType, nthDay, weekDayType, amortizationMethod, interestMethod,
                 interestRatePerPeriod, interestRatePeriodFrequencyType, annualNominalInterestRate, interestCalculationPeriodMethod,
@@ -555,7 +562,7 @@ public class LoanScheduleAssembler {
                 loanProduct.getLoanProductRelatedDetail().getBuyDownFeeCalculationType(),
                 loanProduct.getLoanProductRelatedDetail().getBuyDownFeeStrategy(),
                 loanProduct.getLoanProductRelatedDetail().getBuyDownFeeIncomeType(),
-                loanProduct.getLoanProductRelatedDetail().isMerchantBuyDownFee());
+                loanProduct.getLoanProductRelatedDetail().isMerchantBuyDownFee(), bpiConfig);
     }
 
     private CalendarInstance createCalendarForSameAsRepayment(final Integer repaymentEvery,

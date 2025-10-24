@@ -157,4 +157,8 @@ public class ScheduleCurrentPeriodParams {
         return this.interestCalculationGraceOnRepaymentPeriodFraction;
     }
 
+    public void plusInterestForThisPeriod(Money interestForThisPeriod) {
+        this.interestForThisPeriod = this.interestForThisPeriod.plus(interestForThisPeriod);
+    }
+
 }

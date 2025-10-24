@@ -268,6 +268,8 @@ public class LoanProductData implements Serializable {
     private final List<CodeValueData> buydownFeeClassificationOptions;
     private List<ClassificationToGLAccountData> capitalizedIncomeClassificationToIncomeAccountMappings;
     private List<ClassificationToGLAccountData> buydownFeeClassificationToIncomeAccountMappings;
+    // Broken Period Interest Configuration
+    private final BrokenPeriodConfigData brokenPeriodConfig;
 
     /**
      * Used when returning lookup information about loan product for dropdowns.
@@ -383,6 +385,7 @@ public class LoanProductData implements Serializable {
         final boolean merchantBuyDownFee = false;
         final List<WriteOffReasonsToExpenseAccountMapper> writeOffReasonsToExpenseMappings = null;
         final List<CodeValueData> writeOffReasonOptions = null;
+        final BrokenPeriodConfigData brokenPeriodConfig = null;
 
         return new LoanProductData(id, name, shortName, description, currency, principal, minPrincipal, maxPrincipal, tolerance,
                 numberOfRepayments, minNumberOfRepayments, maxNumberOfRepayments, repaymentEvery, interestRatePerPeriod,
@@ -407,7 +410,7 @@ public class LoanProductData implements Serializable {
                 interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
                 buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions);
+                writeOffReasonOptions, brokenPeriodConfig);
 
     }
 
@@ -523,6 +526,7 @@ public class LoanProductData implements Serializable {
         final boolean merchantBuyDownFee = false;
         final List<WriteOffReasonsToExpenseAccountMapper> writeOffReasonsToExpenseMappings = null;
         final List<CodeValueData> writeOffReasonOptions = null;
+        final BrokenPeriodConfigData brokenPeriodConfig = null;
 
         return new LoanProductData(id, name, shortName, description, currency, principal, minPrincipal, maxPrincipal, tolerance,
                 numberOfRepayments, minNumberOfRepayments, maxNumberOfRepayments, repaymentEvery, interestRatePerPeriod,
@@ -547,7 +551,7 @@ public class LoanProductData implements Serializable {
                 interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
                 buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions);
+                writeOffReasonOptions, brokenPeriodConfig);
 
     }
 
@@ -670,6 +674,7 @@ public class LoanProductData implements Serializable {
         final boolean merchantBuyDownFee = false;
         final List<WriteOffReasonsToExpenseAccountMapper> writeOffReasonsToExpenseMappings = null;
         final List<CodeValueData> writeOffReasonOptions = null;
+        final BrokenPeriodConfigData brokenPeriodConfig = null;
 
         return new LoanProductData(id, name, shortName, description, currency, principal, minPrincipal, maxPrincipal, tolerance,
                 numberOfRepayments, minNumberOfRepayments, maxNumberOfRepayments, repaymentEvery, interestRatePerPeriod,
@@ -694,7 +699,7 @@ public class LoanProductData implements Serializable {
                 interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
                 buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions);
+                writeOffReasonOptions, brokenPeriodConfig);
 
     }
 
@@ -811,6 +816,7 @@ public class LoanProductData implements Serializable {
         final boolean merchantBuyDownFee = false;
         final List<WriteOffReasonsToExpenseAccountMapper> writeOffReasonsToExpenseMappings = null;
         final List<CodeValueData> writeOffReasonOptions = null;
+        final BrokenPeriodConfigData brokenPeriodConfig = null;
 
         return new LoanProductData(id, name, shortName, description, currency, principal, minPrincipal, maxPrincipal, tolerance,
                 numberOfRepayments, minNumberOfRepayments, maxNumberOfRepayments, repaymentEvery, interestRatePerPeriod,
@@ -835,7 +841,7 @@ public class LoanProductData implements Serializable {
                 interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
                 buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions);
+                writeOffReasonOptions, brokenPeriodConfig);
     }
 
     public static LoanProductData withAccountingDetails(final LoanProductData productData, final Map<String, Object> accountingMappings,
@@ -902,7 +908,7 @@ public class LoanProductData implements Serializable {
             final StringEnumOptionData buyDownFeeCalculationType, final StringEnumOptionData buyDownFeeStrategy,
             final StringEnumOptionData buyDownFeeIncomeType, final boolean merchantBuyDownFee,
             final List<WriteOffReasonsToExpenseAccountMapper> writeOffReasonsToExpenseMappings,
-            final List<CodeValueData> writeOffReasonOptions) {
+            final List<CodeValueData> writeOffReasonOptions, final BrokenPeriodConfigData brokenPeriodConfig) {
         this.id = id;
         this.name = name;
         this.shortName = shortName;
@@ -968,6 +974,7 @@ public class LoanProductData implements Serializable {
         this.buyDownFeeStrategy = buyDownFeeStrategy;
         this.buyDownFeeIncomeType = buyDownFeeIncomeType;
         this.merchantBuyDownFee = merchantBuyDownFee;
+        this.brokenPeriodConfig = brokenPeriodConfig;
 
         this.chargeOptions = null;
         this.penaltyOptions = null;
@@ -1288,6 +1295,7 @@ public class LoanProductData implements Serializable {
         this.buydownFeeClassificationOptions = buydownFeeClassificationOptions;
         this.buydownFeeClassificationToIncomeAccountMappings = productData.buydownFeeClassificationToIncomeAccountMappings;
         this.capitalizedIncomeClassificationToIncomeAccountMappings = productData.capitalizedIncomeClassificationToIncomeAccountMappings;
+        this.brokenPeriodConfig = productData.brokenPeriodConfig;
     }
 
     private Collection<ChargeData> nullIfEmpty(final Collection<ChargeData> charges) {

@@ -56,6 +56,7 @@ public interface LoanTransactionMapper {
     @Mapping(target = "rowIndex", ignore = true)
     @Mapping(target = "dateFormat", ignore = true)
     @Mapping(target = "locale", ignore = true)
+    @Mapping(target = "transactionAmount", ignore = true)
     @Mapping(target = "paymentTypeId", ignore = true)
     @Mapping(target = "accountNumber", ignore = true)
     @Mapping(target = "checkNumber", ignore = true)
@@ -63,7 +64,8 @@ public interface LoanTransactionMapper {
     @Mapping(target = "receiptNumber", ignore = true)
     @Mapping(target = "bankNumber", ignore = true)
     @Mapping(target = "accountId", ignore = true)
-    @Mapping(target = "transactionAmount", ignore = true)
     @Mapping(target = "classification", expression = "java(loanTransaction.getClassification() != null ? loanTransaction.getClassification().toData() : null)")
+    @Mapping(target = "loanOverdueData", ignore = true)
+    @Mapping(target = "loanOverdueChargeData", ignore = true)
     LoanTransactionData mapLoanTransaction(LoanTransaction loanTransaction);
 }

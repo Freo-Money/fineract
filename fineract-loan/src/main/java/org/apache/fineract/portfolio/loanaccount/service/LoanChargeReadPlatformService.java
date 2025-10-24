@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
@@ -34,6 +35,8 @@ public interface LoanChargeReadPlatformService {
     ChargeData retrieveLoanChargeTemplate();
 
     Collection<LoanChargeData> retrieveLoanCharges(Long loanId);
+
+    Collection<LoanChargeData> retrieveLoanChargesDueAsOn(Long loanId, LocalDate dueDate);
 
     LoanChargeData retrieveLoanChargeDetails(Long loanChargeId, Long loanId);
 

@@ -176,6 +176,15 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
     }
 
     @Override
+    public Collection<LoanChargeData> retrieveLoanChargesDueAsOn(final Long loanId, final LocalDate dueDate) {
+        final LoanChargeMapper rm = new LoanChargeMapper();
+        final String sql = "select " + rm.schema()
+                + " where lc.loan_id=? AND (lc.due_for_collection_as_of_date IS NULL or lc.due_for_collection_as_of_date <= ?) AND lc.is_active = true AND lc.amount_outstanding_derived > 0 "
+                + " order by lc.due_for_collection_as_of_date ASC, lc.charge_time_enum ASC";
+        return this.jdbcTemplate.query(sql, rm, loanId, dueDate);
+    }
+
+    @Override
     public Collection<LoanChargeData> retrieveLoanChargesForFeePayment(final Integer paymentMode, final Integer loanStatus) {
         final LoanChargeMapperWithLoanId rm = new LoanChargeMapperWithLoanId();
         final String sql = "select " + rm.schema()

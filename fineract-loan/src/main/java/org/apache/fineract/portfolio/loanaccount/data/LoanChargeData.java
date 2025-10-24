@@ -62,7 +62,7 @@ public class LoanChargeData {
     private final BigDecimal amountWaived;
     private final BigDecimal amountWrittenOff;
 
-    private final BigDecimal amountOutstanding;
+    private BigDecimal amountOutstanding;
 
     private final BigDecimal amountOrPercentage;
 
@@ -426,5 +426,9 @@ public class LoanChargeData {
 
     public void updateAmountAccrued(BigDecimal amountAccrued) {
         this.amountAccrued = amountAccrued;
+    }
+
+    public void setAmountOutstanding(BigDecimal oustandingAmount) {
+        this.amountOutstanding = oustandingAmount;
     }
 }

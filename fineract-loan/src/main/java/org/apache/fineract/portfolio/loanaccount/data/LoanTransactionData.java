@@ -27,6 +27,7 @@ import java.util.List;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
+import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.fineract.infrastructure.codes.data.CodeValueData;
@@ -42,6 +43,7 @@ import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
 @Getter
 @Builder(builderClassName = "Builder")
 @AllArgsConstructor(access = AccessLevel.PUBLIC)
+@Data
 public class LoanTransactionData implements Serializable {
 
     @Serial
@@ -81,7 +83,7 @@ public class LoanTransactionData implements Serializable {
     private Collection<LoanChargePaidByData> loanChargePaidByList;
 
     // templates
-    final Collection<PaymentTypeData> paymentTypeOptions;
+    Collection<PaymentTypeData> paymentTypeOptions;
 
     private Collection<CodeValueData> writeOffReasonOptions = null;
 
@@ -115,6 +117,8 @@ public class LoanTransactionData implements Serializable {
     private Collection<CodeValueData> chargeOffReasonOptions = null;
     private Collection<CodeValueData> classificationOptions = null;
     private CodeValueData classification;
+    private LoanOverdueDTO loanOverdueData;
+    private LoanChargesDueDTO loanOverdueChargeData;
 
     public static LoanTransactionData importInstance(BigDecimal repaymentAmount, LocalDate lastRepaymentDate, Long repaymentTypeId,
             Integer rowIndex, String locale, String dateFormat) {
@@ -180,5 +184,9 @@ public class LoanTransactionData implements Serializable {
                 .possibleNextRepaymentDate(possibleNextRepaymentDate).currency(currency)
                 .availableDisbursementAmountWithOverApplied(availableDisbursementAmountWithOverApplied).externalLoanId(ExternalId.empty())
                 .externalId(ExternalId.empty()).reversalExternalId(ExternalId.empty()).manuallyReversed(false).build();
+    }
+
+    public void setPaymentTypeOptions(Collection<PaymentTypeData> paymentOptions) {
+        this.paymentTypeOptions = paymentOptions;
     }
 }

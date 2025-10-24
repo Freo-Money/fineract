@@ -189,6 +189,11 @@ public interface LoanApiConstants {
 
     String INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE = "interestRecognitionOnDisbursementDate";
 
+    // Broken Period Interest Configuration Parameters
+    String BROKEN_PERIOD_METHOD_TYPE = "brokenPeriodMethodType";
+    String BROKEN_PERIOD_DAYS_IN_YEAR = "brokenPeriodDaysInYear";
+    String BROKEN_PERIOD_DAYS_IN_MONTH = "brokenPeriodDaysInMonth";
+
     // Loan Summary Transaction Types
     List<LoanTransactionType> LOAN_SUMMARY_TRANSACTION_TYPES = List.of(LoanTransactionType.CHARGE_ADJUSTMENT, //
             LoanTransactionType.CHARGEBACK, //

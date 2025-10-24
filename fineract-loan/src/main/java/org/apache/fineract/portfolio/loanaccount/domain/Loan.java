@@ -398,6 +398,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     @OneToOne(cascade = CascadeType.ALL, mappedBy = "loan", orphanRemoval = true, fetch = FetchType.LAZY)
     private LoanTopupDetails loanTopupDetails;
 
+    @OneToOne(cascade = CascadeType.ALL, mappedBy = "loan", orphanRemoval = true, fetch = FetchType.LAZY)
+    private LoanConfigMapping bpiConfig;
+
     @OneToMany(fetch = FetchType.LAZY)
     @JoinTable(name = "m_loan_rate", joinColumns = @JoinColumn(name = "loan_id"), inverseJoinColumns = @JoinColumn(name = "rate_id"))
     private List<Rate> rates;
@@ -426,6 +429,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     @Column(name = "enable_installment_level_delinquency", nullable = false)
     private boolean enableInstallmentLevelDelinquency = false;
+
+    @Column(name = "broken_period_interest")
+    private BigDecimal brokenPeriodInterest;
 
     public static Loan newIndividualLoanApplication(final String accountNo, final Client client, final AccountType loanType,
             final LoanProduct loanProduct, final Fund fund, final Staff officer, final CodeValue loanPurpose,
@@ -1207,6 +1213,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     }
 
     public void addLoanTransaction(final LoanTransaction loanTransaction) {
+        loanTransaction.updateLoan(this);
         this.loanTransactions.add(loanTransaction);
     }
 
@@ -1638,6 +1645,14 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         return this.loanTopupDetails;
     }
 
+    public void setBpiConfig(LoanConfigMapping bpiConfig) {
+        this.bpiConfig = bpiConfig;
+    }
+
+    public LoanConfigMapping getBpiConfig() {
+        return this.bpiConfig;
+    }
+
     public Set<LoanCharge> getLoanCharges() {
         return this.charges;
     }
@@ -1822,4 +1837,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         return getLoanTransactions().stream().anyMatch(t -> t.isContractTermination() && t.isNotReversed());
     }
 
+    public BigDecimal getBrokenPeriodInterest() {
+        return this.brokenPeriodInterest;
+    }
+
+    public void setBrokenPeriodInterest(BigDecimal brokenPeriodInterest) {
+        this.brokenPeriodInterest = brokenPeriodInterest;
+    }
 }

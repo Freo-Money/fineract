@@ -74,6 +74,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.GroupLoanIndividualMonit
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanConfigMapping;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCreditAllocationRule;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanPaymentAllocationRule;
@@ -94,6 +95,8 @@ import org.apache.fineract.portfolio.loanaccount.mapper.LoanChargeMapper;
 import org.apache.fineract.portfolio.loanaccount.mapper.LoanCollateralManagementMapper;
 import org.apache.fineract.portfolio.loanaccount.service.schedule.LoanScheduleComponent;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
@@ -280,6 +283,20 @@ public class LoanAssemblerImpl implements LoanAssembler {
         }
 
         loanSchedule.updateLoanSchedule(loanApplication, loanScheduleModel);
+
+        // Handle BPI configuration: override if explicit parameters provided, otherwise copy from product
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element)) {
+            // User provided explicit BPI parameters - create loan-specific config (override)
+            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromJsonElement(element, fromApiJsonHelper);
+            if (bpiConfig != null) {
+                final LoanConfigMapping loanConfigMapping = new LoanConfigMapping(loanApplication, loanProduct.getShortName(), bpiConfig);
+                loanApplication.setBpiConfig(loanConfigMapping);
+            }
+        } else
+        // Copy BPI configuration from product to loan if not explicitly provided
+        if (loanProduct.getBpiConfig() != null) {
+            copyBpiConfigFromProductToLoan(loanProduct, loanApplication);
+        }
 
         copyAdvancedPaymentRulesIfApplicable(transactionProcessingStrategyCode, loanProduct, loanApplication);
         // TODO: review
@@ -908,5 +925,16 @@ public class LoanAssemblerImpl implements LoanAssembler {
         actualChanges.put(Loan.REJECTED_ON_DATE, rejectedOn.format(fmt));
         actualChanges.put(Loan.CLOSED_ON_DATE, rejectedOn.format(fmt));
         return actualChanges;
+    }
+
+    /**
+     * Copy BPI configuration from loan product to loan
+     */
+    private void copyBpiConfigFromProductToLoan(LoanProduct loanProduct, Loan loan) {
+        if (loanProduct.getBpiConfig() != null) {
+            // Copy the entire configuration from product to loan, including configIdentity and configJson
+            LoanConfigMapping loanBpiConfig = new LoanConfigMapping(loan, loanProduct.getBpiConfig());
+            loan.setBpiConfig(loanBpiConfig);
+        }
     }
 }
