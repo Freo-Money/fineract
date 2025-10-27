@@ -208,6 +208,7 @@ public class LoanScheduleAssembler {
         final Integer nthDay = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("repaymentFrequencyNthDayType", element);
         final Integer dayOfWeek = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("repaymentFrequencyDayOfWeekType", element);
         final DayOfWeekType weekDayType = DayOfWeekType.fromInt(dayOfWeek);
+        final Integer repeatsOnDayOfMonth = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("repeatsOnDayOfMonth", element);
 
         final Integer amortizationType = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("amortizationType", element);
         final AmortizationMethod amortizationMethod = allowOverridingAmortization ? AmortizationMethod.fromInt(amortizationType)
@@ -303,7 +304,14 @@ public class LoanScheduleAssembler {
                     calendarStartDate = RepaymentStartDateType.DISBURSEMENT_DATE.equals(repaymentStartDateType) ? expectedDisbursementDate
                             : submittedOnDate;
                 }
-                calendar = createLoanCalendar(calendarStartDate, repaymentEvery, CalendarFrequencyType.MONTHLY, dayOfWeek, nthDay);
+                NthDayType nthDayType = NthDayType.fromInt(nthDay);
+                if (nthDayType.isOnDay()) {
+                    calendar = createLoanCalendar(calendarStartDate, repaymentEvery, CalendarFrequencyType.MONTHLY, null,
+                            repeatsOnDayOfMonth);
+                } else {
+                    // Backward compatibility of old implementation
+                    calendar = createLoanCalendar(calendarStartDate, repaymentEvery, CalendarFrequencyType.MONTHLY, dayOfWeek, nthDay);
+                }
             }
         }
 
