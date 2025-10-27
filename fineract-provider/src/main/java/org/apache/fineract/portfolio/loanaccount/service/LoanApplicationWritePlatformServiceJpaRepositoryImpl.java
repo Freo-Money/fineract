@@ -71,6 +71,7 @@ import org.apache.fineract.portfolio.calendar.domain.CalendarType;
 import org.apache.fineract.portfolio.calendar.exception.CalendarNotFoundException;
 import org.apache.fineract.portfolio.calendar.service.CalendarReadPlatformService;
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagement;
+import org.apache.fineract.portfolio.common.domain.NthDayType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.group.exception.GroupMemberNotFoundInGSIMException;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
@@ -860,8 +861,20 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 final Integer repeatsOnDay = loanApplicationTerms.getWeekDayType().getValue();
                 final Integer repeatsOnNthDayOfMonth = loanApplicationTerms.getNthDay();
                 final Integer calendarEntityType = CalendarEntityType.LOANS.getValue();
-                final Calendar loanCalendar = Calendar.createRepeatingCalendar(title, calendarStartDate, CalendarType.COLLECTION.getValue(),
-                        calendarFrequencyType, frequency, repeatsOnDay, repeatsOnNthDayOfMonth);
+                final Integer repeatsOnDayOfMonth = command.integerValueOfParameterNamed("repeatsOnDayOfMonth");
+                NthDayType nthDayType = NthDayType.fromInt(loanApplicationTerms.getNthDay());
+                final Calendar loanCalendar;
+                if (nthDayType.isOnDay() && repeatsOnDayOfMonth != null) {
+                    loanCalendar = createLoanCalendar(title, calendarStartDate, frequency, calendarFrequencyType, null,
+                            repeatsOnDayOfMonth);
+                } else {
+                    loanCalendar = createLoanCalendar(title, calendarStartDate, frequency, calendarFrequencyType, repeatsOnDay,
+                            repeatsOnNthDayOfMonth);
+                }
+
+                // final Calendar loanCalendar = Calendar.createRepeatingCalendar(title, calendarStartDate,
+                // CalendarType.COLLECTION.getValue(),
+                // calendarFrequencyType, frequency, repeatsOnDay, repeatsOnNthDayOfMonth);
                 this.calendarRepository.save(loanCalendar);
                 final CalendarInstance calendarInstance = CalendarInstance.from(loanCalendar, loan.getId(), calendarEntityType);
                 this.calendarInstanceRepository.save(calendarInstance);
@@ -916,6 +929,13 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         }
 
         return actualChanges;
+    }
+
+    private Calendar createLoanCalendar(final String title, final LocalDate calendarStartDate, final Integer frequency,
+            CalendarFrequencyType calendarFrequencyType, final Integer repeatsOnDay, final Integer repeatsOnNthDayOfMonth) {
+        final Calendar calendar = Calendar.createRepeatingCalendar(title, calendarStartDate, CalendarType.COLLECTION.getValue(),
+                calendarFrequencyType, frequency, repeatsOnDay, repeatsOnNthDayOfMonth);
+        return calendar;
     }
 
 }
