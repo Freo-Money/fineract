@@ -125,6 +125,8 @@ import org.apache.fineract.portfolio.fund.data.FundData;
 import org.apache.fineract.portfolio.fund.service.FundReadPlatformService;
 import org.apache.fineract.portfolio.group.data.GroupGeneralData;
 import org.apache.fineract.portfolio.group.service.GroupReadPlatformService;
+import org.apache.fineract.portfolio.loanaccount.data.ChargePaymentRequest;
+import org.apache.fineract.portfolio.loanaccount.data.ChargePaymentTemplateData;
 import org.apache.fineract.portfolio.loanaccount.data.CollectionData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.GlimRepaymentTemplate;
@@ -1405,5 +1407,53 @@ public class LoansApiResource {
         DateFormat df = new DateFormat(dateFormat);
         LocalDate asOnLocalDate = asOnDateParam.getDate("asOnDate", df, locale);
         return this.loanReadPlatformService.getLoanDueDetails(loanId, asOnLocalDate);
+    }
+
+    @GET
+    @Path("{loanId}/charge-payment/template")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Returns the charge payment template for a loan as of a specific date", description = "")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = ChargePaymentTemplateData.class))) })
+    public ChargePaymentTemplateData getChargePaymentTemplateDetails(
+            @PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
+            @QueryParam("asOnDate") @NonNull final DateParam asOnDateParam, @QueryParam("dateFormat") String dateFormat,
+            @QueryParam("locale") String locale, @Context final UriInfo uriInfo) {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        DateFormat df = new DateFormat(dateFormat);
+        LocalDate asOnLocalDate = asOnDateParam.getDate("asOnDate", df, locale);
+        return this.loanReadPlatformService.getChargePaymentTemplateDetails(loanId, asOnLocalDate);
+    }
+
+    @POST
+    @Path("{loanId}/charge-payment/{chargeId}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "pay charge for a loan by loanChargeId", description = "")
+    @RequestBody(required = true, content = @Content(schema = @Schema(implementation = ChargePaymentRequest.class)))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = CommandProcessingResult.class))) })
+    public CommandProcessingResult payCharge(@PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
+            @PathParam("chargeId") @Parameter(description = "chargeId", required = true) final Long chargeId,
+            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        final CommandWrapperBuilder builder = new CommandWrapperBuilder().withJson(apiRequestBodyAsJson);
+        CommandWrapper commandRequest = builder.payChargeByChargeId(loanId, chargeId).build();
+        return this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+    }
+
+    @GET
+    @Path("{loanId}/schedule-history/{historyVersion}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Returns the schedule history for a given loan at a specific version", description = "")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanScheduleData.class))) })
+    public LoanScheduleData getLoanScheduleHistory(
+            @PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
+            @QueryParam("version") @Parameter(description = "version", required = true) final Integer version) {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        return this.loanScheduleHistoryReadPlatformService.retrieveLoanScheduleHistory(loanId, version);
     }
 }

@@ -596,4 +596,8 @@ public final class JsonCommand {
     public void checkForUnsupportedParameters(final Type typeOfMap, final String json, final Set<String> requestDataParameters) {
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, requestDataParameters);
     }
+
+    public Long[] longArrayValueOfParameterNamed(String string) {
+        return this.fromApiJsonHelper.extractLongArrayNamed(string, this.parsedCommand);
+    }
 }

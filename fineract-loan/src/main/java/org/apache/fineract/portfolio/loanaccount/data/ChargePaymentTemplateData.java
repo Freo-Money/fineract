@@ -16,21 +16,18 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.portfolio.loanaccount.loanschedule.service;
+package org.apache.fineract.portfolio.loanaccount.data;
 
-import java.util.List;
-import org.apache.fineract.infrastructure.core.api.JsonCommand;
-import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
-import org.apache.fineract.portfolio.loanaccount.data.LoanInstallmentDTO;
+import java.util.Collection;
+import lombok.Builder;
+import lombok.Data;
+import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
 
-public interface LoanScheduleWritePlatformService {
+@Data
+@Builder
+public class ChargePaymentTemplateData {
 
-    CommandProcessingResult addLoanScheduleVariations(Long loanId, JsonCommand command);
-
-    CommandProcessingResult deleteLoanScheduleVariations(Long loanId);
-
-    CommandProcessingResult createCustomSchedule(Long loanId, JsonCommand command);
-
-    CommandProcessingResult updateCustomSchedule(Long loanId, List<LoanInstallmentDTO> loanInstallments);
-
+    private Collection<PaymentTypeData> paymentTypeOptions;
+    private Collection<LoanChargeData> charges;
+    private LoanTransactionEnumData transactionType;
 }

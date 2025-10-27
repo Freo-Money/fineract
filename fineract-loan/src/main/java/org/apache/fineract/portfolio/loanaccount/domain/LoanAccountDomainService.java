@@ -48,7 +48,8 @@ public interface LoanAccountDomainService {
     void reverseTransfer(LoanTransaction loanTransaction);
 
     LoanTransaction makeChargePayment(Loan loan, Long chargeId, LocalDate transactionDate, BigDecimal transactionAmount,
-            PaymentDetail paymentDetail, String noteText, ExternalId txnExternalId, Integer transactionType, Integer installmentNumber);
+            PaymentDetail paymentDetail, String noteText, ExternalId txnExternalId, Integer transactionType, Integer installmentNumber,
+            boolean isAccountTransfer);
 
     LoanTransaction makeDisburseTransaction(Long loanId, LocalDate transactionDate, BigDecimal transactionAmount,
             PaymentDetail paymentDetail, String noteText, ExternalId txnExternalId);
@@ -100,4 +101,6 @@ public interface LoanAccountDomainService {
 
     LoanTransaction createManualInterestRefundWithAmount(Loan loan, LoanTransaction targetTransaction, BigDecimal amount,
             PaymentDetail paymentDetail, ExternalId txnExternalId);
+
+    void createAndSaveLoanScheduleArchive(Loan loan);
 }

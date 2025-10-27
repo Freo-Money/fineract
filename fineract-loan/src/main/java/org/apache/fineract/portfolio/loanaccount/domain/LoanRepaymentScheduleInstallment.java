@@ -1215,4 +1215,10 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
         }
         return value.setScale(6, MoneyHelper.getRoundingMode());
     }
+
+    public static LoanRepaymentScheduleInstallment createInstallmentDetail(Loan loan, LocalDate fromDate, LocalDate dueDate,
+            Integer periodNumber, BigDecimal principalDue, BigDecimal interestDue, BigDecimal feeChargesDue, BigDecimal penaltyChargesDue) {
+        return new LoanRepaymentScheduleInstallment(loan, periodNumber, fromDate, dueDate, principalDue, interestDue, feeChargesDue,
+                penaltyChargesDue, false, null);
+    }
 }

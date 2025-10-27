@@ -321,7 +321,7 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
                 loanTransaction = this.loanAccountDomainService.makeChargePayment(toLoanAccount, accountTransferDTO.getChargeId(),
                         accountTransferDTO.getTransactionDate(), accountTransferDTO.getTransactionAmount(),
                         accountTransferDTO.getPaymentDetail(), null, externalId, accountTransferDTO.getToTransferType(),
-                        accountTransferDTO.getLoanInstallmentNumber());
+                        accountTransferDTO.getLoanInstallmentNumber(), true);
 
             } else if (AccountTransferType.fromInt(accountTransferDTO.getTransferType()).isLoanDownPayment()) {
                 final boolean isRecoveryRepayment = false;

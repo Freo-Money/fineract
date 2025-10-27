@@ -329,4 +329,9 @@ public class FromJsonHelper {
                     "Enum value not exists: ", enumType.getName(), value)), e);
         }
     }
+
+    public Long[] extractLongArrayNamed(final String parameterName, final JsonElement element) {
+        return this.helperDelegator.extractLongArrayNamed(parameterName, element);
+    }
+
 }

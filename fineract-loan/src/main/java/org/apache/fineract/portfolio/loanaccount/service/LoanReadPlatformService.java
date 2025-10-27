@@ -29,6 +29,7 @@ import org.apache.fineract.infrastructure.core.service.SearchParameters;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.portfolio.calendar.data.CalendarData;
 import org.apache.fineract.portfolio.floatingrates.data.InterestRatePeriodData;
+import org.apache.fineract.portfolio.loanaccount.data.ChargePaymentTemplateData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovalData;
@@ -162,5 +163,7 @@ public interface LoanReadPlatformService {
     Long getResolvedLoanId(ExternalId loanExternalId);
 
     LoanDueDetailsDTO getLoanDueDetails(Long loanId, LocalDate asOnLocalDate);
+
+    ChargePaymentTemplateData getChargePaymentTemplateDetails(Long loanId, LocalDate asOnLocalDate);
 
 }

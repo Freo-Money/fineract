@@ -16,21 +16,27 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.portfolio.loanaccount.loanschedule.service;
+package org.apache.fineract.portfolio.loanaccount.handler;
 
-import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.apache.fineract.commands.annotation.CommandType;
+import org.apache.fineract.commands.handler.NewCommandSourceHandler;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
-import org.apache.fineract.portfolio.loanaccount.data.LoanInstallmentDTO;
+import org.apache.fineract.portfolio.loanaccount.service.LoanChargeWritePlatformService;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-public interface LoanScheduleWritePlatformService {
+@Service
+@RequiredArgsConstructor
+@CommandType(entity = "CHARGE", action = "PAY")
+public class PayChargeCommandHandler implements NewCommandSourceHandler {
 
-    CommandProcessingResult addLoanScheduleVariations(Long loanId, JsonCommand command);
+    private final LoanChargeWritePlatformService writePlatformService;
 
-    CommandProcessingResult deleteLoanScheduleVariations(Long loanId);
-
-    CommandProcessingResult createCustomSchedule(Long loanId, JsonCommand command);
-
-    CommandProcessingResult updateCustomSchedule(Long loanId, List<LoanInstallmentDTO> loanInstallments);
-
+    @Transactional
+    @Override
+    public CommandProcessingResult processCommand(final JsonCommand command) {
+        return this.writePlatformService.payByChargeId(command.getLoanId(), command.entityId(), command);
+    }
 }

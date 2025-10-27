@@ -95,6 +95,7 @@ import org.apache.fineract.portfolio.group.data.GroupGeneralData;
 import org.apache.fineract.portfolio.group.data.GroupRoleData;
 import org.apache.fineract.portfolio.group.service.GroupReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
+import org.apache.fineract.portfolio.loanaccount.data.ChargePaymentTemplateData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApplicationTimelineData;
@@ -569,7 +570,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     private LoanTransactionData retrieveLoanOverdueDetails(Long loanId, LoanTransactionData loanTransactionData, LocalDate asOnDate) {
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         loanTransactionData.setPaymentTypeOptions(paymentOptions);
-        LoanChargesDueDTO loanChargesDue = fetchDueChargesAsOn(loanId, asOnDate);
+        LoanChargesDueDTO loanChargesDue = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate);
         loanTransactionData.setLoanOverdueChargeData(loanChargesDue);
         return loanTransactionData;
     }
@@ -636,7 +637,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         sql.append(" WHERE ls.loan_id = ? AND ls.duedate <= ?  and ls.completed_derived = false ");
         LoanDueDetailsDTO dueDetails = this.jdbcTemplate.queryForObject(sql.toString(), new Object[] { loanId, asOnLocalDate },
                 loanDueDetailsExtractor);
-        LoanChargesDueDTO loanChargesDue = fetchDueChargesAsOn(loanId, asOnLocalDate);
+        LoanChargesDueDTO loanChargesDue = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnLocalDate);
         dueDetails = LoanDueDetailsDTO.builder().principalDue(dueDetails.getPrincipalDue()).interestDue(dueDetails.getInterestDue())
                 .feeChargesDue(dueDetails.getFeeChargesDue()).penaltyChargesDue(dueDetails.getPenaltyChargesDue())
                 .feeChargesDueDetails(loanChargesDue.getFeeCharges()).penaltyChargesDueDetails(loanChargesDue.getPenaltyCharges()).build();
@@ -2668,5 +2669,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
         return LoanTransaction.waiver(loan.getOffice(), loan, possibleInterestToWaive, transactionDate, possibleInterestToWaive,
                 possibleInterestToWaive.zero(), ExternalId.empty());
+    }
+
+    @Override
+    public ChargePaymentTemplateData getChargePaymentTemplateDetails(Long loanId, LocalDate asOnDate) {
+        final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
+        LoanChargesDueDTO loanChargesDueDTO = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate);
+        Collection<LoanChargeData> loanChargesDue = new ArrayList<>(loanChargesDueDTO.getFeeCharges());
+        loanChargesDue.addAll(loanChargesDueDTO.getPenaltyCharges());
+        return ChargePaymentTemplateData.builder().paymentTypeOptions(paymentOptions).charges(loanChargesDue)
+                .transactionType(LoanEnumerations.transactionType(LoanTransactionType.CHARGE_PAYMENT)).build();
     }
 }

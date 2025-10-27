@@ -392,8 +392,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     @Transactional
     public LoanTransaction makeChargePayment(final Loan loan, final Long chargeId, final LocalDate transactionDate,
             final BigDecimal transactionAmount, final PaymentDetail paymentDetail, final String noteText, final ExternalId txnExternalId,
-            final Integer transactionType, Integer installmentNumber) {
-        boolean isAccountTransfer = true;
+            final Integer transactionType, Integer installmentNumber, final boolean isAccountTransfer) {
         checkClientOrGroupActive(loan);
         if (loan.isChargedOff() && DateUtils.isBefore(transactionDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
@@ -1102,6 +1101,12 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final ScheduleGeneratorDTO scheduleGeneratorDTO) {
         loan.setLoanSubStatus(LoanSubStatus.FORECLOSED);
         loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, repaymentTransaction, null, scheduleGeneratorDTO);
+    }
+
+    @Override
+    public void createAndSaveLoanScheduleArchive(Loan loan) {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'createAndSaveLoanScheduleArchive'");
     }
 
 }

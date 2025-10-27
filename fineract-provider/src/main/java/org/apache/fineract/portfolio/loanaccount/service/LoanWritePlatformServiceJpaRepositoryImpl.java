@@ -3757,4 +3757,23 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             loan.setExpectedMaturityDate(latestRepaymentDate);
         }
     }
+
+    public void syncTransactionsWithSchedule(Loan loan) {
+
+        boolean processForClosedLoans = false;
+        /*
+         * final LocalDate accrualDate = loan.getAccruedTill(); final List<Long> existingTransactionIds = new
+         * ArrayList<>(loan.findExistingTransactionIds()); final List<Long> existingReversedTransactionIds = new
+         * ArrayList<>(loan.findExistingReversedTransactionIds()); final ChangedTransactionDetail
+         * changedTransactionDetail = loan.processTransactions(processForClosedLoans);
+         * saveLoanWithDataIntegrityViolationChecks(loan); if (changedTransactionDetail != null) { for (final
+         * TransactionChangeData transactionChangeData : changedTransactionDetail.getTransactionChanges()) { final
+         * LoanTransaction newTransaction = transactionChangeData.getNewTransaction();
+         * loanTransactionRepository.save(newTransaction); loan.getLoanTransactions().add(newTransaction);
+         * this.accountTransfersWritePlatformService.updateLoanTransaction(newTransaction.getId(), newTransaction); } }
+         * loan.applyAccruals(); loan.setAccruedTill(accrualDate); journalEntryPoster.postJournalEntries(loan,
+         * existingTransactionIds, existingReversedTransactionIds);
+         */
+        loanAccrualsProcessingService.reprocessExistingAccruals(loan);
+    }
 }

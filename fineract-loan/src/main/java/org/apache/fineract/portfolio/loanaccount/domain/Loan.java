@@ -432,6 +432,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     @Column(name = "broken_period_interest")
     private BigDecimal brokenPeriodInterest;
 
+    @Column(name = "custom_schedule_defined", nullable = false)
+    private boolean customScheduleDefined = false;
+
     public static Loan newIndividualLoanApplication(final String accountNo, final Client client, final AccountType loanType,
             final LoanProduct loanProduct, final Fund fund, final Staff officer, final CodeValue loanPurpose,
             final LoanRepaymentScheduleTransactionProcessor transactionProcessingStrategy,
@@ -1789,6 +1792,14 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         isTopup = topup;
     }
 
+    public BigDecimal getBrokenPeriodInterest() {
+        return this.brokenPeriodInterest;
+    }
+
+    public void setBrokenPeriodInterest(final BigDecimal brokenPeriodInterest) {
+        this.brokenPeriodInterest = brokenPeriodInterest;
+    }
+
     public boolean isProgressiveSchedule() {
         return getLoanProductRelatedDetail().getLoanScheduleType() == PROGRESSIVE;
     }
@@ -1829,11 +1840,22 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         return getLoanTransactions().stream().anyMatch(t -> t.isContractTermination() && t.isNotReversed());
     }
 
-    public BigDecimal getBrokenPeriodInterest() {
-        return this.brokenPeriodInterest;
+    public void setCustomScheduleDefined(boolean b) {
+        this.customScheduleDefined = b;
     }
 
-    public void setBrokenPeriodInterest(BigDecimal brokenPeriodInterest) {
-        this.brokenPeriodInterest = brokenPeriodInterest;
+    public void updateLoanScheduleSummary(List<LoanRepaymentScheduleInstallment> installments) {
+        this.repaymentScheduleInstallments.clear();
+        clearLoanTransactionToRepaymentScheduleMappings();
+        this.repaymentScheduleInstallments.addAll(installments);
+        updateLoanScheduleDependentDerivedFields();
+        final LoanRepaymentScheduleProcessingWrapper wrapper = new LoanRepaymentScheduleProcessingWrapper();
+        wrapper.reprocess(getCurrency(), getDisbursementDate(), this.repaymentScheduleInstallments, charges);
+
     }
+
+    private void clearLoanTransactionToRepaymentScheduleMappings() {
+        this.repaymentScheduleInstallments.forEach(installment -> installment.getLoanTransactionToRepaymentScheduleMappings().clear());
+    }
+
 }
