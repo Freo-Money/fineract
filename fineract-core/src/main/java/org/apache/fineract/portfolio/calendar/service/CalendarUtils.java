@@ -49,6 +49,7 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.workingdays.domain.WorkingDays;
 import org.apache.fineract.organisation.workingdays.service.WorkingDaysUtil;
+import org.apache.fineract.portfolio.calendar.CalendarConstants.CalendarSupportedParameters;
 import org.apache.fineract.portfolio.calendar.domain.Calendar;
 import org.apache.fineract.portfolio.calendar.domain.CalendarFrequencyType;
 import org.apache.fineract.portfolio.calendar.domain.CalendarWeekDaysType;
@@ -761,6 +762,13 @@ public final class CalendarUtils {
                     || nthDayType == NthDayType.FOUR) {
                 baseDataValidator.reset().parameter(repeatsOnDayParamName).value(repeatsOnDay).cantBeBlankWhenParameterProvidedIs(
                         repeatsOnNthDayOfMonthParamName, NthDayNameEnum.from(nthDayType.toString()).getCode().toLowerCase());
+            }
+            if (nthDayType.isOnDay()) {
+                final Integer repeatsOnDayOfMonth = fromApiJsonHelper
+                        .extractIntegerSansLocaleNamed(CalendarSupportedParameters.REPEATS_ON_DAY_OF_MONTH.getValue(), element);
+
+                baseDataValidator.reset().parameter(CalendarSupportedParameters.REPEATS_ON_DAY_OF_MONTH.getValue())
+                        .value(repeatsOnDayOfMonth).notNull().inMinMaxRange(1, 28);
             }
         }
     }
