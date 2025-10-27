@@ -106,6 +106,7 @@ public interface LoanApiConstants {
     String rescheduleStrategyMethodParameterName = "rescheduleStrategyMethod";
     String repaymentFrequencyNthDayTypeParameterName = "repaymentFrequencyNthDayType";
     String repaymentFrequencyDayOfWeekTypeParameterName = "repaymentFrequencyDayOfWeekType";
+    String repeatsOnDayOfMonthParameterName = "repeatsOnDayOfMonth";
 
     // Floating interest rate related
     String interestRateDifferentialParameterName = "interestRateDifferential";

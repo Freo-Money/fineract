@@ -178,7 +178,7 @@ public final class LoanApplicationValidator {
             LoanProductConstants.ENABLE_AUTO_REPAYMENT_DOWN_PAYMENT, LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT,
             LoanApiConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE, LoanApiConstants.daysInYearCustomStrategyParameterName,
             LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR,
-            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH));
+            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanApiConstants.repeatsOnDayOfMonthParameterName));
     public static final String LOANAPPLICATION_UNDO = "loanapplication.undo";
 
     private final FromJsonHelper fromApiJsonHelper;
