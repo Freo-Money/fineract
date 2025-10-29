@@ -30,9 +30,12 @@ public class LoanScheduleUtilService {
 
     public static boolean isAdditionalPrincipalGracePeriodRequired(LoanApplicationTerms loanApplicationTerms) {
 
+        if (loanApplicationTerms.getBpiConfig() == null) {
+            return false;
+        }
         final BrokenPeriodInterestStrategy brokenPeriodMethod = loanApplicationTerms.getBpiConfig().getStrategy();
         boolean isAdditionalPrincipalGracePeriodRequired = false;
-        if (brokenPeriodMethod != null && brokenPeriodMethod.isAdjustmentInFirstEMIWithPrincipalGrace()) {
+        if (brokenPeriodMethod != null && brokenPeriodMethod.isAddToFirstInstallmentWithPrincipalGrace()) {
 
             final LocalDate expectedDisbursementDate = loanApplicationTerms.getExpectedDisbursementDate();
             final Integer repaymentEvery = loanApplicationTerms.getRepaymentEvery();
