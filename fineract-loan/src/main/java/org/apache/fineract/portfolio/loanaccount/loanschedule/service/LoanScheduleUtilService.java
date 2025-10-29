@@ -26,7 +26,11 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplica
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.ScheduledDateGenerator;
 import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 
-public class LoanScheduleUtilService {
+public final class LoanScheduleUtilService {
+
+    private LoanScheduleUtilService() {
+
+    }
 
     public static boolean isAdditionalPrincipalGracePeriodRequired(LoanApplicationTerms loanApplicationTerms) {
 
