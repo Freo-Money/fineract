@@ -39,6 +39,7 @@ import java.time.format.ResolverStyle;
 import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -110,6 +111,27 @@ public class JsonParserHelper {
             }
         }
         return longValue;
+    }
+
+    public Long[] extractLongArrayNamed(String parameterName, JsonElement element) {
+        return extractLongArrayNamed(parameterName, element, new HashSet<String>());
+    }
+
+    public Long[] extractLongArrayNamed(final String parameterName, final JsonElement element,
+            final Set<String> parametersPassedInRequest) {
+        Long[] arrayValue = null;
+        if (element.isJsonObject()) {
+            final JsonObject object = element.getAsJsonObject();
+            if (object.has(parameterName)) {
+                parametersPassedInRequest.add(parameterName);
+                final JsonArray array = object.get(parameterName).getAsJsonArray();
+                arrayValue = new Long[array.size()];
+                for (int i = 0; i < array.size(); i++) {
+                    arrayValue[i] = array.get(i).getAsLong();
+                }
+            }
+        }
+        return arrayValue;
     }
 
     public String extractStringNamed(final String parameterName, final JsonElement element, final Set<String> parametersPassedInRequest) {

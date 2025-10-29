@@ -24,7 +24,9 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
@@ -39,6 +41,7 @@ import org.apache.fineract.portfolio.charge.service.ChargeEnumerations;
 import org.apache.fineract.portfolio.common.service.DropdownReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanChargesDueDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanInstallmentChargeData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
@@ -329,6 +332,61 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
 
             return new LoanChargePaidByData(id, amount, installmentNumber, chargeId, transactionId);
         }
+    }
+
+    @Override
+    public LoanChargesDueDTO fetchDueChargesAsOn(Long loanId, LocalDate date) {
+        Collection<LoanChargeData> chargesDue = retrieveLoanChargesDueAsOn(loanId, date);
+        Map<Long, LoanChargeData> feeChargeMap = new HashMap<>();
+        Map<Long, LoanChargeData> penaltyChargeMap = new HashMap<>();
+
+        BigDecimal totalFeeDue = BigDecimal.ZERO;
+        BigDecimal totalPenaltyDue = BigDecimal.ZERO;
+        LocalDate lastRunOnDate = null;
+        if (!chargesDue.isEmpty()) {
+            for (LoanChargeData charge : chargesDue) {
+                BigDecimal amount = charge.getAmountOutstanding();
+                if (amount == null || amount.signum() <= 0) {
+                    continue;
+                }
+
+                boolean isPenalty = charge.isPenalty();
+                Map<Long, LoanChargeData> targetMap = isPenalty ? penaltyChargeMap : feeChargeMap;
+
+                mergeChargeIntoMap(targetMap, charge, amount);
+
+                if (isPenalty) {
+                    totalPenaltyDue = totalPenaltyDue.add(amount);
+                    lastRunOnDate = updateLastRunDate(lastRunOnDate, charge.getSubmittedOnDate());
+                } else {
+                    totalFeeDue = totalFeeDue.add(amount);
+                }
+            }
+        }
+        return LoanChargesDueDTO.builder().feeDue(totalFeeDue).penaltyPostedAsOnDate(totalPenaltyDue).penaltyPostedTillDate(totalPenaltyDue)
+                .lastChargeAppliedOnDate(lastRunOnDate).lastRunOnDate(lastRunOnDate).feeCharges(new ArrayList<>(feeChargeMap.values()))
+                .penaltyCharges(new ArrayList<>(penaltyChargeMap.values())).build();
+    }
+
+    private void mergeChargeIntoMap(Map<Long, LoanChargeData> targetMap, LoanChargeData charge, BigDecimal amount) {
+        targetMap.compute(charge.getChargeId(), (id, existing) -> {
+            if (existing == null) {
+                LoanChargeData newCharge = new LoanChargeData(null, charge.getChargeId(), charge.getName(), null, null, null, null, null,
+                        amount, null, charge.getSubmittedOnDate(), null, null, null, null, charge.isPenalty(), null, false, false, null,
+                        null, null, null, null, null, null);
+                return newCharge;
+            } else {
+                existing.setAmountOutstanding(existing.getAmountOutstanding().add(amount));
+                return existing;
+            }
+        });
+    }
+
+    private LocalDate updateLastRunDate(LocalDate current, LocalDate newDate) {
+        if (newDate == null) {
+            return current;
+        }
+        return (current == null || newDate.isAfter(current)) ? newDate : current;
     }
 
 }

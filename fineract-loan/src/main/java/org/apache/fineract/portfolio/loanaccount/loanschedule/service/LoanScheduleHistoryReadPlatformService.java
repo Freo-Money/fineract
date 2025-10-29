@@ -33,4 +33,6 @@ public interface LoanScheduleHistoryReadPlatformService {
             Collection<DisbursementData> disbursementData, LoanScheduleType loanScheduleType);
 
     Map<String, Object> fetchOldAuditDates(Long id);
+
+    LoanScheduleData retrieveLoanScheduleHistory(Long loanId, Integer version);
 }

@@ -33,11 +33,13 @@ import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanBasicDataForSchedule;
 import org.apache.fineract.portfolio.loanaccount.data.RepaymentScheduleRelatedLoanData;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanSchedulePeriodData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
+import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -52,11 +54,14 @@ public class LoanScheduleHistoryReadPlatformServiceImpl implements LoanScheduleH
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformSecurityContext context;
+    private final LoanReadPlatformService loanReadPlatformService;
 
     @Autowired
-    public LoanScheduleHistoryReadPlatformServiceImpl(final JdbcTemplate jdbcTemplate, final PlatformSecurityContext context) {
+    public LoanScheduleHistoryReadPlatformServiceImpl(final JdbcTemplate jdbcTemplate, final PlatformSecurityContext context,
+            final LoanReadPlatformService loanReadPlatformService) {
         this.context = context;
         this.jdbcTemplate = jdbcTemplate;
+        this.loanReadPlatformService = loanReadPlatformService;
     }
 
     @SuppressWarnings("deprecation")
@@ -161,7 +166,9 @@ public class LoanScheduleHistoryReadPlatformServiceImpl implements LoanScheduleH
                 if (disbursementData != null) {
                     BigDecimal principal = BigDecimal.ZERO;
                     for (DisbursementData data : disbursementData) {
-                        if (fromDate.equals(this.disbursement.disbursementDate()) && data.disbursementDate().equals(fromDate)) {
+                        // Handle null fromDate (defensive check)
+                        if (fromDate != null && fromDate.equals(this.disbursement.disbursementDate()) && data.disbursementDate() != null
+                                && data.disbursementDate().equals(fromDate)) {
                             principal = principal.add(data.getPrincipal());
                             final LoanSchedulePeriodData periodData = LoanSchedulePeriodData.disbursementOnlyPeriod(data.disbursementDate(),
                                     data.getPrincipal(), this.totalFeeChargesDueAtDisbursement, data.isDisbursed());
@@ -225,6 +232,23 @@ public class LoanScheduleHistoryReadPlatformServiceImpl implements LoanScheduleH
                     totalRepaymentExpected.getAmount());
         }
 
+    }
+
+    @Override
+    public LoanScheduleData retrieveLoanScheduleHistory(Long loanId, Integer version) {
+        // Use optimized method to fetch only essential loan fields (reduces DB overhead)
+        final LoanBasicDataForSchedule loanBasicData = this.loanReadPlatformService.retrieveLoanBasicDataForScheduleHistory(loanId);
+
+        final RepaymentScheduleRelatedLoanData repaymentScheduleRelatedData = new RepaymentScheduleRelatedLoanData(
+                loanBasicData.getExpectedDisbursementDate(), loanBasicData.getActualDisbursementDate(), loanBasicData.getCurrency(),
+                loanBasicData.getPrincipal(), loanBasicData.getInArrearsTolerance(), loanBasicData.getFeeChargesAtDisbursementCharged());
+
+        final Collection<DisbursementData> disbursementData = this.loanReadPlatformService.retrieveLoanDisbursementDetails(loanId);
+        final LoanScheduleArchiveResultSetExtractor fullResultsetExtractor = new LoanScheduleArchiveResultSetExtractor(
+                repaymentScheduleRelatedData, disbursementData, loanBasicData.getLoanScheduleType());
+        final String sql = "select " + fullResultsetExtractor.schema()
+                + " where ls.loan_id = ? and ls.version = ? order by ls.loan_id, ls.installment";
+        return this.jdbcTemplate.query(sql, fullResultsetExtractor, loanId, version);
     }
 
 }

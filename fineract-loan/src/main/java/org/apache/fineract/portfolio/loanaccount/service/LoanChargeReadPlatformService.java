@@ -26,6 +26,7 @@ import org.apache.fineract.portfolio.charge.data.ChargeData;
 import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanChargesDueDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanInstallmentChargeData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
@@ -50,4 +51,6 @@ public interface LoanChargeReadPlatformService {
             Integer installmentNumber);
 
     Long retrieveLoanChargeIdByExternalId(ExternalId loanChargeExternalId);
+
+    LoanChargesDueDTO fetchDueChargesAsOn(Long loanId, LocalDate date);
 }

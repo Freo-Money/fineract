@@ -79,6 +79,7 @@ public class LoanChargesApiResource {
     public static final String COMMAND_WAIVE = "waive";
     public static final String COMMAND_ADJUSTMENT = "adjustment";
     public static final String COMMAND_DEACTIVATE_OVERDUE = "deactivateOverdue";
+    public static final String COMMAND_WAIVE_BULK = "waiveBulk";
     private static final Set<String> RESPONSE_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList("id", "chargeId", "name", "penalty", "chargeTimeType", "dueAsOfDate", "chargeCalculationType", "percentage",
                     "amountPercentageAppliedTo", "currency", "amountWaived", "amountWrittenOff", "amountOutstanding", "amountOrPercentage",
@@ -467,10 +468,15 @@ public class LoanChargesApiResource {
             final CommandWrapper commandRequest = new CommandWrapperBuilder().deactivateOverdueLoanCharges(resolvedLoanId, null)
                     .withJson(apiRequestBodyAsJson).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+        } else if (CommandParameterUtil.is(commandParam, COMMAND_WAIVE_BULK)) {
+                final CommandWrapper commandRequest = new CommandWrapperBuilder()
+                                .waiveBulkLoanCharges(resolvedLoanId)
+                                .withJson(apiRequestBodyAsJson).build();
+                result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else {
-            final CommandWrapper commandRequest = new CommandWrapperBuilder().createLoanCharge(resolvedLoanId)
-                    .withJson(apiRequestBodyAsJson).build();
-            result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+                final CommandWrapper commandRequest = new CommandWrapperBuilder().createLoanCharge(resolvedLoanId)
+                                .withJson(apiRequestBodyAsJson).build();
+                result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         }
 
         return this.toApiJsonSerializer.serialize(result);
