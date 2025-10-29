@@ -1762,10 +1762,6 @@ public final class LoanApplicationTerms {
     private Money calculatePrincipalDueForInstallment(final int periodNumber, final Money totalDuePerInstallment,
             final Money periodInterest, final Money brokenPeriodInterestForInstallment) {
         Money principal = totalDuePerInstallment.minus(periodInterest);
-        if (periodNumber == 1 && this.bpiConfig != null && this.bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
-                && brokenPeriodInterestForInstallment.isGreaterThanZero()) {
-            // principal = totalDuePerInstallment.minus(periodInterest.minus(brokenPeriodInterestForInstallment));
-        }
         if (isPrincipalGraceApplicableForThisPeriod(periodNumber)) {
             principal = principal.zero();
         }
