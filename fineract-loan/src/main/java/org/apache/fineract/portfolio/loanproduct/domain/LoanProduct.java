@@ -291,7 +291,7 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
             final LoanCapitalizedIncomeStrategy capitalizedIncomeStrategy, final LoanCapitalizedIncomeType capitalizedIncomeType,
             final boolean enableBuyDownFee, final LoanBuyDownFeeCalculationType buyDownFeeCalculationType,
             final LoanBuyDownFeeStrategy buyDownFeeStrategy, final LoanBuyDownFeeIncomeType buyDownFeeIncomeType,
-            final boolean merchantBuyDownFee, final boolean allowFullTermForTranche) {
+            final boolean merchantBuyDownFee, final boolean allowFullTermForTranche, final LoanProductConfigMapping bpiConfig, final Integer installmentInterestCalculationType) {
         this.fund = fund;
         this.transactionProcessingStrategyCode = transactionProcessingStrategyCode;
 
@@ -344,7 +344,9 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
                 supportedInterestRefundTypes, chargeOffBehaviour, isInterestRecognitionOnDisbursementDate, daysInYearCustomStrategy,
                 enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType,
                 installmentAmountInMultiplesOf, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                merchantBuyDownFee);
+                merchantBuyDownFee,
+                installmentInterestCalculationType != null ? InterestCalculationPeriodMethod.fromInt(installmentInterestCalculationType)
+                        : null);
 
         this.loanProductMinMaxConstraints = new LoanProductMinMaxConstraints(defaultMinPrincipal, defaultMaxPrincipal,
                 defaultMinNominalInterestRatePerPeriod, defaultMaxNominalInterestRatePerPeriod, defaultMinNumberOfInstallments,
@@ -394,6 +396,7 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
         this.overDueDaysForRepaymentEvent = overDueDaysForRepaymentEvent;
         this.repaymentStartDateType = repaymentStartDateType;
 
+        this.bpiConfig = bpiConfig;
         this.enableInstallmentLevelDelinquency = enableInstallmentLevelDelinquency;
         validateLoanProductPreSave();
     }
@@ -769,6 +772,10 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
 
     public boolean isAllowFullTermForTranche() {
         return this.loanProductTrancheDetails != null && this.loanProductTrancheDetails.isAllowFullTermForTranche();
+    }
+
+    public InterestCalculationPeriodMethod getInstallmentInterestCalculationType() {
+        return this.loanProductRelatedDetail.getInstallmentInterestCalculationType();
     }
 
 }

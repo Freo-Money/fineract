@@ -334,6 +334,13 @@ public class LoanProductAssembler {
         final boolean merchantBuyDownFee = command
                 .booleanPrimitiveValueOfParameterNamed(LoanProductConstants.MERCHANT_BUY_DOWN_FEE_PARAM_NAME);
 
+        // Default to SAME_AS_REPAYMENT_PERIOD (value = 1) if not provided
+        Integer installmentInterestCalculationType = InterestCalculationPeriodMethod.SAME_AS_REPAYMENT_PERIOD.getValue();
+        if (command.parameterExists(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE)) {
+            installmentInterestCalculationType = command
+                    .integerValueOfParameterNamed(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE);
+        }
+
         return new LoanProduct(fund, loanTransactionProcessingStrategy, loanProductPaymentAllocationRules, loanProductCreditAllocationRules,
                 name, shortName, description, currency, principal, minPrincipal, maxPrincipal, interestRatePerPeriod,
                 minInterestRatePerPeriod, maxInterestRatePerPeriod, interestFrequencyType, annualInterestRate, interestMethod,
@@ -356,7 +363,7 @@ public class LoanProductAssembler {
                 enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate,
                 daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                 capitalizedIncomeType, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                merchantBuyDownFee, allowFullTermForTranche);
+                merchantBuyDownFee, allowFullTermForTranche, null, installmentInterestCalculationType);
 
     }
 

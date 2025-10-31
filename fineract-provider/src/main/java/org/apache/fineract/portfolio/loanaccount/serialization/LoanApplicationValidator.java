@@ -220,13 +220,11 @@ public final class LoanApplicationValidator {
 
         validateCumulativeMultiDisburse(loan);
 
-        // TODO: Commenting this method as installments will increase for BPI principal grace fix later
-        /*
-         * validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
-         * loan.getLoanProductRelatedDetail().getNumberOfRepayments(),
-         * loan.getLoanProductRelatedDetail().getRepayEvery(),
-         * loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
-         */
+        if (!shouldSkipValidation(loan)) {
+            validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
+                    loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),
+                    loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+        }
     }
 
     public void validateForModify(final Loan loan) {
@@ -238,13 +236,17 @@ public final class LoanApplicationValidator {
                     expectedFirstRepaymentOnDate);
         }
         validateCumulativeMultiDisbursement(loan);
-        // TODO: Commenting this method as installments will increase for BPI principal grace fix later
-        /*
-         * validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
-         * loan.getLoanProductRelatedDetail().getNumberOfRepayments(),
-         * loan.getLoanProductRelatedDetail().getRepayEvery(),
-         * loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
-         */
+        if (!shouldSkipValidation(loan)) {
+            validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
+                    loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),
+                    loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+        }
+    }
+
+    private boolean shouldSkipValidation(final Loan loan) {
+        return loan.getBpiConfig() != null && loan.getBpiConfig().getBrokenPeriodConfig() != null
+                && loan.getBpiConfig().getBrokenPeriodConfig().getStrategy() != null
+                && loan.getBpiConfig().getBrokenPeriodConfig().getStrategy().isAddToFirstInstallmentWithPrincipalGrace();
     }
 
     public void validateForCreate(JsonCommand command) {

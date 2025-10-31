@@ -212,7 +212,7 @@ public final class LoanProductDataValidator {
             LoanProductAccountingParams.BUYDOWN_FEE_CLASSIFICATION_TO_INCOME_ACCOUNT_MAPPINGS.getValue(), //
             LoanProductConstants.ALLOW_FULL_TERM_FOR_TRANCHE_PARAM_NAME, //
             LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR,
-            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH));
+            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE));
 
     private static final String[] SUPPORTED_LOAN_CONFIGURABLE_ATTRIBUTES = { LoanProductConstants.amortizationTypeParamName,
             LoanProductConstants.interestTypeParamName, LoanProductConstants.transactionProcessingStrategyCodeParamName,
@@ -372,6 +372,13 @@ public final class LoanProductDataValidator {
                 Locale.getDefault());
         baseDataValidator.reset().parameter(INTEREST_CALCULATION_PERIOD_TYPE).value(interestCalculationPeriodType).notNull()
                 .inMinMaxRange(0, 1);
+
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE, element)) {
+            final Integer installmentInterestCalculationType = this.fromApiJsonHelper
+                    .extractIntegerNamed(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE, element, Locale.getDefault());
+            baseDataValidator.reset().parameter(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE)
+                    .value(installmentInterestCalculationType).notNull().inMinMaxRange(0, 1);
+        }
 
         final BigDecimal inArrearsTolerance = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(IN_ARREARS_TOLERANCE, element);
         baseDataValidator.reset().parameter(IN_ARREARS_TOLERANCE).value(inArrearsTolerance).ignoreIfNull().zeroOrPositiveAmount();
@@ -1513,6 +1520,13 @@ public final class LoanProductDataValidator {
                     Locale.getDefault());
             baseDataValidator.reset().parameter(INTEREST_CALCULATION_PERIOD_TYPE).value(interestCalculationPeriodType).notNull()
                     .inMinMaxRange(0, 1);
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE, element)) {
+            final Integer installmentInterestCalculationType = this.fromApiJsonHelper
+                    .extractIntegerNamed(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE, element, Locale.getDefault());
+            baseDataValidator.reset().parameter(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE)
+                    .value(installmentInterestCalculationType).notNull().inMinMaxRange(0, 1);
         }
 
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.DAYS_IN_YEAR_TYPE_PARAMETER_NAME, element)) {
