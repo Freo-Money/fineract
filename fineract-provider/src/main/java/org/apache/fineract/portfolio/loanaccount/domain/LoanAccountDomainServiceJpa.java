@@ -383,7 +383,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     @Transactional
     public LoanTransaction makeChargePayment(final Loan loan, final Long chargeId, final LocalDate transactionDate,
             final BigDecimal transactionAmount, final PaymentDetail paymentDetail, final String noteText, final ExternalId txnExternalId,
-            final Integer transactionType, Integer installmentNumber) {
+            final Integer transactionType, Integer installmentNumber, boolean isAccountTransfer) {
         checkClientOrGroupActive(loan);
         if (loan.isChargedOff() && DateUtils.isBefore(transactionDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
@@ -433,7 +433,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         loanAccrualsProcessingService.processAccrualsOnInterestRecalculation(loan, loan.isInterestBearingAndInterestRecalculationEnabled(),
                 true);
 
-        journalEntryPoster.postJournalEntriesForLoanTransaction(newPaymentTransaction, true, false);
+        journalEntryPoster.postJournalEntriesForLoanTransaction(newPaymentTransaction, isAccountTransfer, false);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanChargePaymentPostBusinessEvent(newPaymentTransaction));
         return newPaymentTransaction;

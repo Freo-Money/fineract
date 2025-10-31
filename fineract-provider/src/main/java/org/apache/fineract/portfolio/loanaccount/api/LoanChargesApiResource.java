@@ -79,6 +79,7 @@ public class LoanChargesApiResource {
     public static final String COMMAND_WAIVE = "waive";
     public static final String COMMAND_ADJUSTMENT = "adjustment";
     public static final String COMMAND_DEACTIVATE_OVERDUE = "deactivateOverdue";
+    public static final String COMMAND_BULK_WAIVE = "bulkWaive";
     private static final Set<String> RESPONSE_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList("id", "chargeId", "name", "penalty", "chargeTimeType", "dueAsOfDate", "chargeCalculationType", "percentage",
                     "amountPercentageAppliedTo", "currency", "amountWaived", "amountWrittenOff", "amountOutstanding", "amountOrPercentage",
@@ -465,6 +466,10 @@ public class LoanChargesApiResource {
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else if (CommandParameterUtil.is(commandParam, COMMAND_DEACTIVATE_OVERDUE)) {
             final CommandWrapper commandRequest = new CommandWrapperBuilder().deactivateOverdueLoanCharges(resolvedLoanId, null)
+                    .withJson(apiRequestBodyAsJson).build();
+            result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+        } else if (CommandParameterUtil.is(commandParam, COMMAND_BULK_WAIVE)) {
+            final CommandWrapper commandRequest = new CommandWrapperBuilder().waiveBulkLoanCharges(resolvedLoanId)
                     .withJson(apiRequestBodyAsJson).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else {

@@ -38,6 +38,7 @@ import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanSchedulePeriodData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
+import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -52,11 +53,14 @@ public class LoanScheduleHistoryReadPlatformServiceImpl implements LoanScheduleH
 
     private final JdbcTemplate jdbcTemplate;
     private final PlatformSecurityContext context;
+    private final LoanReadPlatformService loanReadPlatformService;
 
     @Autowired
-    public LoanScheduleHistoryReadPlatformServiceImpl(final JdbcTemplate jdbcTemplate, final PlatformSecurityContext context) {
+    public LoanScheduleHistoryReadPlatformServiceImpl(final JdbcTemplate jdbcTemplate, final PlatformSecurityContext context,
+            final LoanReadPlatformService loanReadPlatformService) {
         this.context = context;
         this.jdbcTemplate = jdbcTemplate;
+        this.loanReadPlatformService = loanReadPlatformService;
     }
 
     @SuppressWarnings("deprecation")
@@ -70,20 +74,18 @@ public class LoanScheduleHistoryReadPlatformServiceImpl implements LoanScheduleH
     @Override
     public LoanScheduleData retrieveRepaymentArchiveSchedule(final Long loanId,
             final RepaymentScheduleRelatedLoanData repaymentScheduleRelatedLoanData, Collection<DisbursementData> disbursementData,
-            LoanScheduleType loanScheduleType) {
-
+            LoanScheduleType loanScheduleType, Integer version) {
         try {
-            this.context.authenticatedUser();
-            Integer versionNumber = fetchCurrentVersionNumber(loanId);
-            if (versionNumber == 0) {
+            if (version == null || version == 0) {
                 return null;
             }
+            this.context.authenticatedUser();
             final LoanScheduleArchiveResultSetExtractor fullResultsetExtractor = new LoanScheduleArchiveResultSetExtractor(
                     repaymentScheduleRelatedLoanData, disbursementData, loanScheduleType);
             final String sql = "select " + fullResultsetExtractor.schema()
                     + " where ls.loan_id = ? and ls.version = ? order by ls.loan_id, ls.installment";
 
-            return this.jdbcTemplate.query(sql, fullResultsetExtractor, loanId, versionNumber); // NOSONAR
+            return this.jdbcTemplate.query(sql, fullResultsetExtractor, loanId, version); // NOSONAR
         } catch (final EmptyResultDataAccessException e) {
             throw new LoanNotFoundException(loanId, e);
         }
@@ -161,7 +163,9 @@ public class LoanScheduleHistoryReadPlatformServiceImpl implements LoanScheduleH
                 if (disbursementData != null) {
                     BigDecimal principal = BigDecimal.ZERO;
                     for (DisbursementData data : disbursementData) {
-                        if (fromDate.equals(this.disbursement.disbursementDate()) && data.disbursementDate().equals(fromDate)) {
+                        // Handle null fromDate (defensive check)
+                        if (fromDate != null && fromDate.equals(this.disbursement.disbursementDate()) && data.disbursementDate() != null
+                                && data.disbursementDate().equals(fromDate)) {
                             principal = principal.add(data.getPrincipal());
                             final LoanSchedulePeriodData periodData = LoanSchedulePeriodData.disbursementOnlyPeriod(data.disbursementDate(),
                                     data.getPrincipal(), this.totalFeeChargesDueAtDisbursement, data.isDisbursed());
@@ -226,5 +230,4 @@ public class LoanScheduleHistoryReadPlatformServiceImpl implements LoanScheduleH
         }
 
     }
-
 }
