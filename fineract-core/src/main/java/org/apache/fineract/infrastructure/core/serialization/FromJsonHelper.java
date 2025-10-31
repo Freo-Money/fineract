@@ -182,6 +182,10 @@ public class FromJsonHelper {
         return this.helperDelegator.extractLongNamed(parameterName, element, parametersPassedInRequest);
     }
 
+    public Long[] extractLongArrayNamed(final String parameterName, final JsonElement element) {
+        return this.helperDelegator.extractLongArrayNamed(parameterName, element);
+    }
+
     public JsonArray extractJsonArrayNamed(final String parameterName, final JsonElement element) {
         return this.helperDelegator.extractJsonArrayNamed(parameterName, element);
     }

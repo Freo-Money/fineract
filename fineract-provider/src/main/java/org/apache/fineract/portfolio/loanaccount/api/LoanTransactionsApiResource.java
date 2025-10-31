@@ -64,6 +64,7 @@ import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentScheduleInstallmentData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionBasicData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanTransactionTypeException;
@@ -71,6 +72,7 @@ import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException
 import org.apache.fineract.portfolio.loanaccount.exception.LoanTransactionNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargePaidByReadService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
+import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionReadService;
 import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
 import org.apache.fineract.portfolio.paymenttype.service.PaymentTypeReadPlatformService;
 import org.springframework.data.domain.Page;
@@ -104,6 +106,7 @@ public class LoanTransactionsApiResource {
     private final PortfolioCommandSourceWritePlatformService commandsSourceWritePlatformService;
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
     private final LoanChargePaidByReadService loanChargePaidByReadService;
+    private final LoanTransactionReadService loanTransactionReadService;
 
     @GET
     @Path("{loanId}/transactions/template")
@@ -780,5 +783,19 @@ public class LoanTransactionsApiResource {
         } else {
             throw new IllegalArgumentException("loanId and loanExternalId cannot be both null");
         }
+    }
+
+    @GET
+    @Path("/transactions/{external-id}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Retrieve Loan Transaction by External ID", description = "Retrieves a loan transaction using its external reference ID\n\n"
+            + "Example Request:\n" + "loans/transactions/TXN-123456")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanTransactionBasicData.class))),
+            @ApiResponse(responseCode = "404", description = "Loan transaction not found") })
+    public LoanTransactionBasicData retrieveLoanTransactionByExternalId(
+            @PathParam("externalId") @Parameter(description = "External ID of the loan transaction", required = true) final String externalId) {
+        return loanTransactionReadService.retrieveTransactionByExternalId(externalId);
     }
 }

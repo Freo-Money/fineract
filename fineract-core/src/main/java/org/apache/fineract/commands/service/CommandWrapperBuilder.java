@@ -3903,4 +3903,23 @@ public class CommandWrapperBuilder {
         this.href = "/loans/" + loanId;
         return this;
     }
+
+    public CommandWrapperBuilder payChargeByChargeId(final Long loanId, final Long chargeId) {
+        this.actionName = "PAY";
+        this.entityName = "CHARGE";
+        this.loanId = loanId;
+        this.entityId = chargeId;
+        this.href = "/loans/" + loanId + "/charge-payment/" + chargeId;
+        return this;
+    }
+
+    public CommandWrapperBuilder waiveBulkLoanCharges(final Long loanId) {
+        this.actionName = "BULK_WAIVE";
+        this.entityName = "LOANCHARGE";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/charges?command=bulkWaive";
+        return this;
+    }
+
 }

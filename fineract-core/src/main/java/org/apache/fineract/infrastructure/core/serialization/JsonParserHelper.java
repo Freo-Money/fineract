@@ -39,6 +39,7 @@ import java.time.format.ResolverStyle;
 import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -110,6 +111,112 @@ public class JsonParserHelper {
             }
         }
         return longValue;
+    }
+
+    public Long[] extractLongArrayNamed(String parameterName, JsonElement element) {
+        return extractLongArrayNamed(parameterName, element, new HashSet<String>());
+    }
+
+    public Long[] extractLongArrayNamed(final String parameterName, final JsonElement element,
+            final Set<String> parametersPassedInRequest) {
+        Long[] arrayValue = null;
+        if (element.isJsonObject()) {
+            final JsonObject object = element.getAsJsonObject();
+            if (object.has(parameterName)) {
+                parametersPassedInRequest.add(parameterName);
+
+                try {
+                    final JsonElement paramElement = object.get(parameterName);
+
+                    if (!paramElement.isJsonArray()) {
+                        throwArrayValidationError(parameterName, "validation.msg.invalid.array.format",
+                                "The parameter `" + parameterName + "` must be a JSON array.");
+                    }
+
+                    final JsonArray array = paramElement.getAsJsonArray();
+                    arrayValue = new Long[array.size()];
+
+                    for (int i = 0; i < array.size(); i++) {
+                        arrayValue[i] = extractAndValidateLongFromArray(parameterName, array.get(i), i);
+                    }
+                } catch (final PlatformApiDataValidationException e) {
+                    throw e;
+                } catch (final Exception e) {
+                    throwArrayValidationError(parameterName, "validation.msg.invalid.array.processing",
+                            "The parameter `" + parameterName + "` could not be processed as a long array: " + e.getMessage(), e);
+                }
+            }
+        }
+        return arrayValue;
+    }
+
+    private Long extractAndValidateLongFromArray(final String parameterName, final JsonElement arrayElement, final int index) {
+        final String paramPath = parameterName + "[" + index + "]";
+
+        if (arrayElement.isJsonNull()) {
+            throwArrayValidationError(paramPath, "validation.msg.invalid.long.array.element.null",
+                    "The parameter `" + parameterName + "` contains a null value at index " + index + ".");
+        }
+
+        if (!arrayElement.isJsonPrimitive()) {
+            throwArrayValidationError(paramPath, "validation.msg.invalid.long.array.element.type",
+                    "The parameter `" + parameterName + "` contains an invalid element at index " + index + ". Expected a number.");
+        }
+
+        final JsonPrimitive primitive = arrayElement.getAsJsonPrimitive();
+        Long value;
+
+        try {
+            if (primitive.isNumber()) {
+                value = primitive.getAsLong();
+            } else if (primitive.isString()) {
+                final String stringValue = primitive.getAsString().trim();
+                if (StringUtils.isBlank(stringValue)) {
+                    throwArrayValidationError(paramPath, "validation.msg.invalid.long.array.element.empty",
+                            "The parameter `" + parameterName + "` contains an empty value at index " + index + ".");
+                }
+                value = Long.valueOf(stringValue);
+            } else {
+                throwArrayValidationErrorWithValue(paramPath, "validation.msg.invalid.long.array.element.type",
+                        "The parameter `" + parameterName + "` contains an invalid element type at index " + index + ".",
+                        primitive.toString());
+                return null; // unreachable
+            }
+        } catch (final NumberFormatException e) {
+            throwArrayValidationErrorWithValue(paramPath, "validation.msg.invalid.long.array.element.format",
+                    "The parameter `" + parameterName + "` contains an invalid value at index " + index + ": '" + primitive.getAsString()
+                            + "' which cannot be converted to a long value.",
+                    primitive.getAsString(), e);
+            return null; // unreachable
+        }
+
+        return value;
+    }
+
+    private void throwArrayValidationError(final String parameterName, final String code, final String message) {
+        throwArrayValidationError(parameterName, code, message, null);
+    }
+
+    private void throwArrayValidationError(final String parameterName, final String code, final String message, final Exception cause) {
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final ApiParameterError error = ApiParameterError.parameterError(code, message, parameterName);
+        dataValidationErrors.add(error);
+        throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                dataValidationErrors, cause);
+    }
+
+    private void throwArrayValidationErrorWithValue(final String parameterName, final String code, final String message,
+            final String value) {
+        throwArrayValidationErrorWithValue(parameterName, code, message, value, null);
+    }
+
+    private void throwArrayValidationErrorWithValue(final String parameterName, final String code, final String message, final String value,
+            final Exception cause) {
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final ApiParameterError error = ApiParameterError.parameterErrorWithValue(code, message, parameterName, value, value);
+        dataValidationErrors.add(error);
+        throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
+                dataValidationErrors, cause);
     }
 
     public String extractStringNamed(final String parameterName, final JsonElement element, final Set<String> parametersPassedInRequest) {
