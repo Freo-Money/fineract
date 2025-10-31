@@ -65,6 +65,7 @@ import org.apache.fineract.portfolio.loanproduct.data.LoanProductConfigurationWr
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductGuaranteeData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductInterestRecalculationData;
+import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigurableAttributes;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductParamType;
@@ -305,6 +306,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.capitalized_income_type as capitalizedIncomeType, lp.is_merchant_buy_down_fee as merchantBuyDownFee, " //
                     + "lp.enable_buy_down_fee as enableBuyDownFee, " + "lp.buy_down_fee_calculation_type as buyDownFeeCalculationType, "
                     + "lp.buy_down_fee_strategy as buyDownFeeStrategy, " + "lp.buy_down_fee_income_type as buyDownFeeIncomeType, "
+                    + "lp.installment_interest_calculation_type_enum as installmentInterestCalculationType, "
                     + "lpcm.config_json as bpiConfigJson " + " from m_product_loan lp " + " left join m_fund f on f.id = lp.fund_id "
                     + " left join m_product_loan_recalculation_details lpr on lpr.product_id=lp.id "
                     + " left join m_product_loan_guarantee_details lpg on lpg.loan_product_id=lp.id "
@@ -584,6 +586,11 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
             final StringEnumOptionData buyDownFeeIncomeType = ApiFacingEnum.getStringEnumOptionData(LoanBuyDownFeeIncomeType.class,
                     rs.getString("buyDownFeeIncomeType"));
             final boolean merchantBuyDownFee = rs.getBoolean("merchantBuyDownFee");
+            final Integer installmentInterestCalculationTypeValue = JdbcSupport.getInteger(rs, "installmentInterestCalculationType");
+            final EnumOptionData installmentInterestCalculationType = installmentInterestCalculationTypeValue != null
+                    ? LoanEnumerations
+                            .interestCalculationPeriodType(InterestCalculationPeriodMethod.fromInt(installmentInterestCalculationTypeValue))
+                    : null;
 
             // Extract and parse BPI configuration
             final String bpiConfigJson = rs.getString("bpiConfigJson");
@@ -623,7 +630,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     loanChargeOffBehaviour.getValueAsStringEnumOptionData(), interestRecognitionOnDisbursementDate,
                     daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                     capitalizedIncome, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                    merchantBuyDownFee, null, null, brokenPeriodConfig);
+                    merchantBuyDownFee, null, null, brokenPeriodConfig, installmentInterestCalculationType);
         }
     }
 

@@ -570,7 +570,8 @@ public class LoanScheduleAssembler {
                 loanProduct.getLoanProductRelatedDetail().getBuyDownFeeCalculationType(),
                 loanProduct.getLoanProductRelatedDetail().getBuyDownFeeStrategy(),
                 loanProduct.getLoanProductRelatedDetail().getBuyDownFeeIncomeType(),
-                loanProduct.getLoanProductRelatedDetail().isMerchantBuyDownFee(), bpiConfig);
+                loanProduct.getLoanProductRelatedDetail().isMerchantBuyDownFee(),
+                loanProduct.getLoanProductRelatedDetail().getInstallmentInterestCalculationType(), bpiConfig);
         boolean isAdditionalPrincipalGracePeriodRequired = LoanScheduleUtilService
                 .isAdditionalPrincipalGracePeriodRequired(loanApplicationTerms);
         loanApplicationTerms.addAdditionalPrincipalGracePeriod(isAdditionalPrincipalGracePeriodRequired);
