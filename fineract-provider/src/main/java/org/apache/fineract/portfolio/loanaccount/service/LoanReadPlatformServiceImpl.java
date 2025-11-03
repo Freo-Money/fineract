@@ -965,6 +965,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " l.total_outstanding_derived as totalOutstanding, l.total_overpaid_derived as totalOverpaid,"
                     + " l.fixed_emi_amount as fixedEmiAmount, l.max_outstanding_loan_balance as outstandingLoanBalance,"
                     + " l.loan_sub_status_id as loanSubStatusId, la.principal_overdue_derived as principalOverdue, l.is_fraud as isFraud, "
+                    + " l.custom_schedule_defined as customScheduleDefined, "
                     + " la.interest_overdue_derived as interestOverdue, la.fee_charges_overdue_derived as feeChargesOverdue,"
                     + " la.penalty_charges_overdue_derived as penaltyChargesOverdue, la.total_overdue_derived as totalOverdue,"
                     + " la.overdue_since_date_derived as overdueSinceDate, "
@@ -1411,7 +1412,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             final StringEnumOptionData buyDownFeeIncomeType = ApiFacingEnum.getStringEnumOptionData(LoanBuyDownFeeIncomeType.class,
                     rs.getString("buyDownFeeIncomeType"));
             final boolean merchantBuyDownFee = rs.getBoolean("merchantBuyDownFee");
-
+            final boolean customScheduleDefined = rs.getBoolean("customScheduleDefined");
             final LoanAccountData loanAccountData = LoanAccountData.basicLoanDetails(id, accountNo, status, externalId, clientId,
                     clientAccountNo, clientName, clientOfficeId, clientExternalId, groupData, loanType, loanProductId, loanProductName,
                     loanProductDescription, isLoanProductLinkedToFloatingRate, fundId, fundName, loanPurposeId, loanPurposeName,
@@ -1437,7 +1438,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
             // Set BPI configuration
             loanAccountData.setBrokenPeriodConfig(brokenPeriodConfig);
-
+            loanAccountData.setCustomScheduleDefined(customScheduleDefined);
             return loanAccountData;
         }
     }

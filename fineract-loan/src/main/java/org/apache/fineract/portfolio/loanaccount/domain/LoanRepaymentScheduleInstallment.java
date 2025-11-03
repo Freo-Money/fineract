@@ -1248,4 +1248,10 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
     public boolean isFirstNormalInstallment(List<LoanRepaymentScheduleInstallment> installments) {
         return installments.stream().filter(rp -> !rp.isDownPayment()).findFirst().stream().anyMatch(rp -> rp.equals(this));
     }
+
+    public static LoanRepaymentScheduleInstallment createInstallmentDetail(Loan loan, LocalDate fromDate, LocalDate dueDate,
+            Integer periodNumber, BigDecimal principalDue, BigDecimal interestDue, BigDecimal feeChargesDue, BigDecimal penaltyChargesDue) {
+        return new LoanRepaymentScheduleInstallment(loan, periodNumber, fromDate, dueDate, principalDue, interestDue, feeChargesDue,
+                penaltyChargesDue, false, null);
+    }
 }

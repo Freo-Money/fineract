@@ -101,4 +101,6 @@ public interface LoanAccountDomainService {
 
     LoanTransaction createManualInterestRefundWithAmount(Loan loan, LoanTransaction targetTransaction, BigDecimal amount,
             PaymentDetail paymentDetail, ExternalId txnExternalId);
+
+    void createAndSaveLoanScheduleArchive(Loan loan);
 }
