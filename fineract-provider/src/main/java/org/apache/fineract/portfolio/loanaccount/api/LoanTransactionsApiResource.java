@@ -786,7 +786,7 @@ public class LoanTransactionsApiResource {
     }
 
     @GET
-    @Path("/transactions/{external-id}")
+    @Path("/transactions/external-id/{externalId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Retrieve Loan Transaction by External ID", description = "Retrieves a loan transaction using its external reference ID\n\n"
