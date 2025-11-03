@@ -3922,4 +3922,21 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder createCustomLoanSchedule(final Long loanId) {
+        this.actionName = "CREATE";
+        this.entityName = "CUSTOMSCHEDULE";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/custom-schedule";
+        return this;
+    }
+
+    public CommandWrapperBuilder updateCustomLoanSchedule(final Long loanId) {
+        this.actionName = "UPDATE";
+        this.entityName = "CUSTOMSCHEDULE";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/custom-schedule";
+        return this;
+    }
 }
