@@ -28,17 +28,37 @@ import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import java.math.BigDecimal;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.core.domain.ExternalId;
+import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
+import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
+import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
+import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionBasicData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionEnumData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
+import org.apache.fineract.portfolio.loanaccount.exception.LoanTransactionNotFoundException;
+import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 @Component
 @Transactional(readOnly = true)
+@RequiredArgsConstructor
 public class LoanTransactionReadService {
+
+    private final JdbcTemplate jdbcTemplate;
+    private final DatabaseSpecificSQLGenerator sqlGenerator;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -76,6 +96,56 @@ public class LoanTransactionReadService {
 
         final TypedQuery<LoanTransaction> queryToExecute = entityManager.createQuery(query);
         return queryToExecute.getResultList();
+    }
+
+    public LoanTransactionBasicData retrieveTransactionByExternalId(final String externalIdStr) {
+        try {
+            final LoanTransactionBasicDataMapper rm = new LoanTransactionBasicDataMapper(sqlGenerator);
+            final String sql = "SELECT " + rm.schema() + " WHERE tr.external_id = ?";
+            return this.jdbcTemplate.queryForObject(sql, rm, externalIdStr);
+        } catch (EmptyResultDataAccessException e) {
+            ExternalId externalId = ExternalIdFactory.produce(externalIdStr);
+            throw new LoanTransactionNotFoundException(externalId, e);
+        }
+    }
+
+    private static final class LoanTransactionBasicDataMapper implements RowMapper<LoanTransactionBasicData> {
+
+        private final DatabaseSpecificSQLGenerator sqlGenerator;
+
+        LoanTransactionBasicDataMapper(DatabaseSpecificSQLGenerator sqlGenerator) {
+            this.sqlGenerator = sqlGenerator;
+        }
+
+        public String schema() {
+            return " tr.id as id, tr.transaction_type_enum as transactionType, tr.transaction_date as " + sqlGenerator.escape("date")
+                    + ", tr.amount as total, tr.principal_portion_derived as principal, tr.interest_portion_derived as interest, "
+                    + " tr.fee_charges_portion_derived as fees, tr.penalty_charges_portion_derived as penalties, tr.loan_id as loanId, "
+                    + " tr.overpayment_portion_derived as overpayment, " + " tr.unrecognized_income_portion as unrecognizedIncome, "
+                    + " tr.manually_adjusted_or_reversed as manuallyReversed,  " + " from m_loan_transaction tr ";
+        }
+
+        @Override
+        public LoanTransactionBasicData mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum) throws SQLException {
+
+            final Long id = rs.getLong("id");
+            final Long loanId = rs.getLong("loanId");
+            final int transactionTypeInt = JdbcSupport.getInteger(rs, "transactionType");
+            final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(transactionTypeInt);
+            final boolean manuallyReversed = rs.getBoolean("manuallyReversed");
+            final LocalDate date = JdbcSupport.getLocalDate(rs, "date");
+            final BigDecimal totalAmount = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "total");
+            final BigDecimal principalPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "principal");
+            final BigDecimal interestPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "interest");
+            final BigDecimal feeChargesPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "fees");
+            final BigDecimal penaltyChargesPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penalties");
+            final BigDecimal overPaymentPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "overpayment");
+            final BigDecimal unrecognizedIncomePortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "unrecognizedIncome");
+            final String externalIdStr = rs.getString("externalId");
+            return new LoanTransactionBasicData(id, loanId, transactionType, date, totalAmount, principalPortion, interestPortion,
+                    feeChargesPortion, penaltyChargesPortion, overPaymentPortion, unrecognizedIncomePortion, externalIdStr,
+                    manuallyReversed);
+        }
     }
 
 }

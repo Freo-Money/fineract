@@ -96,10 +96,12 @@ import org.apache.fineract.portfolio.group.data.GroupRoleData;
 import org.apache.fineract.portfolio.group.service.GroupReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.api.LoanTransactionApiConstants;
+import org.apache.fineract.portfolio.loanaccount.data.ChargePaymentTemplateData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApplicationTimelineData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovalData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanBasicDataForSchedule;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargesDueDTO;
@@ -229,12 +231,82 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         }
     }
 
+    @Override
+    public LoanBasicDataForSchedule retrieveLoanBasicDataForScheduleHistory(final Long loanId) {
+        try {
+            final String hierarchy = getHierarchyString();
+            final String hierarchySearchString = hierarchy + "%";
+
+            final LoanBasicDataForScheduleMapper mapper = new LoanBasicDataForScheduleMapper();
+
+            final StringBuilder sqlBuilder = new StringBuilder(300);
+            sqlBuilder.append("SELECT ");
+            sqlBuilder.append(mapper.schema());
+            sqlBuilder.append(" FROM m_loan l ");
+            sqlBuilder.append(" LEFT JOIN m_client c ON c.id = l.client_id ");
+            sqlBuilder.append(" LEFT JOIN m_group g ON g.id = l.group_id ");
+            sqlBuilder.append(" LEFT JOIN m_currency rc ON rc.code = l.currency_code ");
+            sqlBuilder.append(" LEFT JOIN m_office o ON (o.id = c.office_id OR o.id = g.office_id) ");
+            sqlBuilder.append(" LEFT JOIN m_office transferToOffice ON transferToOffice.id = c.transfer_to_office_id ");
+            sqlBuilder.append(" WHERE l.id = ? AND (o.hierarchy LIKE ? OR transferToOffice.hierarchy LIKE ?)");
+
+            return this.jdbcTemplate.queryForObject(sqlBuilder.toString(), mapper, loanId, hierarchySearchString, hierarchySearchString);
+        } catch (final EmptyResultDataAccessException e) {
+            throw new LoanNotFoundException(loanId, e);
+        }
+    }
+
     private String getHierarchyString() {
         AppUser currentUser = null;
         if (this.context != null) {
             currentUser = this.context.getAuthenticatedUserIfPresent();
         }
         return Optional.ofNullable(currentUser).map(appUser -> appUser.getOffice().getHierarchy()).orElse(".");
+    }
+
+    /**
+     * Lightweight mapper - fetches only loan fields needed for schedule operations (optimizes DB calls)
+     */
+    private static final class LoanBasicDataForScheduleMapper implements RowMapper<LoanBasicDataForSchedule> {
+
+        public String schema() {
+            return " l.expected_disbursedon_date as expectedDisbursementDate, " + " l.disbursedon_date as actualDisbursementDate, "
+                    + " l.currency_code as currencyCode, l.currency_digits as currencyDigits, "
+                    + " l.currency_multiplesof as inMultiplesOf, "
+                    + " rc.name as currencyName, rc.display_symbol as currencyDisplaySymbol, "
+                    + " rc.internationalized_name_code as currencyNameCode, " + " l.principal_amount as principal, "
+                    + " l.arrearstolerance_amount as inArrearsTolerance, "
+                    + " l.total_charges_due_at_disbursement_derived as feeChargesAtDisbursementCharged, "
+                    + " l.loan_schedule_type as loanScheduleType ";
+        }
+
+        @Override
+        public LoanBasicDataForSchedule mapRow(final ResultSet rs, @SuppressWarnings("unused") final int rowNum) throws SQLException {
+            final LocalDate expectedDisbursementDate = JdbcSupport.getLocalDate(rs, "expectedDisbursementDate");
+            final LocalDate actualDisbursementDate = JdbcSupport.getLocalDate(rs, "actualDisbursementDate");
+            final String currencyCode = rs.getString("currencyCode");
+            final Integer currencyDigits = rs.getInt("currencyDigits");
+            final Integer inMultiplesOf = JdbcSupport.getInteger(rs, "inMultiplesOf");
+            final String currencyName = rs.getString("currencyName");
+            final String currencyDisplaySymbol = rs.getString("currencyDisplaySymbol");
+            final String currencyNameCode = rs.getString("currencyNameCode");
+            final BigDecimal principal = rs.getBigDecimal("principal");
+            final BigDecimal inArrearsTolerance = rs.getBigDecimal("inArrearsTolerance");
+            final BigDecimal feeChargesAtDisbursementCharged = rs.getBigDecimal("feeChargesAtDisbursementCharged");
+            final String loanScheduleTypeStr = rs.getString("loanScheduleType");
+
+            final CurrencyData currency = new CurrencyData(currencyCode, currencyName, currencyDigits, inMultiplesOf, currencyDisplaySymbol,
+                    currencyNameCode);
+
+            // Convert string to enum (loan_schedule_type is stored as VARCHAR: "CUMULATIVE" or "PROGRESSIVE")
+            final LoanScheduleType loanScheduleType = loanScheduleTypeStr != null ? LoanScheduleType.valueOf(loanScheduleTypeStr)
+                    : LoanScheduleType.CUMULATIVE; // Default to CUMULATIVE if null
+
+            return LoanBasicDataForSchedule.builder().expectedDisbursementDate(expectedDisbursementDate)
+                    .actualDisbursementDate(actualDisbursementDate).currency(currency).principal(principal)
+                    .inArrearsTolerance(inArrearsTolerance).feeChargesAtDisbursementCharged(feeChargesAtDisbursementCharged)
+                    .loanScheduleType(loanScheduleType).build();
+        }
     }
 
     @Override
@@ -575,63 +647,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     private LoanTransactionData retrieveLoanOverdueDetails(Long loanId, LoanTransactionData loanTransactionData, LocalDate asOnDate) {
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         loanTransactionData.setPaymentTypeOptions(paymentOptions);
-        LoanChargesDueDTO loanChargesDue = fetchDueChargesAsOn(loanId, asOnDate);
+        LoanChargesDueDTO loanChargesDue = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate);
         loanTransactionData.setLoanOverdueChargeData(loanChargesDue);
         return loanTransactionData;
-    }
-
-    private LoanChargesDueDTO fetchDueChargesAsOn(Long loanId, LocalDate date) {
-        Collection<LoanChargeData> chargesDue = loanChargeReadPlatformService.retrieveLoanChargesDueAsOn(loanId, date);
-        Map<Long, LoanChargeData> feeChargeMap = new HashMap<>();
-        Map<Long, LoanChargeData> penaltyChargeMap = new HashMap<>();
-
-        BigDecimal totalFeeDue = BigDecimal.ZERO;
-        BigDecimal totalPenaltyDue = BigDecimal.ZERO;
-        LocalDate lastRunOnDate = null;
-        if (!chargesDue.isEmpty()) {
-            for (LoanChargeData charge : chargesDue) {
-                BigDecimal amount = charge.getAmountOutstanding();
-                if (amount == null || amount.signum() <= 0) {
-                    continue;
-                }
-
-                boolean isPenalty = charge.isPenalty();
-                Map<Long, LoanChargeData> targetMap = isPenalty ? penaltyChargeMap : feeChargeMap;
-
-                mergeChargeIntoMap(targetMap, charge, amount);
-
-                if (isPenalty) {
-                    totalPenaltyDue = totalPenaltyDue.add(amount);
-                    lastRunOnDate = updateLastRunDate(lastRunOnDate, charge.getSubmittedOnDate());
-                } else {
-                    totalFeeDue = totalFeeDue.add(amount);
-                }
-            }
-        }
-        return LoanChargesDueDTO.builder().feeDue(totalFeeDue).penaltyPostedAsOnDate(totalPenaltyDue).penaltyPostedTillDate(totalPenaltyDue)
-                .lastChargeAppliedOnDate(lastRunOnDate).lastRunOnDate(lastRunOnDate).feeCharges(new ArrayList<>(feeChargeMap.values()))
-                .penaltyCharges(new ArrayList<>(penaltyChargeMap.values())).build();
-    }
-
-    private void mergeChargeIntoMap(Map<Long, LoanChargeData> targetMap, LoanChargeData charge, BigDecimal amount) {
-        targetMap.compute(charge.getChargeId(), (id, existing) -> {
-            if (existing == null) {
-                LoanChargeData newCharge = new LoanChargeData(null, charge.getChargeId(), charge.getName(), null, null, null, null, null,
-                        amount, null, charge.getSubmittedOnDate(), null, null, null, null, charge.isPenalty(), null, false, false, null,
-                        null, null, null, null, null, null);
-                return newCharge;
-            } else {
-                existing.setAmountOutstanding(existing.getAmountOutstanding().add(amount));
-                return existing;
-            }
-        });
-    }
-
-    private LocalDate updateLastRunDate(LocalDate current, LocalDate newDate) {
-        if (newDate == null) {
-            return current;
-        }
-        return (current == null || newDate.isAfter(current)) ? newDate : current;
     }
 
     @Override
@@ -642,7 +660,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         sql.append(" WHERE ls.loan_id = ? AND ls.duedate <= ?  and ls.completed_derived = false ");
         LoanDueDetailsDTO dueDetails = this.jdbcTemplate.queryForObject(sql.toString(), new Object[] { loanId, asOnLocalDate },
                 loanDueDetailsExtractor);
-        LoanChargesDueDTO loanChargesDue = fetchDueChargesAsOn(loanId, asOnLocalDate);
+        LoanChargesDueDTO loanChargesDue = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnLocalDate);
         dueDetails = LoanDueDetailsDTO.builder().principalDue(dueDetails.getPrincipalDue()).interestDue(dueDetails.getInterestDue())
                 .feeChargesDue(dueDetails.getFeeChargesDue()).penaltyChargesDue(dueDetails.getPenaltyChargesDue())
                 .feeChargesDueDetails(loanChargesDue.getFeeCharges()).penaltyChargesDueDetails(loanChargesDue.getPenaltyCharges()).build();
@@ -2770,5 +2788,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
         return LoanTransaction.waiver(loan.getOffice(), loan, possibleInterestToWaive, transactionDate, possibleInterestToWaive,
                 possibleInterestToWaive.zero(), ExternalId.empty());
+    }
+
+    @Override
+    public ChargePaymentTemplateData getChargePaymentTemplateDetails(Long loanId, LocalDate asOnDate) {
+        final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
+        LoanChargesDueDTO loanChargesDueDTO = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate);
+        Collection<LoanChargeData> loanChargesDue = new ArrayList<>(loanChargesDueDTO.getFeeCharges());
+        loanChargesDue.addAll(loanChargesDueDTO.getPenaltyCharges());
+        return ChargePaymentTemplateData.builder().paymentTypeOptions(paymentOptions).charges(loanChargesDue)
+                .transactionType(LoanEnumerations.transactionType(LoanTransactionType.CHARGE_PAYMENT)).build();
     }
 }

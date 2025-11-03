@@ -33,6 +33,7 @@ import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.Positive;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
@@ -126,12 +127,15 @@ import org.apache.fineract.portfolio.fund.data.FundData;
 import org.apache.fineract.portfolio.fund.service.FundReadPlatformService;
 import org.apache.fineract.portfolio.group.data.GroupGeneralData;
 import org.apache.fineract.portfolio.group.service.GroupReadPlatformService;
+import org.apache.fineract.portfolio.loanaccount.data.ChargePaymentRequest;
+import org.apache.fineract.portfolio.loanaccount.data.ChargePaymentTemplateData;
 import org.apache.fineract.portfolio.loanaccount.data.CollectionData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.GlimRepaymentTemplate;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovalData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovedAmountHistoryData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanBasicDataForSchedule;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanCollateralManagementData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanDueDetailsDTO;
@@ -1116,10 +1120,11 @@ public class LoansApiResource {
                 if (associationParameters.contains(DataTableApiConstant.originalScheduleAssociateParamName)
                         && loanBasicDetails.isInterestRecalculationEnabled()
                         && LoanStatus.fromInt(loanBasicDetails.getStatus().getId().intValue()).isActive()) {
+                    Integer version = this.loanScheduleHistoryReadPlatformService.fetchCurrentVersionNumber(loanId);
                     mandatoryResponseParameters.add(DataTableApiConstant.originalScheduleAssociateParamName);
                     LoanScheduleData loanScheduleData = this.loanScheduleHistoryReadPlatformService.retrieveRepaymentArchiveSchedule(
                             resolvedLoanId, repaymentScheduleRelatedData, disbursementData,
-                            LoanScheduleType.fromEnumOptionData(loanBasicDetails.getLoanScheduleType()));
+                            LoanScheduleType.fromEnumOptionData(loanBasicDetails.getLoanScheduleType()), version);
                     loanBasicDetails = loanBasicDetails.setOriginalSchedule(loanScheduleData);
                 }
             }
@@ -1428,5 +1433,69 @@ public class LoansApiResource {
         DateFormat df = new DateFormat(dateFormat);
         LocalDate asOnLocalDate = asOnDateParam.getDate("asOnDate", df, locale);
         return this.loanReadPlatformService.getLoanDueDetails(loanId, asOnLocalDate);
+    }
+
+    @GET
+    @Path("{loanId}/charge-payment/template")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Returns the charge payment template for a loan as of a specific date", description = "")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = ChargePaymentTemplateData.class))) })
+    public ChargePaymentTemplateData getChargePaymentTemplateDetails(
+            @PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
+            @QueryParam("asOnDate") @NonNull final DateParam asOnDateParam, @QueryParam("dateFormat") String dateFormat,
+            @QueryParam("locale") String locale, @Context final UriInfo uriInfo) {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        DateFormat df = new DateFormat(dateFormat);
+        LocalDate asOnLocalDate = asOnDateParam.getDate("asOnDate", df, locale);
+        return this.loanReadPlatformService.getChargePaymentTemplateDetails(loanId, asOnLocalDate);
+    }
+
+    @POST
+    @Path("{loanId}/charge-payment/{chargeId}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "pay charge for a loan by loanChargeId", description = "")
+    @RequestBody(required = true, content = @Content(schema = @Schema(implementation = ChargePaymentRequest.class)))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = CommandProcessingResult.class))) })
+    public CommandProcessingResult payCharge(@PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
+            @PathParam("chargeId") @Parameter(description = "chargeId", required = true) final Long chargeId,
+            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        final CommandWrapperBuilder builder = new CommandWrapperBuilder().withJson(apiRequestBodyAsJson);
+        CommandWrapper commandRequest = builder.payChargeByChargeId(loanId, chargeId).build();
+        return this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+    }
+
+    @GET
+    @Path("{loanId}/schedule-history/{historyVersion}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Returns the schedule history for a given loan at a specific version", description = "")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanScheduleData.class))) })
+    public LoanScheduleData getLoanScheduleHistory(
+            @PathParam("loanId") @Parameter(description = "loanId", required = true) @NonNull final Long loanId,
+            @PathParam("historyVersion") @Parameter(description = "historyVersion", required = true) @NonNull @Positive final Integer historyVersion) {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        return retrieveLoanScheduleHistory(loanId, historyVersion);
+    }
+
+    private LoanScheduleData retrieveLoanScheduleHistory(Long loanId, Integer historyVersion) {
+        // Use optimized method to fetch only essential loan fields (reduces DB
+        // overhead)
+        final LoanBasicDataForSchedule loanBasicData = this.loanReadPlatformService.retrieveLoanBasicDataForScheduleHistory(loanId);
+
+        final RepaymentScheduleRelatedLoanData repaymentScheduleRelatedData = new RepaymentScheduleRelatedLoanData(
+                loanBasicData.getExpectedDisbursementDate(), loanBasicData.getActualDisbursementDate(), loanBasicData.getCurrency(),
+                loanBasicData.getPrincipal(), loanBasicData.getInArrearsTolerance(), loanBasicData.getFeeChargesAtDisbursementCharged());
+
+        final Collection<DisbursementData> disbursementData = this.loanReadPlatformService.retrieveLoanDisbursementDetails(loanId);
+        LoanScheduleData loanScheduleData = this.loanScheduleHistoryReadPlatformService.retrieveRepaymentArchiveSchedule(loanId,
+                repaymentScheduleRelatedData, disbursementData, loanBasicData.getLoanScheduleType(), historyVersion);
+        return loanScheduleData;
+
     }
 }
