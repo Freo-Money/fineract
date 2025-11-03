@@ -800,51 +800,7 @@ public class LoanTransactionsApiResource {
     }
 
     @GET
-    @Path("{loanId}/transactions/reage-preview")
-    @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Preview Re-Age Schedule", description = "Generates a preview of the re-aged loan schedule based on the provided parameters without creating any transactions or modifying the loan.")
-    public LoanScheduleData previewReAgeSchedule(@PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
-            @Valid @BeanParam final ReAgePreviewRequest reAgePreviewRequest) {
-        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
-        return loanReAgingService.previewReAge(loanId, null, reAgePreviewRequest);
-    }
-
-    @GET
-    @Path("external-id/{loanExternalId}/transactions/reage-preview")
-    @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Preview Re-Age Schedule", description = "Generates a preview of the re-aged loan schedule based on the provided parameters without creating any transactions or modifying the loan.")
-    public LoanScheduleData previewReAgeSchedule(
-            @PathParam("loanExternalId") @Parameter(description = "loanExternalId", required = true) final String loanExternalId,
-            @Valid @BeanParam final ReAgePreviewRequest reAgePreviewRequest) {
-        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
-        return loanReAgingService.previewReAge(null, loanExternalId, reAgePreviewRequest);
-    }
-
-    @GET
-    @Path("{loanId}/transactions/reamortization-preview")
-    @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Preview Re-Amortized Schedule", description = "Generates a preview of the re-amortized loan schedule based on the provided parameters without creating any transactions or modifying the loan.")
-    public LoanScheduleData previewReAmortizationSchedule(
-            @PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
-            @Valid @BeanParam final ReAmortizationPreviewRequest reAmortizationPreviewRequest) {
-        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
-        return loanReAmortizationService.previewReAmortization(loanId, null, reAmortizationPreviewRequest);
-    }
-
-    @GET
-    @Path("external-id/{loanExternalId}/transactions/reamortization-preview")
-    @Produces({ MediaType.APPLICATION_JSON })
-    @Operation(summary = "Preview Re-amortized Schedule", description = "Generates a preview of the re-amortized loan schedule based on the provided parameters without creating any transactions or modifying the loan.")
-    public LoanScheduleData previewReAmortizationSchedule(
-            @PathParam("loanExternalId") @Parameter(description = "loanExternalId", required = true) final String loanExternalId,
-            @Valid @BeanParam final ReAmortizationPreviewRequest reAmortizationPreviewRequest) {
-        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
-        return loanReAmortizationService.previewReAmortization(null, loanExternalId, reAmortizationPreviewRequest);
-    }
-
-
-    @GET
-    @Path("/transactions/{external-id}")
+    @Path("/transactions/external-id/{externalId}")
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Retrieve Loan Transaction by External ID", description = "Retrieves a loan transaction using its external reference ID\n\n"
