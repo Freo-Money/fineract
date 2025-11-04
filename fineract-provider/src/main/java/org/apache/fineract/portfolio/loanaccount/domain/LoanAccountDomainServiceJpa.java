@@ -93,6 +93,8 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleDelinquencyDat
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.MoneyHolder;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.TransactionCtx;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryWritePlatformService;
+import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanForeclosureValidator;
@@ -160,6 +162,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanTransactionService loanTransactionService;
     private final LoanAccountDomainServiceJpaHelper loanAccountDomainServiceJpaHelper;
     private final LoanJournalEntryPoster journalEntryPoster;
+    private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
 
     @Transactional
     @Override
@@ -1025,6 +1028,13 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final ScheduleGeneratorDTO scheduleGeneratorDTO) {
         loan.setLoanSubStatus(LoanSubStatus.FORECLOSED);
         loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, repaymentTransaction, null, scheduleGeneratorDTO);
+    }
+
+    @Override
+    public void createAndSaveLoanScheduleArchive(Loan loan) {
+        final LoanRescheduleRequest loanRescheduleRequest = null;
+        final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
+        this.loanScheduleHistoryWritePlatformService.createAndSaveLoanScheduleArchive(installments, loan, loanRescheduleRequest);
     }
 
 }

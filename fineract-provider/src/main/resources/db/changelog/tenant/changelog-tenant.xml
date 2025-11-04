@@ -223,4 +223,6 @@
     <include file="parts/0202_trial_balance_summary_with_asset_owner_journal_entry_aggregation.xml" relativeToChangelogFile="true" />
     <include file="parts/0199_create_broken_period_interest_tables.xml" relativeToChangelogFile="true" />
     <include file="parts/0200_add_bpi_column_to_loan.xml" relativeToChangelogFile="true" />
+    <include file="parts/0203_add_charge_pay_and_bulk_waive_permissions.xml" relativeToChangelogFile="true" />
+    <include file="parts/0204_add_custom_schedule_defined_column_to_loan.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>
