@@ -64,7 +64,6 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleP
 import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.MultiDisbursementEmiAmountException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.MultiDisbursementOutstandingAmoutException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.exception.ScheduleDateException;
-import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.RepaymentStartDateType;
 
 @RequiredArgsConstructor
@@ -327,10 +326,6 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
 
             // update cumulative fields for principal & interest
             currentPeriodParams.setInterestForThisPeriod(principalInterestForThisPeriod.interest());
-            if (scheduleParams.getPeriodNumber() == 1) {
-                principalInterestForThisPeriod = adjustFirstInstallmentForBPI(loanApplicationTerms, currentPeriodParams,
-                        principalInterestForThisPeriod);
-            }
 
             Money lastTotalOutstandingInterestPaymentDueToGrace = scheduleParams.getTotalOutstandingInterestPaymentDueToGrace();
             scheduleParams.setTotalOutstandingInterestPaymentDueToGrace(principalInterestForThisPeriod.interestPaymentDueToGrace());
@@ -450,54 +445,6 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
                 scheduleParams.getTotalRepaymentExpected().getAmount(), totalOutstanding, brokenPeriodInterest);
 
         return scheduleModel;
-    }
-
-    private void handleBPIForFirstInstallment(LoanApplicationTerms loanApplicationTerms, ScheduleCurrentPeriodParams currentPeriodParams,
-            PrincipalInterest principalInterestForThisPeriod) {
-        if (loanApplicationTerms.getBpiConfig() != null) {
-            final BrokenPeriodInterestStrategy bpiStrategy = loanApplicationTerms.getBpiConfig().getStrategy();
-            if (bpiStrategy != null) {
-                switch (bpiStrategy) {
-                    case ADD_TO_FIRST_INSTALLMENT_EMI:
-                        if (loanApplicationTerms.getBrokenPeriodInterest() != null
-                                && loanApplicationTerms.getBrokenPeriodInterest().isGreaterThanZero()) {
-                            currentPeriodParams.plusInterestForThisPeriod(loanApplicationTerms.getBrokenPeriodInterest());
-                        }
-                    break;
-                    default:
-                    break;
-                }
-            }
-        }
-    }
-
-    private PrincipalInterest adjustFirstInstallmentForBPI(LoanApplicationTerms loanApplicationTerms,
-            ScheduleCurrentPeriodParams currentPeriodParams, PrincipalInterest principalInterestForThisPeriod) {
-
-        // Add BPI to interest
-        handleBPIForFirstInstallment(loanApplicationTerms, currentPeriodParams, principalInterestForThisPeriod);
-
-        // Adjust principal to maintain rounded EMI after BPI is added to interest
-        if (loanApplicationTerms.getBpiConfig() != null && loanApplicationTerms.getBrokenPeriodInterest() != null
-                && loanApplicationTerms.getBrokenPeriodInterest().isGreaterThanZero()) {
-            Money adjustedInterest = currentPeriodParams.getInterestForThisPeriod();
-            Money currentPrincipal = principalInterestForThisPeriod.principal();
-
-            // Calculate new EMI after BPI
-            Money newEMI = currentPrincipal.plus(adjustedInterest);
-
-            // Round EMI to multiples (same logic as existing EMI rounding)
-            Money roundedEMI = newEMI;
-            if (loanApplicationTerms.getInstallmentAmountInMultiplesOf() != null) {
-                roundedEMI = Money.roundToMultiplesOf(newEMI, loanApplicationTerms.getInstallmentAmountInMultiplesOf());
-            }
-
-            // Adjust principal to maintain rounded EMI
-            Money adjustedPrincipal = roundedEMI.minus(adjustedInterest);
-            return new PrincipalInterest(adjustedPrincipal, adjustedInterest, principalInterestForThisPeriod.interestPaymentDueToGrace());
-        }
-
-        return principalInterestForThisPeriod;
     }
 
     private void updateCompoundingDetails(final Collection<LoanScheduleModelPeriod> periods, final LoanScheduleParams params,

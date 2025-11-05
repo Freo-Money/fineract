@@ -219,10 +219,15 @@ public final class LoanApplicationValidator {
 
         validateCumulativeMultiDisburse(loan);
 
-        if (!shouldSkipValidation(loan)) {
-            validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
-                    loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),
-                    loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+        validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
+                loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),
+                loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+
+        if (expectedFirstRepaymentOnDate != null && isAddToFirstInstallmentWithPrincipalGraceBPI(loan)) {
+            throw new LoanApplicationDateException(
+                    "expected.first.repayment.date.not.supported.with.bpimethod.add.to.first.installment.with.principal.grace",
+                    "repaymentsStartingFromDate is not supported with BPI method add to first installment with principal grace.",
+                    expectedFirstRepaymentOnDate);
         }
     }
 
@@ -236,14 +241,20 @@ public final class LoanApplicationValidator {
         }
 
         validateCumulativeMultiDisburse(loan);
-        if (!shouldSkipValidation(loan)) {
-            validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
-                    loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),
-                    loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+
+        validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
+                loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),
+                loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+
+        if (expectedFirstRepaymentOnDate != null && isAddToFirstInstallmentWithPrincipalGraceBPI(loan)) {
+            throw new LoanApplicationDateException(
+                    "expected.first.repayment.date.not.supported.with.bpimethod.add.to.first.installment.with.principal.grace",
+                    "repaymentsStartingFromDate is not supported with BPI method add to first installment with principal grace.",
+                    expectedFirstRepaymentOnDate);
         }
     }
 
-    private boolean shouldSkipValidation(final Loan loan) {
+    private boolean isAddToFirstInstallmentWithPrincipalGraceBPI(final Loan loan) {
         return loan.getBpiConfig() != null && loan.getBpiConfig().getBrokenPeriodConfig() != null
                 && loan.getBpiConfig().getBrokenPeriodConfig().getStrategy() != null
                 && loan.getBpiConfig().getBrokenPeriodConfig().getStrategy().isAddToFirstInstallmentWithPrincipalGrace();
