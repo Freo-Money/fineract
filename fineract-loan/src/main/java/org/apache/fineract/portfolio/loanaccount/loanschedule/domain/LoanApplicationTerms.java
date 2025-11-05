@@ -1066,6 +1066,7 @@ public final class LoanApplicationTerms {
                         interestForInstallment = Money.roundToMultiplesOf(interestForInstallment, this.installmentAmountInMultiplesOf);
                     }
                     this.brokenPeriodInterest = interestForInstallment;
+                    brokenPeriodInterestForInstallment = interestForInstallment;
                 }
             break;
             case INVALID:
@@ -1789,6 +1790,10 @@ public final class LoanApplicationTerms {
     private Money calculatePrincipalDueForInstallment(final int periodNumber, final Money totalDuePerInstallment,
             final Money periodInterest, final Money brokenPeriodInterestForInstallment) {
         Money principal = totalDuePerInstallment.minus(periodInterest);
+        if (this.bpiConfig != null && this.bpiConfig.getStrategy() != null && this.bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
+                && periodInterest.isGreaterThan(brokenPeriodInterestForInstallment)) {
+            principal = totalDuePerInstallment.minus(periodInterest.minus(brokenPeriodInterestForInstallment));
+        }
         if (isPrincipalGraceApplicableForThisPeriod(periodNumber)) {
             principal = principal.zero();
         }
@@ -1806,11 +1811,18 @@ public final class LoanApplicationTerms {
     public LoanProductRelatedDetail toLoanProductRelatedDetail() {
         final CurrencyData currency = new CurrencyData(this.currency.getCode(), this.currency.getDecimalPlaces(),
                 this.currency.getInMultiplesOf());
+        // If additional principal grace was added for BPI, subtract 1 to get original user input
+        Integer numberOfRepayments = this.numberOfRepayments;
+        Integer principalGrace = this.principalGrace;
+        if (this.isAdditionalPrincipalGracePeriodRequired != null && this.isAdditionalPrincipalGracePeriodRequired) {
+            numberOfRepayments = numberOfRepayments - 1;
+            principalGrace = (principalGrace != null && principalGrace > 0) ? principalGrace - 1 : null;
+        }
 
         return LoanProductRelatedDetail.createFrom(currency, this.principal.getAmount(), this.interestRatePerPeriod,
                 this.interestRatePeriodFrequencyType, this.annualNominalInterestRate, this.interestMethod,
                 this.interestCalculationPeriodMethod, this.allowPartialPeriodInterestCalcualtion, this.repaymentEvery,
-                this.repaymentPeriodFrequencyType, this.numberOfRepayments, this.principalGrace, this.recurringMoratoriumOnPrincipalPeriods,
+                this.repaymentPeriodFrequencyType, numberOfRepayments, principalGrace, this.recurringMoratoriumOnPrincipalPeriods,
                 this.interestPaymentGrace, this.interestChargingGrace, this.amortizationMethod, this.inArrearsTolerance.getAmount(),
                 this.graceOnArrearsAgeing, this.daysInMonthType.getValue(), this.daysInYearType.getValue(),
                 this.interestRecalculationEnabled, this.isEqualAmortization, this.isDownPaymentEnabled,
@@ -1825,6 +1837,13 @@ public final class LoanApplicationTerms {
     public LoanProductMinimumRepaymentScheduleRelatedDetail toLoanProductRelatedDetailMinimumData() {
         final CurrencyData currency = new CurrencyData(this.currency.getCode(), this.currency.getDecimalPlaces(),
                 this.currency.getInMultiplesOf());
+        // If additional principal grace was added for BPI, subtract 1 to get original user input
+        Integer numberOfRepayments = this.numberOfRepayments;
+        Integer principalGrace = this.principalGrace;
+        if (this.isAdditionalPrincipalGracePeriodRequired != null && this.isAdditionalPrincipalGracePeriodRequired) {
+            numberOfRepayments = numberOfRepayments - 1;
+            principalGrace = (principalGrace != null && principalGrace > 0) ? principalGrace - 1 : null;
+        }
         return new LoanProductRelatedDetailMinimumData(currency, interestRatePerPeriod, annualNominalInterestRate, interestChargingGrace,
                 interestPaymentGrace, principalGrace, recurringMoratoriumOnPrincipalPeriods, interestMethod,
                 interestCalculationPeriodMethod, daysInYearType, daysInMonthType, amortizationMethod, repaymentPeriodFrequencyType,

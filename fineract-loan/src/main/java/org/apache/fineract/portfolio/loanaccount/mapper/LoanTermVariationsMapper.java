@@ -41,6 +41,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTermVariationType;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTermVariations;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleUtilService;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestRecalculationCompoundingMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanRescheduleStrategyMethod;
@@ -111,11 +112,11 @@ public class LoanTermVariationsMapper {
         final BrokenPeriodInterestConfigDTO bpiConfig = loan.getBpiConfig() != null ? loan.getBpiConfig().getBrokenPeriodConfig()
                 : (loan.getLoanProduct().getBpiConfig() != null ? loan.getLoanProduct().getBpiConfig().getBrokenPeriodConfig() : null);
 
-        return LoanApplicationTerms.assembleFrom(scheduleGeneratorDTO.getCurrency(), loanTermFrequency, loan.getTermPeriodFrequencyType(),
-                nthDayType, dayOfWeekType, loan.getDisbursementDate(), loan.getExpectedFirstRepaymentOnDate(),
-                scheduleGeneratorDTO.getCalculatedRepaymentsStartingFromDate(), loan.getInArrearsTolerance(),
-                loan.getLoanRepaymentScheduleDetail(), loan.getLoanProduct().isMultiDisburseLoan(), loan.getFixedEmiAmount(),
-                disbursementData, loan.getMaxOutstandingLoanBalance(), interestChargedFromDate,
+        LoanApplicationTerms loanApplicationTerms = LoanApplicationTerms.assembleFrom(scheduleGeneratorDTO.getCurrency(), loanTermFrequency,
+                loan.getTermPeriodFrequencyType(), nthDayType, dayOfWeekType, loan.getDisbursementDate(),
+                loan.getExpectedFirstRepaymentOnDate(), scheduleGeneratorDTO.getCalculatedRepaymentsStartingFromDate(),
+                loan.getInArrearsTolerance(), loan.getLoanRepaymentScheduleDetail(), loan.getLoanProduct().isMultiDisburseLoan(),
+                loan.getFixedEmiAmount(), disbursementData, loan.getMaxOutstandingLoanBalance(), interestChargedFromDate,
                 loan.getLoanProduct().getPrincipalThresholdForLastInstallment(),
                 loan.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf(), recalculationFrequencyType, restCalendarInstance,
                 compoundingMethod, compoundingCalendarInstance, compoundingFrequencyType,
@@ -126,6 +127,10 @@ public class LoanTermVariationsMapper {
                 scheduleGeneratorDTO.isInterestToBeRecoveredFirstWhenGreaterThanEMI(), loan.getFixedPrincipalPercentagePerInstallment(),
                 scheduleGeneratorDTO.isPrincipalCompoundingDisabledForOverdueLoans(), repaymentStartDateType, loan.getSubmittedOnDate(),
                 bpiConfig);
+        boolean isAdditionalPrincipalGracePeriodRequired = LoanScheduleUtilService
+                .isAdditionalPrincipalGracePeriodRequired(loanApplicationTerms);
+        loanApplicationTerms.addAdditionalPrincipalGracePeriod(isAdditionalPrincipalGracePeriodRequired);
+        return loanApplicationTerms;
     }
 
     private BigDecimal constructFloatingInterestRates(final BigDecimal annualNominalInterestRate, final FloatingRateDTO floatingRateDTO,
