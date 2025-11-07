@@ -58,4 +58,5 @@
   <include relativeToChangelogFile="true" file="parts/1033_add_reage_reasons_for_loan.xml"/>
   <include relativeToChangelogFile="true" file="parts/1034_loan_reamortization_parameters.xml"/>
   <include relativeToChangelogFile="true" file="parts/1033_add_installment_interest_calculation_type_to_product_loan.xml"/>
+  <include relativeToChangelogFile="true" file="parts/1034_add_is_bpi_collected_at_disbursement_to_product_loan.xml"/>
 </databaseChangeLog>

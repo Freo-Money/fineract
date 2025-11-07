@@ -341,6 +341,13 @@ public class LoanProductAssembler {
                     .integerValueOfParameterNamed(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE);
         }
 
+        // Extract isBpiCollectedAtDisbursement flag - defaults to false if not provided
+        boolean isBpiCollectedAtDisbursement = false;
+        if (command.parameterExists(LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME)) {
+            isBpiCollectedAtDisbursement = command
+                    .booleanPrimitiveValueOfParameterNamed(LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME);
+        }
+
         return new LoanProduct(fund, loanTransactionProcessingStrategy, loanProductPaymentAllocationRules, loanProductCreditAllocationRules,
                 name, shortName, description, currency, principal, minPrincipal, maxPrincipal, interestRatePerPeriod,
                 minInterestRatePerPeriod, maxInterestRatePerPeriod, interestFrequencyType, annualInterestRate, interestMethod,
@@ -363,7 +370,7 @@ public class LoanProductAssembler {
                 enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate,
                 daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                 capitalizedIncomeType, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                merchantBuyDownFee, allowFullTermForTranche, null, installmentInterestCalculationType);
+                merchantBuyDownFee, allowFullTermForTranche, null, installmentInterestCalculationType, isBpiCollectedAtDisbursement);
 
     }
 

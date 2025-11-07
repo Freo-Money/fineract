@@ -294,6 +294,7 @@ public class LoanAccountData {
     private StringEnumOptionData buyDownFeeIncomeType;
     private Boolean merchantBuyDownFee;
     private Boolean customScheduleDefined;
+    private boolean isBpiCollectedAtDisbursement;
 
     public static LoanAccountData importInstanceIndividual(EnumOptionData loanTypeEnumOption, Long clientId, Long productId,
             Long loanOfficerId, LocalDate submittedOnDate, Long fundId, BigDecimal principal, Integer numberOfRepayments,
@@ -716,6 +717,10 @@ public class LoanAccountData {
                 chargeData.getAmount(), percentage, chargeData.getChargeTimeType(), chargeData.getChargeCalculationType(),
                 chargeData.isPenalty(), chargeData.getChargePaymentMode(), chargeData.getMinCap(), chargeData.getMaxCap(),
                 ExternalId.empty());
+    }
+
+    public void setIsBpiCollectedAtDisbursement(boolean isBpiCollectedAtDisbursement) {
+        this.isBpiCollectedAtDisbursement = isBpiCollectedAtDisbursement;
     }
 
     public void setCustomScheduleDefined(boolean customScheduleDefined) {

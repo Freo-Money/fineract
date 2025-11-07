@@ -187,4 +187,6 @@ public interface LoanProductConstants {
     String MERCHANT_BUY_DOWN_FEE_PARAM_NAME = "merchantBuyDownFee";
 
     String INSTALLMENT_INTEREST_CALCULATION_TYPE = "installmentInterestCalculationType";
+
+    String IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME = "isBpiCollectedAtDisbursement";
 }

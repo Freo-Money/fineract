@@ -200,7 +200,7 @@ public interface LoanApiConstants {
     String BROKEN_PERIOD_METHOD_TYPE = "brokenPeriodMethodType";
     String BROKEN_PERIOD_DAYS_IN_YEAR = "brokenPeriodDaysInYear";
     String BROKEN_PERIOD_DAYS_IN_MONTH = "brokenPeriodDaysInMonth";
-    String BROKEN_PERIOD_INTEREST_COLLECT_AT_DISBURSEMENT = "brokenPeriodInterestCollectAtDisbursement";
+    String IS_BPI_COLLECTED_AT_DISBURSEMENT = "isBpiCollectedAtDisbursement";
 
     String ALLOW_FULL_TERM_FOR_TRANCHE = "allowFullTermForTranche";
 
