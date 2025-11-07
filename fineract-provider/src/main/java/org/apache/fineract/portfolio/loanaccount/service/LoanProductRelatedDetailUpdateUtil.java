@@ -212,6 +212,14 @@ public class LoanProductRelatedDetailUpdateUtil {
             loanRepaymentScheduleDetail.setInstallmentInterestCalculationType(InterestCalculationPeriodMethod.fromInt(newValue));
         }
 
+        final String isBpiCollectedAtDisbursementParamName = LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME;
+        if (command.isChangeInBooleanParameterNamed(isBpiCollectedAtDisbursementParamName,
+                loanRepaymentScheduleDetail.isBpiCollectedAtDisbursement())) {
+            final boolean newValue = command.booleanPrimitiveValueOfParameterNamed(isBpiCollectedAtDisbursementParamName);
+            actualChanges.put(isBpiCollectedAtDisbursementParamName, newValue);
+            loanRepaymentScheduleDetail.setBpiCollectedAtDisbursement(newValue);
+        }
+
         if (command.isChangeInBooleanParameterNamed(LoanProductConstants.ALLOW_PARTIAL_PERIOD_INTEREST_CALCUALTION_PARAM_NAME,
                 loanRepaymentScheduleDetail.isAllowPartialPeriodInterestCalculation())) {
             final boolean newValue = command

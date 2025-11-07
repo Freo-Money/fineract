@@ -254,6 +254,7 @@ public final class LoanApplicationTerms {
     private LocalDate idealDisbursementDate;
     private Money brokenPeriodInterest;
     private Boolean isAdditionalPrincipalGracePeriodRequired;
+    private boolean isBpiCollectedAtDisbursement;
 
     private LoanApplicationTerms(Builder builder) {
         this.currency = builder.currency;
@@ -1061,7 +1062,8 @@ public final class LoanApplicationTerms {
                     interestBroughtForwardDueToGrace = interestBroughtForwardDueToGrace.plus(interestForThisInstallmentBeforeGrace);
                 }
                 if (periodNumber == 1 && isPrincipalGraceApplicableForThisPeriod(periodNumber)
-                        && this.isAdditionalPrincipalGracePeriodRequired && this.brokenPeriodInterest == null) {
+                        && this.isAdditionalPrincipalGracePeriodRequired != null && this.isAdditionalPrincipalGracePeriodRequired
+                        && this.brokenPeriodInterest == null) {
                     if (this.installmentAmountInMultiplesOf != null) {
                         interestForInstallment = Money.roundToMultiplesOf(interestForInstallment, this.installmentAmountInMultiplesOf);
                     }
@@ -1831,7 +1833,8 @@ public final class LoanApplicationTerms {
                 this.chargeOffBehaviour, this.interestRecognitionOnDisbursementDate, this.daysInYearCustomStrategy,
                 this.enableIncomeCapitalization, this.capitalizedIncomeCalculationType, this.capitalizedIncomeStrategy,
                 this.capitalizedIncomeType, this.installmentAmountInMultiplesOf, this.enableBuyDownFee, this.buyDownFeeCalculationType,
-                this.buyDownFeeStrategy, this.buyDownFeeIncomeType, this.merchantBuyDownFee, this.installmentInterestCalculationType);
+                this.buyDownFeeStrategy, this.buyDownFeeIncomeType, this.merchantBuyDownFee, this.installmentInterestCalculationType,
+                this.isBpiCollectedAtDisbursement);
     }
 
     public LoanProductMinimumRepaymentScheduleRelatedDetail toLoanProductRelatedDetailMinimumData() {

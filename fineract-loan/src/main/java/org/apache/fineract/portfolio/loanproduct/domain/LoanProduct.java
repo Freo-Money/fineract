@@ -291,7 +291,8 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
             final LoanCapitalizedIncomeStrategy capitalizedIncomeStrategy, final LoanCapitalizedIncomeType capitalizedIncomeType,
             final boolean enableBuyDownFee, final LoanBuyDownFeeCalculationType buyDownFeeCalculationType,
             final LoanBuyDownFeeStrategy buyDownFeeStrategy, final LoanBuyDownFeeIncomeType buyDownFeeIncomeType,
-            final boolean merchantBuyDownFee, final LoanProductConfigMapping bpiConfig, final Integer installmentInterestCalculationType) {
+            final boolean merchantBuyDownFee, final LoanProductConfigMapping bpiConfig, final Integer installmentInterestCalculationType,
+            final boolean isBpiCollectedAtDisbursement) {
         this.fund = fund;
         this.transactionProcessingStrategyCode = transactionProcessingStrategyCode;
 
@@ -346,7 +347,8 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
                 installmentAmountInMultiplesOf, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
                 merchantBuyDownFee,
                 installmentInterestCalculationType != null ? InterestCalculationPeriodMethod.fromInt(installmentInterestCalculationType)
-                        : null);
+                        : null,
+                isBpiCollectedAtDisbursement);
 
         this.loanProductMinMaxConstraints = new LoanProductMinMaxConstraints(defaultMinPrincipal, defaultMaxPrincipal,
                 defaultMinNominalInterestRatePerPeriod, defaultMaxNominalInterestRatePerPeriod, defaultMinNumberOfInstallments,

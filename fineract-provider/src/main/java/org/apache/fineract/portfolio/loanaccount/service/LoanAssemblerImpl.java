@@ -97,6 +97,7 @@ import org.apache.fineract.portfolio.loanaccount.service.schedule.LoanScheduleCo
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
+import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
@@ -292,12 +293,27 @@ public class LoanAssemblerImpl implements LoanAssembler {
                 final LoanConfigMapping loanConfigMapping = new LoanConfigMapping(loanApplication, loanProduct.getShortName(), bpiConfig);
                 loanApplication.setBpiConfig(loanConfigMapping);
             }
-        } else
-        // Copy BPI configuration from product to loan if not explicitly provided
-        if (loanProduct.getBpiConfig() != null) {
+        } else if (loanProduct.getBpiConfig() != null) {
+            // Copy BPI configuration from product to loan if not explicitly provided
             copyBpiConfigFromProductToLoan(loanProduct, loanApplication);
         }
 
+        // Handle isBpiCollectedAtDisbursement flag - only applicable with ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+        // strategy
+        final boolean isCompatibleBpiStrategy = loanApplication.getBpiConfig() != null
+                && loanApplication.getBpiConfig().getBrokenPeriodConfig() != null && loanApplication.getBpiConfig().getBrokenPeriodConfig()
+                        .getStrategy() == BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE;
+
+        if (isCompatibleBpiStrategy) {
+            // Use payload value if provided, otherwise fall back to product default
+            final Boolean isBpiCollectedAtDisbursement = command.parameterExists(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT)
+                    ? command.booleanObjectValueOfParameterNamed(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT)
+                    : loanProduct.getLoanProductRelatedDetail().isBpiCollectedAtDisbursement();
+            loanApplication.setBpiCollectedAtDisbursement(isBpiCollectedAtDisbursement);
+        } else {
+            // Incompatible BPI strategy - flag must be false
+            loanApplication.setBpiCollectedAtDisbursement(false);
+        }
         copyAdvancedPaymentRulesIfApplicable(transactionProcessingStrategyCode, loanProduct, loanApplication);
         // TODO: review
         loanChargeService.recalculateAllCharges(loanApplication);

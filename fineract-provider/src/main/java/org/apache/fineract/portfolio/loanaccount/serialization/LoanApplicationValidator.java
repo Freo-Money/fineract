@@ -178,7 +178,8 @@ public final class LoanApplicationValidator {
             LoanProductConstants.ENABLE_AUTO_REPAYMENT_DOWN_PAYMENT, LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT,
             LoanApiConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE, LoanApiConstants.daysInYearCustomStrategyParameterName,
             LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR,
-            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanApiConstants.repeatsOnDayOfMonthParameterName));
+            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanApiConstants.repeatsOnDayOfMonthParameterName,
+            LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT));
     public static final String LOANAPPLICATION_UNDO = "loanapplication.undo";
 
     private final FromJsonHelper fromApiJsonHelper;
@@ -806,7 +807,6 @@ public final class LoanApplicationValidator {
             }
 
             validateBrokenPeriodInterest(element, baseDataValidator);
-
         });
 
         validateSubmittedOnDate(element, null, null, loanProduct);
@@ -2292,9 +2292,9 @@ public final class LoanApplicationValidator {
 
     private void validateBrokenPeriodInterest(JsonElement element, DataValidatorBuilder baseDataValidator) {
         // Broken Period Interest Configuration Validation
+        String brokenPeriodMethodType = null;
         if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element)) {
-            final String brokenPeriodMethodType = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE,
-                    element);
+            brokenPeriodMethodType = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element);
             baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE).value(brokenPeriodMethodType).notBlank()
                     .isOneOfTheseStringValues(BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_EMI.getCode(),
                             BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE.getCode());
@@ -2312,6 +2312,18 @@ public final class LoanApplicationValidator {
                     Locale.getDefault());
             baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH).value(daysInMonth).ignoreIfNull()
                     .integerGreaterThanZero().isOneOfTheseValues(1, 30);
+        }
+
+        // Validate isBpiCollectedAtDisbursement - can only be true with ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+        // strategy
+        final Boolean isBpiCollectedAtDisbursement = this.fromApiJsonHelper
+                .extractBooleanNamed(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT, element);
+        if (Boolean.TRUE.equals(isBpiCollectedAtDisbursement)
+                && (brokenPeriodMethodType == null || !BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE.getCode()
+                        .equalsIgnoreCase(brokenPeriodMethodType))) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.msg.loan.bpi.collect.at.disbursement.requires.add.to.first.installment.with.principal.grace.strategy",
+                    "BPI collection at disbursement requires broken period interest strategy: add_to_first_installment_with_principal_grace");
         }
     }
 

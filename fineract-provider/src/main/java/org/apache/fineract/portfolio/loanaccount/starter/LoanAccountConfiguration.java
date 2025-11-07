@@ -499,9 +499,11 @@ public class LoanAccountConfiguration {
     public LoanDisbursementService loanDisbursementService(LoanChargeValidator loanChargeValidator,
             LoanDisbursementValidator loanDisbursementValidator, ReprocessLoanTransactionsService reprocessLoanTransactionsService,
             LoanChargeService loanChargeService, LoanBalanceService loanBalanceService, LoanJournalEntryPoster journalEntryPoster,
-            LoanTransactionRepository loanTransactionRepository) {
+            LoanTransactionRepository loanTransactionRepository, BusinessEventNotifierService businessEventNotifierService,
+            LoanDownPaymentHandlerService loanDownPaymentHandlerService) {
         return new LoanDisbursementService(loanChargeValidator, loanDisbursementValidator, reprocessLoanTransactionsService,
-                loanChargeService, loanBalanceService, journalEntryPoster, loanTransactionRepository);
+                loanChargeService, loanBalanceService, journalEntryPoster, loanTransactionRepository, businessEventNotifierService,
+                loanDownPaymentHandlerService);
     }
 
     @Bean

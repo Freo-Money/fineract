@@ -307,7 +307,8 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.enable_buy_down_fee as enableBuyDownFee, " + "lp.buy_down_fee_calculation_type as buyDownFeeCalculationType, "
                     + "lp.buy_down_fee_strategy as buyDownFeeStrategy, " + "lp.buy_down_fee_income_type as buyDownFeeIncomeType, "
                     + "lp.installment_interest_calculation_type_enum as installmentInterestCalculationType, "
-                    + "lpcm.config_json as bpiConfigJson " + " from m_product_loan lp " + " left join m_fund f on f.id = lp.fund_id "
+                    + "lp.is_bpi_collected_at_disbursement as isBpiCollectedAtDisbursement, " + "lpcm.config_json as bpiConfigJson "
+                    + " from m_product_loan lp " + " left join m_fund f on f.id = lp.fund_id "
                     + " left join m_product_loan_recalculation_details lpr on lpr.product_id=lp.id "
                     + " left join m_product_loan_guarantee_details lpg on lpg.loan_product_id=lp.id "
                     + " left join m_product_loan_configurable_attributes lca on lca.loan_product_id = lp.id "
@@ -591,6 +592,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     ? LoanEnumerations
                             .interestCalculationPeriodType(InterestCalculationPeriodMethod.fromInt(installmentInterestCalculationTypeValue))
                     : null;
+            final boolean isBpiCollectedAtDisbursement = rs.getBoolean("isBpiCollectedAtDisbursement");
 
             // Extract and parse BPI configuration
             final String bpiConfigJson = rs.getString("bpiConfigJson");
@@ -630,7 +632,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     loanChargeOffBehaviour.getValueAsStringEnumOptionData(), interestRecognitionOnDisbursementDate,
                     daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                     capitalizedIncome, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                    merchantBuyDownFee, null, null, brokenPeriodConfig, installmentInterestCalculationType);
+                    merchantBuyDownFee, null, null, brokenPeriodConfig, installmentInterestCalculationType, isBpiCollectedAtDisbursement);
         }
     }
 
