@@ -162,6 +162,10 @@ public class LoanChargeService {
 
     public LoanTransaction createChargeAppliedTransaction(final Loan loan, final LoanCharge loanCharge,
             final LocalDate suppliedTransactionDate) {
+        if (loanCharge.isDueAtForeclosure()) {
+            return null;
+        }
+
         final Money chargeAmount = loanCharge.getAmount(loan.getCurrency());
         Money feeCharges = chargeAmount;
         Money penaltyCharges = Money.zero(loan.getCurrency());

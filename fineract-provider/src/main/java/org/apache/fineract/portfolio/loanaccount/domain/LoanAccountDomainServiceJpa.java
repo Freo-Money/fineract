@@ -77,6 +77,7 @@ import org.apache.fineract.organisation.workingdays.domain.WorkingDaysRepository
 import org.apache.fineract.portfolio.account.domain.AccountTransferStandingInstruction;
 import org.apache.fineract.portfolio.account.domain.StandingInstructionRepository;
 import org.apache.fineract.portfolio.account.domain.StandingInstructionStatus;
+import org.apache.fineract.portfolio.charge.exception.LoanChargeNotFoundException;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.exception.ClientNotActiveException;
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagement;
@@ -449,6 +450,9 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                 charge = loanCharge;
             }
         }
+        if (charge == null) {
+            throw new LoanChargeNotFoundException(chargeId, loan.getId());
+        }
         final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(chargesPayment, charge, charge.amount(), null);
         chargesPayment.getLoanChargesPaid().add(loanChargePaidBy);
         final Money zero = Money.zero(loan.getCurrency());
@@ -717,7 +721,9 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         List<LoanTransaction> newTransactions = new ArrayList<>();
 
         final ScheduleGeneratorDTO scheduleGeneratorDTO = null;
-        final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate);
+        loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate);
+        final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
+                false);
 
         loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions);
 
@@ -725,7 +731,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         Money feePayable = foreCloseDetail.getFeeChargesCharged(currency);
         Money penaltyPayable = foreCloseDetail.getPenaltyChargesCharged(currency);
         Money payPrincipal = foreCloseDetail.getPrincipal(currency);
-        updateInstallmentsPostDate(loan, foreClosureDate);
+        updateInstallmentsPostDate(loan, foreClosureDate, foreCloseDetail);
 
         LoanTransaction payment = null;
 
@@ -758,6 +764,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         changes.put("transactions", transactionIds);
         changes.put("eventAmount", payPrincipal.getAmount().negate());
 
+        loanBalanceService.synchronizeForeclosureScheduleAndSummary(loan, foreClosureDate);
+
         loan = loanAccountService.saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
         if (StringUtils.isNotBlank(noteText)) {
@@ -765,6 +773,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final Note note = Note.loanNote(loan, noteText);
             this.noteRepository.save(note);
         }
+
+        loanLifecycleStateMachine.determineAndTransition(loan, foreClosureDate);
 
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanForeClosurePostBusinessEvent(payment));
@@ -947,7 +957,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         return interestRefundTransaction;
     }
 
-    private void updateInstallmentsPostDate(final Loan loan, final LocalDate transactionDate) {
+    private void updateInstallmentsPostDate(final Loan loan, final LocalDate transactionDate,
+            final LoanRepaymentScheduleInstallment foreclosureDetail) {
         final List<LoanRepaymentScheduleInstallment> newInstallments = new ArrayList<>(loan.getRepaymentScheduleInstallments());
         final MonetaryCurrency currency = loan.getCurrency();
         Money totalPrincipal = Money.zero(currency);
@@ -964,10 +975,27 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
         }
 
+        Money foreclosureFeeTotal = loan.getCharges().stream().filter(LoanCharge::isDueAtForeclosure)
+                .map(charge -> charge.getAmount(currency)).reduce(Money.zero(currency), Money::plus);
+
+        if (foreclosureDetail != null) {
+            balances[0] = foreclosureDetail.getInterestCharged(currency);
+            balances[2] = foreclosureDetail.getPenaltyChargesCharged(currency);
+        }
+        if (foreclosureFeeTotal.isGreaterThanZero()) {
+            balances[1] = foreclosureFeeTotal;
+        } else if (foreclosureDetail != null) {
+            balances[1] = foreclosureDetail.getFeeChargesCharged(currency);
+        }
+
         for (LoanDisbursementDetails loanDisbursementDetails : loan.getDisbursementDetails()) {
             if (loanDisbursementDetails.actualDisbursementDate() == null) {
                 totalPrincipal = Money.of(currency, totalPrincipal.getAmount().subtract(loanDisbursementDetails.principal()));
             }
+        }
+
+        if (foreclosureDetail != null) {
+            totalPrincipal = foreclosureDetail.getPrincipal(currency);
         }
 
         LocalDate installmentStartDate = loan.getDisbursementDate();
@@ -988,6 +1016,9 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         newInstallment.updateInstallmentNumber(newInstallments.size() + 1);
         newInstallments.add(newInstallment);
         loan.updateLoanScheduleOnForeclosure(newInstallments);
+        loanBalanceService.synchronizeForeclosureScheduleAndSummary(loan, transactionDate);
+        loanBalanceService.updateForeclosureScheduleInstallment(loan, currency, transactionDate, Money.zero(currency),
+                Money.zero(currency));
 
         final Set<LoanCharge> charges = loan.getActiveCharges();
         final int penaltyWaitPeriod = 0;
@@ -995,8 +1026,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             if (DateUtils.isAfter(loanCharge.getDueLocalDate(), transactionDate)) {
                 loanCharge.setActive(false);
             } else if (loanCharge.getDueLocalDate() == null) {
-                loanChargeService.recalculateLoanCharge(loan, loanCharge, penaltyWaitPeriod);
-                loanCharge.updateWaivedAmount(currency);
+                if (!loanCharge.isDueAtForeclosure()) {
+                    loanChargeService.recalculateLoanCharge(loan, loanCharge, penaltyWaitPeriod);
+                    loanCharge.updateWaivedAmount(currency);
+                }
             }
         }
 
