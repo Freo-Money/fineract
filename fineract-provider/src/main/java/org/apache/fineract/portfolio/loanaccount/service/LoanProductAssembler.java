@@ -342,9 +342,9 @@ public class LoanProductAssembler {
         }
 
         // Extract isBpiCollectedAtDisbursement flag - defaults to false if not provided
-        boolean isBpiCollectedAtDisbursement = false;
+        boolean bpiCollectedAtDisbursement = false;
         if (command.parameterExists(LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME)) {
-            isBpiCollectedAtDisbursement = command
+            bpiCollectedAtDisbursement = command
                     .booleanPrimitiveValueOfParameterNamed(LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME);
         }
 
@@ -370,7 +370,7 @@ public class LoanProductAssembler {
                 enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate,
                 daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                 capitalizedIncomeType, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                merchantBuyDownFee, allowFullTermForTranche, null, installmentInterestCalculationType, isBpiCollectedAtDisbursement);
+                merchantBuyDownFee, allowFullTermForTranche, null, installmentInterestCalculationType, bpiCollectedAtDisbursement);
 
     }
 

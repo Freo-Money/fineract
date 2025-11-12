@@ -593,7 +593,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     ? LoanEnumerations
                             .interestCalculationPeriodType(InterestCalculationPeriodMethod.fromInt(installmentInterestCalculationTypeValue))
                     : null;
-            final boolean isBpiCollectedAtDisbursement = rs.getBoolean("isBpiCollectedAtDisbursement");
+            final boolean bpiCollectedAtDisbursement = rs.getBoolean("isBpiCollectedAtDisbursement");
 
             // Extract and parse BPI configuration
             final String bpiConfigJson = rs.getString("bpiConfigJson");
@@ -634,7 +634,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     loanChargeOffBehaviour.getValueAsStringEnumOptionData(), interestRecognitionOnDisbursementDate,
                     daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                     capitalizedIncome, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                    merchantBuyDownFee, null, null, brokenPeriodConfig, installmentInterestCalculationType, isBpiCollectedAtDisbursement);
+                    merchantBuyDownFee, null, null, brokenPeriodConfig, installmentInterestCalculationType, bpiCollectedAtDisbursement);
         }
     }
 

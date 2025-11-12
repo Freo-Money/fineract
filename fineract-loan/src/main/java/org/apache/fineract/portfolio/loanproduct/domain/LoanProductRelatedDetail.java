@@ -215,7 +215,7 @@ public class LoanProductRelatedDetail {
     private Integer installmentAmountInMultiplesOf;
 
     @Column(name = "is_bpi_collected_at_disbursement", nullable = false)
-    private boolean isBpiCollectedAtDisbursement = false;
+    private boolean bpiCollectedAtDisbursement = false;
 
     public static LoanProductRelatedDetail createFrom(final CurrencyData currencyData, final BigDecimal principal,
             final BigDecimal nominalInterestRatePerPeriod, final PeriodFrequencyType interestRatePeriodFrequencyType,
@@ -237,7 +237,7 @@ public class LoanProductRelatedDetail {
             final Integer installmentAmountInMultiplesOf, final boolean enableBuyDownFee,
             final LoanBuyDownFeeCalculationType buyDownFeeCalculationType, final LoanBuyDownFeeStrategy buyDownFeeStrategy,
             final LoanBuyDownFeeIncomeType buyDownFeeIncomeType, final boolean merchantBuyDownFee,
-            final InterestCalculationPeriodMethod installmentInterestCalculationType, final boolean isBpiCollectedAtDisbursement) {
+            final InterestCalculationPeriodMethod installmentInterestCalculationType, final boolean bpiCollectedAtDisbursement) {
 
         final MonetaryCurrency currency = MonetaryCurrency.fromCurrencyData(currencyData);
         return new LoanProductRelatedDetail(currency, principal, nominalInterestRatePerPeriod, interestRatePeriodFrequencyType,
@@ -250,7 +250,7 @@ public class LoanProductRelatedDetail {
                 chargeOffBehaviour, interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, installmentAmountInMultiplesOf,
                 enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee,
-                installmentInterestCalculationType, isBpiCollectedAtDisbursement);
+                installmentInterestCalculationType, bpiCollectedAtDisbursement);
     }
 
     protected LoanProductRelatedDetail() {
@@ -277,7 +277,7 @@ public class LoanProductRelatedDetail {
             final Integer installmentAmountInMultiplesOf, final boolean enableBuyDownFee,
             final LoanBuyDownFeeCalculationType buyDownFeeCalculationType, final LoanBuyDownFeeStrategy buyDownFeeStrategy,
             final LoanBuyDownFeeIncomeType buyDownFeeIncomeType, final boolean merchantBuyDownFee,
-            final InterestCalculationPeriodMethod installmentInterestCalculationType, final boolean isBpiCollectedAtDisbursement) {
+            final InterestCalculationPeriodMethod installmentInterestCalculationType, final boolean bpiCollectedAtDisbursement) {
         this.currency = currency;
         this.principal = defaultPrincipal;
         this.nominalInterestRatePerPeriod = defaultNominalInterestRatePerPeriod;
@@ -326,7 +326,7 @@ public class LoanProductRelatedDetail {
         this.buyDownFeeIncomeType = buyDownFeeIncomeType;
         this.merchantBuyDownFee = merchantBuyDownFee;
         this.installmentInterestCalculationType = installmentInterestCalculationType;
-        this.isBpiCollectedAtDisbursement = isBpiCollectedAtDisbursement;
+        this.bpiCollectedAtDisbursement = bpiCollectedAtDisbursement;
     }
 
     private Integer defaultToNullIfZero(final Integer value) {

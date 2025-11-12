@@ -271,7 +271,7 @@ public class LoanProductData implements Serializable {
     private List<ClassificationToGLAccountData> buydownFeeClassificationToIncomeAccountMappings;
     // Broken Period Interest Configuration
     private final BrokenPeriodConfigData brokenPeriodConfig;
-    private boolean isBpiCollectedAtDisbursement;
+    private boolean bpiCollectedAtDisbursement;
 
     /**
      * Used when returning lookup information about loan product for dropdowns.
@@ -389,7 +389,7 @@ public class LoanProductData implements Serializable {
         final List<AdvancedMappingToExpenseAccountData> writeOffReasonsToExpenseMappings = null;
         final List<CodeValueData> writeOffReasonOptions = null;
         final BrokenPeriodConfigData brokenPeriodConfig = null;
-        final boolean isBpiCollectedAtDisbursement = false;
+        final boolean bpiCollectedAtDisbursement = false;
 
         return new LoanProductData(id, name, shortName, description, currency, principal, minPrincipal, maxPrincipal, tolerance,
                 numberOfRepayments, minNumberOfRepayments, maxNumberOfRepayments, repaymentEvery, interestRatePerPeriod,
@@ -414,7 +414,7 @@ public class LoanProductData implements Serializable {
                 enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate,
                 daysInYearTypeCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                 capitalizedIncomeType, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                merchantBuyDownFee, writeOffReasonsToExpenseMappings, writeOffReasonOptions, brokenPeriodConfig, null, isBpiCollectedAtDisbursement);
+                merchantBuyDownFee, writeOffReasonsToExpenseMappings, writeOffReasonOptions, brokenPeriodConfig, null, bpiCollectedAtDisbursement);
 
     }
 
@@ -916,7 +916,7 @@ public class LoanProductData implements Serializable {
             final StringEnumOptionData buyDownFeeIncomeType, final boolean merchantBuyDownFee,
             final List<AdvancedMappingToExpenseAccountData> writeOffReasonsToExpenseMappings,
             final List<CodeValueData> writeOffReasonOptions, final BrokenPeriodConfigData brokenPeriodConfig,
-            final EnumOptionData installmentInterestCalculationType, final boolean isBpiCollectedAtDisbursement) {
+            final EnumOptionData installmentInterestCalculationType, final boolean bpiCollectedAtDisbursement) {
         this.id = id;
         this.name = name;
         this.shortName = shortName;
@@ -984,7 +984,7 @@ public class LoanProductData implements Serializable {
         this.merchantBuyDownFee = merchantBuyDownFee;
         this.brokenPeriodConfig = brokenPeriodConfig;
         this.installmentInterestCalculationType = installmentInterestCalculationType;
-        this.isBpiCollectedAtDisbursement = isBpiCollectedAtDisbursement;
+        this.bpiCollectedAtDisbursement = bpiCollectedAtDisbursement;
 
         this.chargeOptions = null;
         this.penaltyOptions = null;
@@ -1519,5 +1519,9 @@ public class LoanProductData implements Serializable {
 
     public boolean isIsRatesEnabled() {
         return isRatesEnabled;
+    }
+
+    public boolean isBpiCollectedAtDisbursement() {
+        return bpiCollectedAtDisbursement;
     }
 }
