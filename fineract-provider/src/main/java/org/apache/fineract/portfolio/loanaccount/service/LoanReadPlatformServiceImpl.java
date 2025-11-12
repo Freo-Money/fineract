@@ -2227,7 +2227,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         this.context.authenticatedUser();
 
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
-        loanForeclosureValidator.validateForForeclosure(loan, transactionDate);
+        loanForeclosureValidator.validateForForeclosureTemplate(loan, transactionDate);
         final MonetaryCurrency currency = loan.getCurrency();
         final ApplicationCurrency applicationCurrency = this.applicationCurrencyRepository.findOneWithNotFoundDetection(currency);
 
