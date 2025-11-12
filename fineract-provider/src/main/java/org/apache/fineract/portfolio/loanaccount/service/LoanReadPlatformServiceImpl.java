@@ -1420,7 +1420,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     rs.getString("buyDownFeeIncomeType"));
             final boolean merchantBuyDownFee = rs.getBoolean("merchantBuyDownFee");
             final boolean customScheduleDefined = rs.getBoolean("customScheduleDefined");
-            final boolean isBpiCollectedAtDisbursement = rs.getBoolean("isBpiCollectedAtDisbursement");
+            final boolean bpiCollectedAtDisbursement = rs.getBoolean("isBpiCollectedAtDisbursement");
 
             final LoanAccountData loanAccountData = LoanAccountData.basicLoanDetails(id, accountNo, status, externalId, clientId,
                     clientAccountNo, clientName, clientOfficeId, clientExternalId, groupData, loanType, loanProductId, loanProductName,
@@ -1448,7 +1448,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             // Set BPI configuration
             loanAccountData.setBrokenPeriodConfig(brokenPeriodConfig);
             loanAccountData.setCustomScheduleDefined(customScheduleDefined);
-            loanAccountData.setIsBpiCollectedAtDisbursement(isBpiCollectedAtDisbursement);
+            loanAccountData.setBpiCollectedAtDisbursement(bpiCollectedAtDisbursement);
 
             return loanAccountData;
         }
