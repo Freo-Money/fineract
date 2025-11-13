@@ -253,7 +253,8 @@ public final class LoanApplicationTerms {
     private BrokenPeriodInterestConfigDTO bpiConfig;
     private LocalDate idealDisbursementDate;
     private Money brokenPeriodInterest;
-    private Boolean isAdditionalPrincipalGracePeriodRequired;
+    private Boolean additionalPrincipalGracePeriodRequired;
+    private boolean bpiCollectedAtDisbursement;
 
     private LoanApplicationTerms(Builder builder) {
         this.currency = builder.currency;
@@ -1061,7 +1062,8 @@ public final class LoanApplicationTerms {
                     interestBroughtForwardDueToGrace = interestBroughtForwardDueToGrace.plus(interestForThisInstallmentBeforeGrace);
                 }
                 if (periodNumber == 1 && isPrincipalGraceApplicableForThisPeriod(periodNumber)
-                        && this.isAdditionalPrincipalGracePeriodRequired && this.brokenPeriodInterest == null) {
+                        && this.additionalPrincipalGracePeriodRequired != null && this.additionalPrincipalGracePeriodRequired
+                        && this.brokenPeriodInterest == null) {
                     if (this.installmentAmountInMultiplesOf != null) {
                         interestForInstallment = Money.roundToMultiplesOf(interestForInstallment, this.installmentAmountInMultiplesOf);
                     }
@@ -1814,7 +1816,7 @@ public final class LoanApplicationTerms {
         // If additional principal grace was added for BPI, subtract 1 to get original user input
         Integer numberOfRepayments = this.numberOfRepayments;
         Integer principalGrace = this.principalGrace;
-        if (this.isAdditionalPrincipalGracePeriodRequired != null && this.isAdditionalPrincipalGracePeriodRequired) {
+        if (this.additionalPrincipalGracePeriodRequired != null && this.additionalPrincipalGracePeriodRequired) {
             numberOfRepayments = numberOfRepayments - 1;
             principalGrace = (principalGrace != null && principalGrace > 0) ? principalGrace - 1 : null;
         }
@@ -1831,7 +1833,8 @@ public final class LoanApplicationTerms {
                 this.chargeOffBehaviour, this.interestRecognitionOnDisbursementDate, this.daysInYearCustomStrategy,
                 this.enableIncomeCapitalization, this.capitalizedIncomeCalculationType, this.capitalizedIncomeStrategy,
                 this.capitalizedIncomeType, this.installmentAmountInMultiplesOf, this.enableBuyDownFee, this.buyDownFeeCalculationType,
-                this.buyDownFeeStrategy, this.buyDownFeeIncomeType, this.merchantBuyDownFee, this.installmentInterestCalculationType);
+                this.buyDownFeeStrategy, this.buyDownFeeIncomeType, this.merchantBuyDownFee, this.installmentInterestCalculationType,
+                this.bpiCollectedAtDisbursement);
     }
 
     public LoanProductMinimumRepaymentScheduleRelatedDetail toLoanProductRelatedDetailMinimumData() {
@@ -1840,7 +1843,7 @@ public final class LoanApplicationTerms {
         // If additional principal grace was added for BPI, subtract 1 to get original user input
         Integer numberOfRepayments = this.numberOfRepayments;
         Integer principalGrace = this.principalGrace;
-        if (this.isAdditionalPrincipalGracePeriodRequired != null && this.isAdditionalPrincipalGracePeriodRequired) {
+        if (this.additionalPrincipalGracePeriodRequired != null && this.additionalPrincipalGracePeriodRequired) {
             numberOfRepayments = numberOfRepayments - 1;
             principalGrace = (principalGrace != null && principalGrace > 0) ? principalGrace - 1 : null;
         }
@@ -2435,9 +2438,9 @@ public final class LoanApplicationTerms {
         return isBrokenPeriodApplicable;
     }
 
-    public void addAdditionalPrincipalGracePeriod(boolean isAdditionalPrincipalGracePeriodRequired) {
-        this.isAdditionalPrincipalGracePeriodRequired = isAdditionalPrincipalGracePeriodRequired;
-        if (this.isAdditionalPrincipalGracePeriodRequired) {
+    public void addAdditionalPrincipalGracePeriod(boolean additionalPrincipalGracePeriodRequired) {
+        this.additionalPrincipalGracePeriodRequired = additionalPrincipalGracePeriodRequired;
+        if (this.additionalPrincipalGracePeriodRequired) {
             this.principalGrace = this.principalGrace == null ? 1 : this.principalGrace + 1;
             updateNumberOfRepayments(getNumberOfRepayments() + 1);
             final Integer periodNumber = 1;
@@ -2446,9 +2449,9 @@ public final class LoanApplicationTerms {
     }
 
     public boolean isAdditionalPrincipalGracePeriodRequired() {
-        if (Objects.isNull(this.isAdditionalPrincipalGracePeriodRequired)) {
+        if (Objects.isNull(this.additionalPrincipalGracePeriodRequired)) {
             return false;
         }
-        return this.isAdditionalPrincipalGracePeriodRequired;
+        return this.additionalPrincipalGracePeriodRequired;
     }
 }

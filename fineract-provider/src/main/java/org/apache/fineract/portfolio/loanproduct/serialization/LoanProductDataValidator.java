@@ -211,7 +211,8 @@ public final class LoanProductDataValidator {
             LoanProductAccountingParams.CAPITALIZED_INCOME_CLASSIFICATION_TO_INCOME_ACCOUNT_MAPPINGS.getValue(), //
             LoanProductAccountingParams.BUYDOWN_FEE_CLASSIFICATION_TO_INCOME_ACCOUNT_MAPPINGS.getValue(), //
             LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR,
-            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE));
+            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE,
+            LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME));
 
     private static final String[] SUPPORTED_LOAN_CONFIGURABLE_ATTRIBUTES = { LoanProductConstants.amortizationTypeParamName,
             LoanProductConstants.interestTypeParamName, LoanProductConstants.transactionProcessingStrategyCodeParamName,
@@ -3015,6 +3016,25 @@ public final class LoanProductDataValidator {
                     Locale.getDefault());
             baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH).value(daysInMonth).ignoreIfNull()
                     .integerGreaterThanZero().isOneOfTheseValues(1, 30);
+        }
+
+        // Validate isBpiCollectedAtDisbursement - can only be true with ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+        // strategy
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME, element)) {
+            final Boolean isBpiCollectedAtDisbursement = this.fromApiJsonHelper
+                    .extractBooleanNamed(LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME, element);
+            baseDataValidator.reset().parameter(LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME)
+                    .value(isBpiCollectedAtDisbursement).ignoreIfNull().validateForBooleanValue();
+
+            final String brokenPeriodMethodType = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE,
+                    element);
+            if (Boolean.TRUE.equals(isBpiCollectedAtDisbursement)
+                    && (brokenPeriodMethodType == null || !BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+                            .getCode().equalsIgnoreCase(brokenPeriodMethodType))) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.product.bpi.collect.at.disbursement.requires.add.to.first.installment.with.principal.grace.strategy",
+                        "BPI collection at disbursement can only be enabled when BPI strategy is 'Add to First Installment with Principal Grace'");
+            }
         }
     }
 

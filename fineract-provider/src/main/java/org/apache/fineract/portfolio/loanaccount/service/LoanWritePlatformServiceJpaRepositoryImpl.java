@@ -378,11 +378,20 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             Money amountToDisburse = disburseAmount.copy();
             boolean recalculateSchedule = amountBeforeAdjust.isNotEqualTo(loan.getPrincipal());
             final ExternalId txnExternalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
+            final Money disbursementCharges = Money.of(loan.getCurrency(), loan.deriveSumTotalOfChargesDueAtDisbursement());
+            // Calculate BPI amount only if BPI collection at disbursement is enabled
+            // Check loan-level flag only (already set during loan creation/modification)
+            Money bpiAmount = Money.zero(loan.getCurrency());
+            if (loan.isBpiCollectedAtDisbursement() && loan.getBrokenPeriodInterest() != null) {
+                bpiAmount = Money.of(loan.getCurrency(), loan.getBrokenPeriodInterest());
+            }
 
+            // Amount to disburse = disburse amount - disbursement charges - BPI (if enabled)
+            amountToDisburse = disburseAmount.minus(disbursementCharges).minus(bpiAmount);
             if (loan.isTopup() && loan.getClientId() != null) {
                 final BigDecimal loanOutstanding = loanApplicationValidator.validateTopupLoan(loan, actualDisbursementDate);
 
-                amountToDisburse = disburseAmount.minus(loanOutstanding);
+                amountToDisburse = amountToDisburse.minus(loanOutstanding);
                 disburseLoanToLoan(loan, command, loanOutstanding);
             }
 
@@ -563,7 +572,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loan.updateLoanRepaymentPeriodsDerivedFields(actualDisbursementDate1);
         loanTransactionValidator.validateActivityNotBeforeClientOrGroupTransferDate(loan, LoanEvent.LOAN_DISBURSED,
                 actualDisbursementDate1);
-        loanDisbursementService.handleDisbursementTransaction(loan, actualDisbursementDate1, paymentDetail1);
+        loanDisbursementService.handleDisbursementTransaction(loan, actualDisbursementDate1, paymentDetail1, scheduleGeneratorDTO);
         loanBalanceService.updateLoanSummaryDerivedFields(loan);
         final Money interestApplied = Money.of(loan.getCurrency(), loan.getSummary().getTotalInterestCharged());
 
@@ -754,6 +763,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             if (canDisburse(loan)) {
                 Money amountBeforeAdjust = loan.getPrincipal();
                 Money disburseAmount = loanDisbursementService.adjustDisburseAmount(loan, command, actualDisbursementDate);
+                final Money disbursementCharges = Money.of(loan.getCurrency(), loan.deriveSumTotalOfChargesDueAtDisbursement());
+
+                // Calculate BPI amount only if BPI collection at disbursement is enabled
+                // Check loan-level flag only (already set during loan creation/modification)
+                Money bpiAmount = Money.zero(loan.getCurrency());
+                if (loan.isBpiCollectedAtDisbursement() && loan.getBrokenPeriodInterest() != null) {
+                    bpiAmount = Money.of(loan.getCurrency(), loan.getBrokenPeriodInterest());
+                }
+
+                // Amount to disburse = disburse amount - disbursement charges - BPI (if enabled)
+                disburseAmount = disburseAmount.minus(disbursementCharges).minus(bpiAmount);
                 boolean recalculateSchedule = amountBeforeAdjust.isNotEqualTo(loan.getPrincipal());
                 final ExternalId txnExternalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
                 if (isAccountTransfer) {

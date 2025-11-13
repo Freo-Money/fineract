@@ -1869,4 +1869,13 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     private void clearLoanTransactionToRepaymentScheduleMappings() {
         this.repaymentScheduleInstallments.forEach(installment -> installment.getLoanTransactionToRepaymentScheduleMappings().clear());
     }
+
+    public boolean isBpiCollectedAtDisbursement() {
+        return this.loanRepaymentScheduleDetail.isBpiCollectedAtDisbursement();
+    }
+
+    public void setBpiCollectedAtDisbursement(Boolean isBpiCollectedAtDisbursement) {
+        this.loanRepaymentScheduleDetail.setBpiCollectedAtDisbursement(isBpiCollectedAtDisbursement);
+    }
+
 }

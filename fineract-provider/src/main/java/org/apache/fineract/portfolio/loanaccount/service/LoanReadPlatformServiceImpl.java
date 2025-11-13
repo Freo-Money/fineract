@@ -973,6 +973,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " l.fixed_emi_amount as fixedEmiAmount, l.max_outstanding_loan_balance as outstandingLoanBalance,"
                     + " l.loan_sub_status_id as loanSubStatusId, la.principal_overdue_derived as principalOverdue, l.is_fraud as isFraud, "
                     + " l.custom_schedule_defined as customScheduleDefined, "
+                    + " l.is_bpi_collected_at_disbursement as isBpiCollectedAtDisbursement, "
                     + " la.interest_overdue_derived as interestOverdue, la.fee_charges_overdue_derived as feeChargesOverdue,"
                     + " la.penalty_charges_overdue_derived as penaltyChargesOverdue, la.total_overdue_derived as totalOverdue,"
                     + " la.overdue_since_date_derived as overdueSinceDate, "
@@ -1419,6 +1420,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     rs.getString("buyDownFeeIncomeType"));
             final boolean merchantBuyDownFee = rs.getBoolean("merchantBuyDownFee");
             final boolean customScheduleDefined = rs.getBoolean("customScheduleDefined");
+            final boolean bpiCollectedAtDisbursement = rs.getBoolean("isBpiCollectedAtDisbursement");
+
             final LoanAccountData loanAccountData = LoanAccountData.basicLoanDetails(id, accountNo, status, externalId, clientId,
                     clientAccountNo, clientName, clientOfficeId, clientExternalId, groupData, loanType, loanProductId, loanProductName,
                     loanProductDescription, isLoanProductLinkedToFloatingRate, fundId, fundName, loanPurposeId, loanPurposeName,
@@ -1445,6 +1448,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             // Set BPI configuration
             loanAccountData.setBrokenPeriodConfig(brokenPeriodConfig);
             loanAccountData.setCustomScheduleDefined(customScheduleDefined);
+            loanAccountData.setBpiCollectedAtDisbursement(bpiCollectedAtDisbursement);
+
             return loanAccountData;
         }
     }

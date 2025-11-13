@@ -45,6 +45,7 @@ import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.ErrorHandler;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.dataqueries.data.EntityTables;
@@ -96,6 +97,7 @@ import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTr
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
+import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.RecalculationFrequencyType;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.apache.fineract.portfolio.note.domain.Note;
@@ -299,31 +301,65 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
 
             // Handle Broken Period Interest Configuration update (upsert logic)
             // Note: validation already ensures loan is in submittedAndPendingApproval state
-            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper);
+            BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper);
 
-            // Try to find existing config
+            // Get previous strategy before any updates
             final var existingConfig = loanConfigMappingRepository.findByLoanId(loanId);
+            BrokenPeriodInterestStrategy previousStrategy = existingConfig
+                    .map(config -> config.getBrokenPeriodConfig() != null ? config.getBrokenPeriodConfig().getStrategy() : null)
+                    .orElse(null);
 
+            // Update or create BPI config
             if (bpiConfig != null) {
-                // User provided explicit BPI parameters in the command
+                // User provided explicit BPI parameters
+                final LoanConfigMapping configMapping;
                 if (existingConfig.isPresent()) {
-                    // Update existing config
-                    final LoanConfigMapping configMapping = existingConfig.get();
+                    configMapping = existingConfig.get();
                     configMapping.updateBrokenPeriodConfig(bpiConfig);
-                    loanConfigMappingRepository.saveAndFlush(configMapping);
                     changes.put("brokenPeriodConfig", "updated");
                 } else {
-                    // Create new config
-                    final LoanConfigMapping configMapping = new LoanConfigMapping(loan, bpiConfig);
-                    loanConfigMappingRepository.saveAndFlush(configMapping);
+                    configMapping = new LoanConfigMapping(loan, bpiConfig);
                     changes.put("brokenPeriodConfig", "created");
                 }
-            } else if (!existingConfig.isPresent() && loan.getLoanProduct().getBpiConfig() != null) {
-                // No config data in command, but product has config - copy from product
+                loanConfigMappingRepository.saveAndFlush(configMapping);
+                loan.setBpiConfig(configMapping);
+            } else if (existingConfig.isEmpty() && loan.getLoanProduct().getBpiConfig() != null) {
+                // Copy BPI config from product if loan doesn't have one
                 final LoanConfigMapping configMapping = new LoanConfigMapping(loan, loan.getLoanProduct().getBpiConfig());
                 loanConfigMappingRepository.saveAndFlush(configMapping);
+                loan.setBpiConfig(configMapping);
+                bpiConfig = configMapping.getBrokenPeriodConfig();
                 changes.put("brokenPeriodConfig", "copied_from_product");
             }
+
+            // Handle isBpiCollectedAtDisbursement flag
+            // Only update if explicitly provided in payload or if strategy becomes incompatible
+            final BrokenPeriodInterestStrategy currentStrategy = loan.getBpiConfig() != null
+                    && loan.getBpiConfig().getBrokenPeriodConfig() != null ? loan.getBpiConfig().getBrokenPeriodConfig().getStrategy()
+                            : null;
+
+            if (command.parameterExists(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT)) {
+                // User explicitly provided the flag - validate and apply it
+                final Boolean isBpiCollectedAtDisbursement = command
+                        .booleanObjectValueOfParameterNamed(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT);
+                final boolean isCompatibleStrategy = currentStrategy == BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE;
+
+                if (Boolean.TRUE.equals(isBpiCollectedAtDisbursement) && !isCompatibleStrategy) {
+                    throw new GeneralPlatformDomainRuleException(
+                            "error.msg.loan.bpi.collect.at.disbursement.requires.principal.grace.strategy",
+                            "Broken period interest collection at disbursement can only be enabled when BPI strategy is 'Add to First Installment with Principal Grace'");
+                }
+                loan.setBpiCollectedAtDisbursement(isBpiCollectedAtDisbursement);
+                changes.put("isBpiCollectedAtDisbursement", isBpiCollectedAtDisbursement);
+            } else if (bpiConfig != null && previousStrategy == BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+                    && bpiConfig.getStrategy() != BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+                    && loan.isBpiCollectedAtDisbursement()) {
+                // Strategy changed away from principal grace and flag is true - must reset to false for compatibility
+                loan.setBpiCollectedAtDisbursement(false);
+                changes.put("isBpiCollectedAtDisbursement", "reset_due_to_strategy_change");
+            }
+            // Otherwise: preserve existing loan flag value (do not inherit from product during modification)
+            this.loanRepositoryWrapper.saveAndFlush(loan);
 
             businessEventNotifierService.notifyPostBusinessEvent(new LoanApplicationModifiedBusinessEvent(loan));
 
