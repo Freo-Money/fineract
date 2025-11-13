@@ -234,6 +234,10 @@ public class LoanCharge extends AbstractAuditableWithUTCDateTimeCustom<Long> {
                 || ChargeTimeType.fromInt(this.chargeTime).equals(ChargeTimeType.TRANCHE_DISBURSEMENT);
     }
 
+    public boolean isDueAtForeclosure() {
+        return ChargeTimeType.fromInt(this.chargeTime).equals(ChargeTimeType.FORECLOSURE);
+    }
+
     public boolean isSpecifiedDueDate() {
         return ChargeTimeType.fromInt(this.chargeTime).equals(ChargeTimeType.SPECIFIED_DUE_DATE);
     }
