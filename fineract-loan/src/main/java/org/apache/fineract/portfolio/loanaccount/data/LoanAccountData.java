@@ -196,6 +196,7 @@ public class LoanAccountData {
     private Boolean multiDisburseLoan;
 
     private Boolean canDefineInstallmentAmount;
+    private Boolean adjustInterestForRounding;
 
     private BigDecimal fixedEmiAmount;
 
@@ -434,6 +435,7 @@ public class LoanAccountData {
                 .setGraceOnInterestPayment(product.getGraceOnInterestPayment())
                 .setGraceOnInterestCharged(product.getGraceOnInterestCharged()).setCharges(charges)
                 .setMultiDisburseLoan(product.getMultiDisburseLoan()).setCanDefineInstallmentAmount(product.isCanDefineInstallmentAmount())
+                .setAdjustInterestForRounding(product.isAdjustInterestForRounding())
                 .setMaxOutstandingLoanBalance(product.getOutstandingLoanBalance()).setProduct(product)
                 .setGraceOnArrearsAgeing(product.getGraceOnArrearsAgeing()).setOverdueCharges(product.overdueFeeCharges())
                 .setDaysInMonthType(product.getDaysInMonthType()).setDaysInYearType(product.getDaysInYearType())
@@ -473,8 +475,8 @@ public class LoanAccountData {
             final LoanApplicationTimelineData timeline, final LoanSummaryData loanSummary,
             final BigDecimal feeChargesDueAtDisbursementCharged, final Boolean syncDisbursementWithMeeting, final Integer loanCounter,
             final Integer loanProductCounter, final Boolean multiDisburseLoan, Boolean canDefineInstallmentAmount,
-            final BigDecimal fixedEmiAmont, final BigDecimal outstandingLoanBalance, final Boolean inArrears,
-            final Integer graceOnArrearsAgeing, final Boolean isNPA, final EnumOptionData daysInMonthType,
+            final Boolean adjustInterestForRounding, final BigDecimal fixedEmiAmont, final BigDecimal outstandingLoanBalance,
+            final Boolean inArrears, final Integer graceOnArrearsAgeing, final Boolean isNPA, final EnumOptionData daysInMonthType,
             final EnumOptionData daysInYearType, final boolean isInterestRecalculationEnabled,
             final LoanInterestRecalculationData interestRecalculationData, final Boolean createStandingInstructionAtDisbursement,
             final Boolean isVariableInstallmentsAllowed, Integer minimumGap, Integer maximumGap, final EnumOptionData subStatus,
@@ -520,10 +522,11 @@ public class LoanAccountData {
                 .setFeeChargesAtDisbursementCharged(feeChargesDueAtDisbursementCharged)
                 .setSyncDisbursementWithMeeting(syncDisbursementWithMeeting).setLoanCounter(loanCounter)
                 .setLoanProductCounter(loanProductCounter).setMultiDisburseLoan(multiDisburseLoan)
-                .setCanDefineInstallmentAmount(canDefineInstallmentAmount).setFixedEmiAmount(fixedEmiAmont)
-                .setMaxOutstandingLoanBalance(outstandingLoanBalance).setInArrears(inArrears).setGraceOnArrearsAgeing(graceOnArrearsAgeing)
-                .setIsNPA(isNPA).setDaysInMonthType(daysInMonthType).setDaysInYearType(daysInYearType)
-                .setInterestRecalculationEnabled(isInterestRecalculationEnabled).setInterestRecalculationData(interestRecalculationData)
+                .setCanDefineInstallmentAmount(canDefineInstallmentAmount).setAdjustInterestForRounding(adjustInterestForRounding)
+                .setFixedEmiAmount(fixedEmiAmont).setMaxOutstandingLoanBalance(outstandingLoanBalance).setInArrears(inArrears)
+                .setGraceOnArrearsAgeing(graceOnArrearsAgeing).setIsNPA(isNPA).setDaysInMonthType(daysInMonthType)
+                .setDaysInYearType(daysInYearType).setInterestRecalculationEnabled(isInterestRecalculationEnabled)
+                .setInterestRecalculationData(interestRecalculationData)
                 .setCreateStandingInstructionAtDisbursement(createStandingInstructionAtDisbursement)
                 .setIsVariableInstallmentsAllowed(isVariableInstallmentsAllowed).setMinimumGap(minimumGap).setMaximumGap(maximumGap)
                 .setSubStatus(subStatus).setCanUseForTopup(canUseForTopup).setTopup(isTopup).setClosureLoanId(closureLoanId)
