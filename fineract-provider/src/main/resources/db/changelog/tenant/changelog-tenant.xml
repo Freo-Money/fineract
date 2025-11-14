@@ -225,4 +225,5 @@
     <include file="parts/0200_add_bpi_column_to_loan.xml" relativeToChangelogFile="true" />
     <include file="parts/0203_add_charge_pay_and_bulk_waive_permissions.xml" relativeToChangelogFile="true" />
     <include file="parts/0204_add_custom_schedule_defined_column_to_loan.xml" relativeToChangelogFile="true" />
+    <include file="parts/1035_add_adjust_interest_for_rounding_to_product_loan.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

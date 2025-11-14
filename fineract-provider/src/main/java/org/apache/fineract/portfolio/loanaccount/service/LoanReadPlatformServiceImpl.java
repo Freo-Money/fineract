@@ -922,6 +922,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " lp.allow_variabe_installments as isvariableInstallmentsAllowed, "
                     + " lp.allow_multiple_disbursals as multiDisburseLoan, lp.disallow_expected_disbursements as disallowExpectedDisbursements, "
                     + " lp.can_define_fixed_emi_amount as canDefineInstallmentAmount,"
+                    + " lp.adjust_interest_for_rounding as adjustInterestForRounding,"
                     + " c.id as clientId, c.account_no as clientAccountNo, c.display_name as clientName, c.office_id as clientOfficeId, c.external_id as clientExternalId,"
                     + " g.id as groupId, g.account_no as groupAccountNo, g.display_name as groupName,"
                     + " g.office_id as groupOfficeId, g.staff_id As groupStaffId , g.parent_id as groupParentId, (select mg.display_name from m_group mg where mg.id = g.parent_id) as centerName, "
@@ -1088,6 +1089,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             final boolean isLoanProductLinkedToFloatingRate = rs.getBoolean("isLoanProductLinkedToFloatingRate");
             final Boolean multiDisburseLoan = rs.getBoolean("multiDisburseLoan");
             final Boolean canDefineInstallmentAmount = rs.getBoolean("canDefineInstallmentAmount");
+            final Boolean adjustInterestForRounding = rs.getBoolean("adjustInterestForRounding");
             final BigDecimal outstandingLoanBalance = rs.getBigDecimal("outstandingLoanBalance");
 
             final LocalDate submittedOnDate = JdbcSupport.getLocalDate(rs, "submittedOnDate");
@@ -1433,17 +1435,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     expectedFirstRepaymentOnDate, graceOnPrincipalPayment, recurringMoratoriumOnPrincipalPeriods, graceOnInterestPayment,
                     graceOnInterestCharged, interestChargedFromDate, timeline, loanSummary, feeChargesDueAtDisbursementCharged,
                     syncDisbursementWithMeeting, loanCounter, loanProductCounter, multiDisburseLoan, canDefineInstallmentAmount,
-                    fixedEmiAmount, outstandingLoanBalance, inArrears, graceOnArrearsAgeing, isNPA, daysInMonthType, daysInYearType,
-                    isInterestRecalculationEnabled, interestRecalculationData, createStandingInstructionAtDisbursement,
-                    isvariableInstallmentsAllowed, minimumGap, maximumGap, loanSubStatus, canUseForTopup, isTopup, closureLoanId,
-                    closureLoanAccountNo, topupAmount, isEqualAmortization, fixedPrincipalPercentagePerInstallment, delinquencyRange,
-                    disallowExpectedDisbursements, isFraud, lastClosedBusinessDate, overpaidOnDate, isChargedOff, enableDownPayment,
-                    disbursedAmountPercentageForDownPayment, enableAutoRepaymentForDownPayment, enableInstallmentLevelDelinquency,
-                    loanScheduleType.asEnumOptionData(), loanScheduleProcessingType.asEnumOptionData(), fixedLength,
-                    chargeOffBehaviour.getValueAsStringEnumOptionData(), interestRecognitionOnDisbursementDate, daysInYearCustomStrategy,
-                    enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType,
-                    enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee,
-                    brokenPeriodInterest);
+                    adjustInterestForRounding, fixedEmiAmount, outstandingLoanBalance, inArrears, graceOnArrearsAgeing, isNPA,
+                    daysInMonthType, daysInYearType, isInterestRecalculationEnabled, interestRecalculationData,
+                    createStandingInstructionAtDisbursement, isvariableInstallmentsAllowed, minimumGap, maximumGap, loanSubStatus,
+                    canUseForTopup, isTopup, closureLoanId, closureLoanAccountNo, topupAmount, isEqualAmortization,
+                    fixedPrincipalPercentagePerInstallment, delinquencyRange, disallowExpectedDisbursements, isFraud,
+                    lastClosedBusinessDate, overpaidOnDate, isChargedOff, enableDownPayment, disbursedAmountPercentageForDownPayment,
+                    enableAutoRepaymentForDownPayment, enableInstallmentLevelDelinquency, loanScheduleType.asEnumOptionData(),
+                    loanScheduleProcessingType.asEnumOptionData(), fixedLength, chargeOffBehaviour.getValueAsStringEnumOptionData(),
+                    interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
+                    capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
+                    buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, brokenPeriodInterest);
 
             // Set BPI configuration
             loanAccountData.setBrokenPeriodConfig(brokenPeriodConfig);

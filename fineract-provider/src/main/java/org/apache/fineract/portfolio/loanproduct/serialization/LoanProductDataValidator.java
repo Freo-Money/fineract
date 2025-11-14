@@ -185,8 +185,8 @@ public final class LoanProductDataValidator {
             LoanProductConstants.maximumGapBetweenInstallments, LoanProductConstants.recalculationCompoundingFrequencyWeekdayParamName,
             LoanProductConstants.recalculationCompoundingFrequencyNthDayParamName,
             LoanProductConstants.recalculationCompoundingFrequencyOnDayParamName,
-            LoanProductConstants.recalculationRestFrequencyWeekdayParamName, LoanProductConstants.recalculationRestFrequencyNthDayParamName,
-            LoanProductConstants.recalculationRestFrequencyOnDayParamName,
+            LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME, LoanProductConstants.recalculationRestFrequencyWeekdayParamName,
+            LoanProductConstants.recalculationRestFrequencyNthDayParamName, LoanProductConstants.recalculationRestFrequencyOnDayParamName,
             LoanProductConstants.isCompoundingToBePostedAsTransactionParamName, LoanProductConstants.allowCompoundingOnEodParamName,
             LoanProductConstants.disallowInterestCalculationOnPastDueParamName, LoanProductConstants.CAN_USE_FOR_TOPUP,
             LoanProductConstants.IS_EQUAL_AMORTIZATION_PARAM, LoanProductConstants.RATES_PARAM_NAME,
@@ -653,6 +653,13 @@ public final class LoanProductDataValidator {
                     .extractBooleanNamed(LoanProductConstants.canDefineEmiAmountParamName, element);
             baseDataValidator.reset().parameter(LoanProductConstants.canDefineEmiAmountParamName).value(canDefineInstallmentAmount)
                     .isOneOfTheseValues(true, false);
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME, element)) {
+            final Boolean adjustInterestForRounding = this.fromApiJsonHelper
+                    .extractBooleanNamed(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME, element);
+            baseDataValidator.reset().parameter(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME)
+                    .value(adjustInterestForRounding).isOneOfTheseValues(true, false);
         }
 
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.installmentAmountInMultiplesOfParamName, element)) {
@@ -1769,6 +1776,13 @@ public final class LoanProductDataValidator {
                     .extractBooleanNamed(LoanProductConstants.canDefineEmiAmountParamName, element);
             baseDataValidator.reset().parameter(LoanProductConstants.canDefineEmiAmountParamName).value(canDefineInstallmentAmount)
                     .isOneOfTheseValues(true, false);
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME, element)) {
+            final Boolean adjustInterestForRounding = this.fromApiJsonHelper
+                    .extractBooleanNamed(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME, element);
+            baseDataValidator.reset().parameter(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME)
+                    .value(adjustInterestForRounding).isOneOfTheseValues(true, false);
         }
 
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.installmentAmountInMultiplesOfParamName, element)) {

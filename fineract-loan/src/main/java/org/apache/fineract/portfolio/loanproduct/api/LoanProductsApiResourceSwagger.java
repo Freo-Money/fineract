@@ -118,6 +118,8 @@ public final class LoanProductsApiResourceSwagger {
         public BigDecimal fixedPrincipalPercentagePerInstallment;
         @Schema(example = "true")
         public Boolean canDefineInstallmentAmount;
+        @Schema(example = "false")
+        public Boolean adjustInterestForRounding;
         @Schema(example = "10")
         public Integer fixedLength;
 
@@ -1475,6 +1477,8 @@ public final class LoanProductsApiResourceSwagger {
         public GetLoanProductsResponse.GetLoanProductsInterestRecalculationData interestRecalculationData;
         @Schema(example = "false")
         public Boolean canDefineInstallmentAmount;
+        @Schema(example = "false")
+        public Boolean adjustInterestForRounding;
         @Schema(example = "[]")
         public List<LoanProductChargeData> charges;
         public Set<GetLoanProductsPrincipalVariationsForBorrowerCycle> productsPrincipalVariationsForBorrowerCycle;
@@ -1631,6 +1635,8 @@ public final class LoanProductsApiResourceSwagger {
         public BigDecimal fixedPrincipalPercentagePerInstallment;
         @Schema(example = "true")
         public Boolean canDefineInstallmentAmount;
+        @Schema(example = "false")
+        public Boolean adjustInterestForRounding;
         @Schema(example = "10.0")
         public Integer fixedLength;
 
