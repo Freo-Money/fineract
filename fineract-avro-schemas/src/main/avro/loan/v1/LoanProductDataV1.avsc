@@ -461,6 +461,14 @@
         },
         {
             "default": null,
+            "name": "adjustInterestForRounding",
+            "type": [
+                "null",
+                "boolean"
+            ]
+        },
+        {
+            "default": null,
             "name": "installmentAmountInMultiplesOf",
             "type": [
                 "null",

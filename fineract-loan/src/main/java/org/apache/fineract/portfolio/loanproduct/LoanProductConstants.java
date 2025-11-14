@@ -140,6 +140,7 @@ public interface LoanProductConstants {
 
     // Multiple disbursement related
     String installmentAmountInMultiplesOfParamName = "installmentAmountInMultiplesOf";
+    String ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME = "adjustInterestForRounding";
     String DISALLOW_EXPECTED_DISBURSEMENTS = "disallowExpectedDisbursements";
     String ALLOW_APPROVED_DISBURSED_AMOUNTS_OVER_APPLIED = "allowApprovedDisbursedAmountsOverApplied";
     String OVER_APPLIED_CALCULATION_TYPE = "overAppliedCalculationType";
