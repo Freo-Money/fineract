@@ -2530,7 +2530,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     }
 
     @Override
-    public LoanTransactionData retrieveLoanForeclosureTemplate(final Long loanId, final LocalDate transactionDate) {
+    public LoanTransactionData retrieveLoanForeclosureTemplate(final Long loanId, final LocalDate transactionDate,
+            final BigDecimal foreclosureChargePercentage) {
         this.context.authenticatedUser();
 
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
@@ -2542,25 +2543,32 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
         final LocalDate earliestUnpaidInstallmentDate = DateUtils.getBusinessLocalDate();
 
+        BigDecimal effectiveForeclosureChargePercentage = foreclosureChargePercentage != null ? foreclosureChargePercentage
+                : loanBalanceService.determineForeclosureChargePercentage(loan);
         final LoanRepaymentScheduleInstallment loanRepaymentScheduleInstallment = loanBalanceService.fetchLoanForeclosureDetail(loan,
-                transactionDate);
+                transactionDate, effectiveForeclosureChargePercentage);
+        final Money foreclosureChargePreview = loanBalanceService.calculateForeclosureChargeAmount(loan, transactionDate,
+                effectiveForeclosureChargePercentage);
         BigDecimal unrecognizedIncomePortion = null;
         final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.REPAYMENT);
         final Collection<PaymentTypeData> paymentTypeOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
-        final BigDecimal outstandingLoanBalance = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency).getAmount();
+        final Money principalOutstandingMoney = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency);
+        final Money interestOutstandingMoney = loanRepaymentScheduleInstallment.getInterestOutstanding(currency);
+        final Money feeOutstandingMoney = loanRepaymentScheduleInstallment.getFeeChargesOutstanding(currency);
+        final Money penaltyOutstandingMoney = loanRepaymentScheduleInstallment.getPenaltyChargesOutstanding(currency);
+        final Money totalFeeOutstandingMoney = feeOutstandingMoney.plus(foreclosureChargePreview);
+        final Money totalOutstandingMoney = principalOutstandingMoney.plus(interestOutstandingMoney).plus(totalFeeOutstandingMoney)
+                .plus(penaltyOutstandingMoney);
+        final BigDecimal outstandingLoanBalance = principalOutstandingMoney.getAmount();
         final Boolean isManuallyReversed = false;
 
-        final Money outStandingAmount = loanRepaymentScheduleInstallment.getTotalOutstanding(currency);
-
         return LoanTransactionData.builder().type(transactionType).currency(currencyData).date(earliestUnpaidInstallmentDate)
-                .amount(outStandingAmount.getAmount()).netDisbursalAmount(loan.getNetDisbursalAmount())
-                .principalPortion(loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency).getAmount())
-                .interestPortion(loanRepaymentScheduleInstallment.getInterestOutstanding(currency).getAmount())
-                .feeChargesPortion(loanRepaymentScheduleInstallment.getFeeChargesOutstanding(currency).getAmount())
-                .penaltyChargesPortion(loanRepaymentScheduleInstallment.getPenaltyChargesOutstanding(currency).getAmount())
+                .amount(totalOutstandingMoney.getAmount()).netDisbursalAmount(loan.getNetDisbursalAmount())
+                .principalPortion(principalOutstandingMoney.getAmount()).interestPortion(interestOutstandingMoney.getAmount())
+                .feeChargesPortion(totalFeeOutstandingMoney.getAmount()).penaltyChargesPortion(penaltyOutstandingMoney.getAmount())
                 .unrecognizedIncomePortion(unrecognizedIncomePortion).paymentTypeOptions(paymentTypeOptions).externalId(ExternalId.empty())
                 .outstandingLoanBalance(outstandingLoanBalance).manuallyReversed(isManuallyReversed).loanId(loanId)
-                .externalLoanId(loan.getExternalId()).build();
+                .externalLoanId(loan.getExternalId()).foreclosureChargePercentage(effectiveForeclosureChargePercentage).build();
     }
 
     private static final class CurrencyMapper implements RowMapper<CurrencyData> {

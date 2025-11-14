@@ -212,7 +212,7 @@ public class LoanSummary {
         this.totalInterestOutstanding = totalInterestCharged.minus(this.totalInterestRepaid).minus(this.totalInterestWaived)
                 .minus(this.totalInterestWrittenOff).getAmount();
 
-        final Money totalFeeChargesCharged = calculateTotalFeeChargesCharged(repaymentScheduleInstallments, currency)
+        Money totalFeeChargesCharged = calculateTotalFeeChargesCharged(repaymentScheduleInstallments, currency)
                 .plus(this.totalFeeChargesDueAtDisbursement);
         this.totalFeeChargesCharged = totalFeeChargesCharged.getAmount();
 

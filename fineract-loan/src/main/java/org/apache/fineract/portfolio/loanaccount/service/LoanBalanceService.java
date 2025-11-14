@@ -22,13 +22,17 @@ import jakarta.persistence.FlushModeType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.persistence.FlushModeHandler;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
+import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
@@ -48,6 +52,7 @@ public class LoanBalanceService {
     private final CapitalizedIncomeBalanceService capitalizedIncomeBalanceService;
     private final FlushModeHandler flushModeHandler;
     private final LoanTransactionRepository loanTransactionRepository;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
 
     public Money calculateTotalOverpayment(final Loan loan) {
         Money totalPaidInRepayments = loan.getTotalPaidInRepayments();
@@ -62,6 +67,11 @@ public class LoanBalanceService {
                     .plus(scheduledRepayment.getFeeChargesPaid(currency)).plus(scheduledRepayment.getPenaltyChargesPaid(currency));
 
             cumulativeTotalWaivedOnInstallments = cumulativeTotalWaivedOnInstallments.plus(scheduledRepayment.getInterestWaived(currency));
+        }
+
+        if (loan.isForeclosure() && loan.getSummary() != null
+                && loan.getSummary().getTotalOutstanding(currency).isZero()) {
+            return Money.zero(currency);
         }
 
         for (final LoanTransaction loanTransaction : loan.getLoanTransactions()) {
@@ -211,12 +221,209 @@ public class LoanBalanceService {
     }
 
     public LoanRepaymentScheduleInstallment fetchLoanForeclosureDetail(final Loan loan, final LocalDate closureDate) {
+        return fetchLoanForeclosureDetail(loan, closureDate, null, false);
+    }
+
+    public LoanRepaymentScheduleInstallment fetchLoanForeclosureDetail(final Loan loan, final LocalDate closureDate,
+            final BigDecimal foreclosureChargePercentage) {
+        return fetchLoanForeclosureDetail(loan, closureDate, foreclosureChargePercentage, false);
+    }
+
+    public LoanRepaymentScheduleInstallment fetchLoanForeclosureDetail(final Loan loan, final LocalDate closureDate,
+            final BigDecimal foreclosureChargePercentage, final boolean updateLoanCharges) {
         Money[] receivables = retrieveIncomeOutstandingTillDate(loan, closureDate);
-        Money totalPrincipal = Money.of(loan.getCurrency(), loan.getSummary().getTotalPrincipalOutstanding());
+        MonetaryCurrency currency = loan.getCurrency();
+        Money totalPrincipal = Money.of(currency, loan.getSummary().getTotalPrincipalOutstanding());
         totalPrincipal = totalPrincipal.minus(receivables[3]);
+        Money principalBaseForCharges = determineForeclosureChargePrincipalBase(loan, closureDate, receivables);
+
+        BigDecimal effectiveForeclosureChargePercentage = foreclosureChargePercentage != null ? foreclosureChargePercentage
+                : determineForeclosureChargePercentage(loan);
+
+        if (updateLoanCharges) {
+            updateForeclosureCharges(loan, currency, closureDate, principalBaseForCharges, effectiveForeclosureChargePercentage);
+            receivables = retrieveIncomeOutstandingTillDate(loan, closureDate);
+        }
+
         final LocalDate currentDate = DateUtils.getBusinessLocalDate();
         return new LoanRepaymentScheduleInstallment(null, 0, currentDate, currentDate, totalPrincipal.getAmount(),
                 receivables[0].getAmount(), receivables[1].getAmount(), receivables[2].getAmount(), false, null);
+    }
+
+    public Money calculateForeclosureChargeAmount(final Loan loan, final LocalDate closureDate,
+            final BigDecimal foreclosureChargePercentage) {
+        Money[] receivables = retrieveIncomeOutstandingTillDate(loan, closureDate);
+        Money principalBaseForCharges = determineForeclosureChargePrincipalBase(loan, closureDate, receivables);
+        BigDecimal effectiveForeclosureChargePercentage = foreclosureChargePercentage != null ? foreclosureChargePercentage
+                : determineForeclosureChargePercentage(loan);
+        return calculateForeclosureChargeAmount(loan, principalBaseForCharges, effectiveForeclosureChargePercentage);
+    }
+
+    public BigDecimal determineForeclosureChargePercentage(final Loan loan) {
+        BigDecimal loanLevelPercentage = getActiveForeclosureCharges(loan).stream()
+                .map(foreclosureChargeHelper::extractForeclosurePercentage).filter(Objects::nonNull).findFirst().orElse(null);
+        if (loanLevelPercentage != null) {
+            return loanLevelPercentage;
+        }
+        return foreclosureChargeHelper.determineForeclosureChargePercentageFromProduct(loan);
+    }
+
+    private Money calculateForeclosureChargeAmount(final Loan loan, final Money principalOutstanding,
+            final BigDecimal foreclosureChargePercentage) {
+        MonetaryCurrency currency = loan.getCurrency();
+        Money total = Money.zero(currency);
+        List<LoanCharge> foreclosureCharges = getActiveForeclosureCharges(loan);
+        if (!foreclosureCharges.isEmpty()) {
+            for (LoanCharge charge : foreclosureCharges) {
+                Money chargeAmount = calculateForeclosureChargeAmountForCharge(charge, currency, principalOutstanding,
+                        foreclosureChargePercentage);
+                total = total.plus(chargeAmount);
+            }
+            return total;
+        }
+
+        for (Charge chargeDefinition : foreclosureChargeHelper.getForeclosureChargeDefinitions(loan)) {
+            Money chargeAmount = foreclosureChargeHelper.calculateForeclosureChargeAmountForDefinition(loan, chargeDefinition, currency,
+                    principalOutstanding, foreclosureChargePercentage);
+            total = total.plus(chargeAmount);
+        }
+
+        return total;
+    }
+
+    private void updateForeclosureCharges(final Loan loan, final MonetaryCurrency currency, final LocalDate closureDate,
+            final Money principalOutstanding, final BigDecimal foreclosureChargePercentage) {
+        List<LoanCharge> foreclosureCharges = getActiveForeclosureCharges(loan);
+        if (foreclosureCharges.isEmpty()) {
+            foreclosureCharges = foreclosureChargeHelper.createForeclosureChargesForLoan(loan);
+            if (foreclosureCharges.isEmpty()) {
+                return;
+            }
+        }
+
+        Money totalForeclosureChargeAmount = Money.zero(currency);
+        for (LoanCharge charge : foreclosureCharges) {
+            Money chargeAmount = calculateForeclosureChargeAmountForCharge(charge, currency, principalOutstanding,
+                    foreclosureChargePercentage);
+            totalForeclosureChargeAmount = totalForeclosureChargeAmount.plus(chargeAmount);
+            applyForeclosureChargeUpdate(charge, chargeAmount, principalOutstanding, closureDate, foreclosureChargePercentage);
+        }
+        applyForeclosureChargeOnRepaymentSchedule(loan, currency, totalForeclosureChargeAmount);
+        refreshSummaryAndBalancesForDisbursedLoan(loan);
+    }
+
+    private Money calculateForeclosureChargeAmountForCharge(final LoanCharge charge, final MonetaryCurrency currency,
+            final Money principalOutstanding, final BigDecimal foreclosureChargePercentage) {
+        if (charge.getChargeCalculation().isPercentageBased()) {
+            BigDecimal percentageToUse = foreclosureChargePercentage;
+            if (percentageToUse == null) {
+                percentageToUse = charge.getPercentage();
+            }
+            if (percentageToUse == null) {
+                percentageToUse = charge.amountOrPercentage();
+            }
+            if (percentageToUse == null) {
+                return Money.zero(currency);
+            }
+            return Money.of(currency, LoanCharge.percentageOf(principalOutstanding.getAmount(), percentageToUse));
+        }
+        Money outstanding = charge.getAmountOutstanding(currency);
+        if (outstanding.isGreaterThanZero()) {
+            return outstanding;
+        }
+        BigDecimal baseAmount = charge.amountOrPercentage();
+        if (baseAmount == null) {
+            return Money.zero(currency);
+        }
+        return Money.of(currency, baseAmount);
+    }
+
+    private void applyForeclosureChargeOnRepaymentSchedule(final Loan loan, final MonetaryCurrency currency, final Money foreclosureAmount) {
+        if (!foreclosureAmount.isGreaterThanZero()) {
+            return;
+        }
+        List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
+        if (installments == null || installments.isEmpty()) {
+            return;
+        }
+        LoanRepaymentScheduleInstallment lastInstallment = LoanRepaymentScheduleInstallment.getLastNonDownPaymentInstallment(installments);
+        Money existingFeeCharges = lastInstallment.getFeeChargesCharged(currency);
+        if (existingFeeCharges.isEqualTo(foreclosureAmount)) {
+            return;
+        }
+        lastInstallment.setFeeChargesCharged(foreclosureAmount.getAmount());
+        lastInstallment.setFeeChargesPaid(Money.zero(currency).getAmount());
+        lastInstallment.setFeeChargesWaived(Money.zero(currency).getAmount());
+        lastInstallment.setFeeChargesWrittenOff(Money.zero(currency).getAmount());
+    }
+
+    public void syncForeclosureFeeOnRepaymentSchedule(final Loan loan, final Money foreclosureFee) {
+        MonetaryCurrency currency = loan.getCurrency();
+        if (!foreclosureFee.isGreaterThanZero()) {
+            return;
+        }
+        List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
+        if (installments == null || installments.isEmpty()) {
+            return;
+        }
+        LoanRepaymentScheduleInstallment lastInstallment = LoanRepaymentScheduleInstallment.getLastNonDownPaymentInstallment(installments);
+        // Update to match the actual foreclosure fee that was charged and paid
+        lastInstallment.setFeeChargesCharged(foreclosureFee.getAmount());
+        lastInstallment.setFeeChargesPaid(foreclosureFee.getAmount());
+        lastInstallment.setFeeChargesWaived(Money.zero(currency).getAmount());
+        lastInstallment.setFeeChargesWrittenOff(Money.zero(currency).getAmount());
+    }
+
+    private Money determineForeclosureChargePrincipalBase(final Loan loan, final LocalDate closureDate, Money[] receivables) {
+        MonetaryCurrency currency = loan.getCurrency();
+        Money principalOverdue = calculatePrincipalOverdueTillDate(loan, closureDate);
+        if (principalOverdue.isGreaterThanZero()) {
+            return principalOverdue;
+        }
+        Money principalOutstanding = Money.of(currency, loan.getSummary().getTotalPrincipalOutstanding());
+        if (receivables != null && receivables.length > 3) {
+            principalOutstanding = principalOutstanding.minus(receivables[3]);
+        }
+        return principalOutstanding.isGreaterThanZero() ? principalOutstanding : Money.zero(currency);
+    }
+
+    private Money calculatePrincipalOverdueTillDate(final Loan loan, final LocalDate tillDate) {
+        MonetaryCurrency currency = loan.getCurrency();
+        Money total = Money.zero(currency);
+        for (LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
+            if (installment.isOverdueOn(tillDate)) {
+                Money principalOutstanding = installment.getPrincipalOutstanding(currency);
+                if (principalOutstanding.isGreaterThanZero()) {
+                    total = total.plus(principalOutstanding);
+                }
+            }
+        }
+        return total;
+    }
+
+    private void applyForeclosureChargeUpdate(final LoanCharge charge, final Money amount, final Money principalOutstanding,
+            final LocalDate closureDate, final BigDecimal foreclosureChargePercentage) {
+        charge.setDueDate(closureDate);
+        charge.setAmount(amount.getAmount());
+        charge.setAmountOutstanding(amount.getAmount());
+        charge.setAmountPaid(BigDecimal.ZERO);
+        charge.setAmountWaived(BigDecimal.ZERO);
+        charge.setAmountWrittenOff(BigDecimal.ZERO);
+        charge.setPaid(false);
+        charge.setWaived(false);
+        charge.setAmountPercentageAppliedTo(principalOutstanding.getAmount());
+        if (foreclosureChargePercentage != null) {
+            charge.setPercentage(foreclosureChargePercentage);
+            charge.setAmountOrPercentage(foreclosureChargePercentage);
+        }
+    }
+
+    private List<LoanCharge> getActiveForeclosureCharges(final Loan loan) {
+        if (loan.getLoanCharges() == null) {
+            return Collections.emptyList();
+        }
+        return loan.getLoanCharges().stream().filter(LoanCharge::isActive).filter(LoanCharge::isDueAtForeclosure)
+                .collect(Collectors.toList());
     }
 
     public Money[] retrieveIncomeForOverlappingPeriod(final Loan loan, final LocalDate paymentDate) {

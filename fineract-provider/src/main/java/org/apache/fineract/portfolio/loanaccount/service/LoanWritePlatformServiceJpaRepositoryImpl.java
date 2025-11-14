@@ -2671,6 +2671,14 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         changes.put("externalId", externalId);
 
         String noteText = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.noteParamName, element);
+        final BigDecimal requestedForeclosureChargePercentage = this.fromApiJsonHelper
+                .extractBigDecimalWithLocaleNamed(LoanApiConstants.foreclosureChargePercentageParamName, element);
+        BigDecimal effectiveForeclosureChargePercentage = requestedForeclosureChargePercentage != null
+                ? requestedForeclosureChargePercentage
+                : loanBalanceService.determineForeclosureChargePercentage(loan);
+        if (effectiveForeclosureChargePercentage != null) {
+            changes.put(LoanApiConstants.foreclosureChargePercentageParamName, effectiveForeclosureChargePercentage);
+        }
         LoanRescheduleRequest loanRescheduleRequest = null;
         for (LoanDisbursementDetails loanDisbursementDetails : loan.getDisbursementDetails()) {
             if (!DateUtils.isAfter(loanDisbursementDetails.expectedDisbursementDateAsLocalDate(), transactionDate)
@@ -2684,7 +2692,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 loanRescheduleRequest);
 
         LoanTransaction foreclosureTransaction = this.loanAccountDomainService.foreCloseLoan(loan, transactionDate, noteText, externalId,
-                changes);
+                effectiveForeclosureChargePercentage, changes);
 
         final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
         return commandProcessingResultBuilder //

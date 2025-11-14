@@ -1106,9 +1106,11 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         } else if (configurationDomainService.isImmediateChargeAccrualPostMaturityEnabled()
                 && DateUtils.getBusinessLocalDate().isAfter(loan.getMaturityDate())) {
             final LoanTransaction loanTransaction = loanChargeService.createChargeAppliedTransaction(loan, loanCharge, null);
-            this.loanTransactionRepository.saveAndFlush(loanTransaction);
-            loanJournalEntryPoster.postJournalEntriesForLoanTransaction(loanTransaction, false, false);
-            businessEventNotifierService.notifyPostBusinessEvent(new LoanAccrualTransactionCreatedBusinessEvent(loanTransaction));
+            if (loanTransaction != null) {
+                this.loanTransactionRepository.saveAndFlush(loanTransaction);
+                loanJournalEntryPoster.postJournalEntriesForLoanTransaction(loanTransaction, false, false);
+                businessEventNotifierService.notifyPostBusinessEvent(new LoanAccrualTransactionCreatedBusinessEvent(loanTransaction));
+            }
         }
 
         return DateUtils.isBeforeBusinessDate(loanCharge.getDueLocalDate());

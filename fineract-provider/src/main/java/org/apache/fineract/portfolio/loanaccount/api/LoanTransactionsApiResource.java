@@ -38,6 +38,7 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.UriInfo;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Collection;
@@ -121,9 +122,10 @@ public class LoanTransactionsApiResource {
             + "loans/1/transactions/template?command=disburse" + "\n" + "loans/1/transactions/template?command=disburseToSavings" + "\n"
             + "loans/1/transactions/template?command=recoverypayment" + "\n" + "loans/1/transactions/template?command=prepayLoan" + "\n"
             + "loans/1/transactions/template?command=refundbycash" + "\n" + "loans/1/transactions/template?command=refundbytransfer" + "\n"
-            + "loans/1/transactions/template?command=foreclosure" + "\n" + "loans/1/transactions/template?command=interestPaymentWaiver"
-            + "\n" + "loans/1/transactions/template?command=creditBalanceRefund (returned 'amount' field will have the overpaid value)"
-            + "\n" + "loans/1/transactions/template?command=charge-off" + "\n" + "loans/1/transactions/template?command=downPayment" + "\n"
+            + "loans/1/transactions/template?command=foreclosure&foreclosureChargePercentage=4" + "\n"
+            + "loans/1/transactions/template?command=interestPaymentWaiver" + "\n"
+            + "loans/1/transactions/template?command=creditBalanceRefund (returned 'amount' field will have the overpaid value)" + "\n"
+            + "loans/1/transactions/template?command=charge-off" + "\n" + "loans/1/transactions/template?command=downPayment" + "\n"
             + "loans/1/transactions/template?command=interest-refund")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanTransactionsApiResourceSwagger.GetLoansLoanIdTransactionsTemplateResponse.class))) })
@@ -677,13 +679,12 @@ public class LoanTransactionsApiResource {
         } else if (CommandParameterUtil.is(commandParam, "refundbytransfer")) {
             transactionData = this.loanReadPlatformService.retrieveDisbursalTemplate(resolvedLoanId, true);
         } else if (CommandParameterUtil.is(commandParam, "foreclosure")) {
-            LocalDate transactionDate;
-            if (transactionDateParam == null) {
-                transactionDate = DateUtils.getBusinessLocalDate();
-            } else {
-                transactionDate = transactionDateParam.getDate("transactionDate", dateFormat, locale);
-            }
-            transactionData = this.loanReadPlatformService.retrieveLoanForeclosureTemplate(resolvedLoanId, transactionDate);
+            LocalDate transactionDate = extractTransactionDate(transactionDateParam, dateFormat, locale,
+                    DateUtils.getBusinessLocalDate());
+            BigDecimal foreclosureChargePercentage = extractBigDecimalFromParam(uriInfo,
+                    LoanApiConstants.foreclosureChargePercentageParamName);
+            transactionData = this.loanReadPlatformService.retrieveLoanForeclosureTemplate(resolvedLoanId, transactionDate,
+                    foreclosureChargePercentage);
         } else if (CommandParameterUtil.is(commandParam, "creditBalanceRefund")) {
             transactionData = this.loanReadPlatformService.retrieveCreditBalanceRefundTemplate(resolvedLoanId);
         } else if (CommandParameterUtil.is(commandParam, CHARGE_OFF_COMMAND_VALUE)) {
@@ -783,6 +784,24 @@ public class LoanTransactionsApiResource {
         } else {
             throw new IllegalArgumentException("loanId and loanExternalId cannot be both null");
         }
+    }
+
+    private LocalDate extractTransactionDate(DateParam transactionDateParam, DateFormat dateFormat, String locale,
+            LocalDate defaultDate) {
+        return transactionDateParam == null ? defaultDate
+                : transactionDateParam.getDate("transactionDate", dateFormat, locale);
+    }
+
+    private BigDecimal extractBigDecimalFromParam(UriInfo uriInfo, String paramName) {
+        String paramValue = uriInfo.getQueryParameters().getFirst(paramName);
+        if (StringUtils.isNotBlank(paramValue)) {
+            try {
+                return new BigDecimal(paramValue);
+            } catch (NumberFormatException ex) {
+                throw new UnrecognizedQueryParamException(paramName, paramValue);
+            }
+        }
+        return null;
     }
 
     @GET

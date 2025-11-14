@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
+import com.google.gson.JsonObject;
 import jakarta.annotation.Nullable;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -25,7 +26,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -87,6 +87,7 @@ import org.apache.fineract.portfolio.delinquency.service.DelinquencyWritePlatfor
 import org.apache.fineract.portfolio.delinquency.validator.LoanDelinquencyActionData;
 import org.apache.fineract.portfolio.group.domain.Group;
 import org.apache.fineract.portfolio.group.exception.GroupNotActiveException;
+import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRefundRequestData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleDelinquencyData;
@@ -127,6 +128,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
+
+    private static final String TRANSACTION_META_SUB_TYPE_FIELD = "transactionSubType";
+    private static final String TRANSACTION_META_SUB_TYPE_FORECLOSURE = "FORECLOSURE";
 
     private final LoanAssembler loanAccountAssembler;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
@@ -704,7 +708,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
     @Override
     public LoanTransaction foreCloseLoan(Loan loan, final LocalDate foreClosureDate, final String noteText, final ExternalId externalId,
-            Map<String, Object> changes) {
+            BigDecimal foreclosureChargePercentage, Map<String, Object> changes) {
 
         if (loan.isChargedOff() && DateUtils.isBefore(foreClosureDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
@@ -714,17 +718,35 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
         businessEventNotifierService.notifyPreBusinessEvent(new LoanForeClosurePreBusinessEvent(loan));
         MonetaryCurrency currency = loan.getCurrency();
+        List<Long> transactionIds = new ArrayList<>();
         List<LoanTransaction> newTransactions = new ArrayList<>();
+        List<LoanTransaction> transactionsToJournal = new ArrayList<>();
 
         final ScheduleGeneratorDTO scheduleGeneratorDTO = null;
-        final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate);
+        BigDecimal effectiveForeclosureChargePercentage = foreclosureChargePercentage != null ? foreclosureChargePercentage
+                : loanBalanceService.determineForeclosureChargePercentage(loan);
+        final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
+                effectiveForeclosureChargePercentage, true);
 
-        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions);
+        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions,
+                effectiveForeclosureChargePercentage);
+        if (!newTransactions.isEmpty()) {
+            persistLoanTransactions(loan, newTransactions, null, transactionsToJournal);
+            newTransactions.clear();
+        }
 
         Money interestPayable = foreCloseDetail.getInterestCharged(currency);
         Money feePayable = foreCloseDetail.getFeeChargesCharged(currency);
         Money penaltyPayable = foreCloseDetail.getPenaltyChargesCharged(currency);
         Money payPrincipal = foreCloseDetail.getPrincipal(currency);
+        Money foreclosureFee = loanBalanceService.calculateForeclosureChargeAmount(loan, foreClosureDate,
+                effectiveForeclosureChargePercentage);
+        if (effectiveForeclosureChargePercentage != null) {
+            changes.put(LoanApiConstants.foreclosureChargePercentageParamName, effectiveForeclosureChargePercentage);
+        }
+        if (foreclosureFee.isGreaterThanZero()) {
+            changes.put("foreclosureFeeAmount", foreclosureFee.getAmount());
+        }
         updateInstallmentsPostDate(loan, foreClosureDate);
 
         LoanTransaction payment = null;
@@ -733,28 +755,47 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final PaymentDetail paymentDetail = null;
             payment = LoanTransaction.repayment(loan.getOffice(), payPrincipal.plus(interestPayable).plus(feePayable).plus(penaltyPayable),
                     paymentDetail, foreClosureDate, externalId);
-            payment.updateLoan(loan);
-            newTransactions.add(payment);
+            JsonObject transactionMeta = new JsonObject();
+            transactionMeta.addProperty(TRANSACTION_META_SUB_TYPE_FIELD, TRANSACTION_META_SUB_TYPE_FORECLOSURE);
+            payment.updateTransactionMetaData(transactionMeta.toString());
         }
 
-        List<Long> transactionIds = new ArrayList<>();
         if (payment != null) {
             loanForeclosureValidator.validateForForeclosure(loan, payment.getTransactionDate());
         }
+        if (payment != null) {
+            payment.updateLoan(loan);
+            newTransactions.add(payment);
+        }
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_FORECLOSURE);
         handleForeClosureTransactions(loan, payment, scheduleGeneratorDTO);
+
+        LoanTransaction savedPayment = null;
+        if (!newTransactions.isEmpty()) {
+            savedPayment = persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal, payment);
+            newTransactions.clear();
+        }
+        if (savedPayment != null) {
+            payment = savedPayment;
+        }
 
         loanAccrualsProcessingService.reprocessExistingAccruals(loan, true);
         if (loan.isInterestBearingAndInterestRecalculationEnabled()) {
             loanAccrualsProcessingService.processIncomePostingAndAccruals(loan, true);
         }
 
-        for (LoanTransaction newTransaction : newTransactions) {
-            LoanTransaction savedNewTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(newTransaction);
-            loan.addLoanTransaction(savedNewTransaction);
-            journalEntryPoster.postJournalEntriesForLoanTransaction(newTransaction, false, false);
-            transactionIds.add(savedNewTransaction.getId());
+        if (!newTransactions.isEmpty()) {
+            persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal);
+            newTransactions.clear();
         }
+
+        // Update repayment schedule installment to reflect actual foreclosure fee paid
+        if (payment != null && foreclosureFee.isGreaterThanZero()) {
+            loanBalanceService.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
+        }
+        loanBalanceService.updateLoanSummaryDerivedFields(loan);
+        // Transition loan status to closed if outstanding is zero
+        loanLifecycleStateMachine.determineAndTransition(loan, foreClosureDate);
         changes.put("transactions", transactionIds);
         changes.put("eventAmount", payPrincipal.getAmount().negate());
 
@@ -765,6 +806,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final Note note = Note.loanNote(loan, noteText);
             this.noteRepository.save(note);
         }
+
+        postJournalEntriesForTransactions(transactionsToJournal);
 
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanForeClosurePostBusinessEvent(payment));
@@ -828,10 +871,14 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         final boolean isTransactionChronologicallyLatest = loanTransactionService.isChronologicallyLatestRepaymentOrWaiver(loan,
                 refundTransaction);
 
-        final boolean shouldCreateInterestRefundTransaction = Objects.requireNonNullElseGet(interestRefundCalculationOverride,
-                () -> loan.getLoanProductRelatedDetail().getSupportedInterestRefundTypes().stream()
-                        .map(LoanSupportedInterestRefundTypes::getTransactionType)
-                        .anyMatch(transactionType -> transactionType.equals(loanTransactionType)));
+        boolean shouldCreateInterestRefundTransaction;
+        if (interestRefundCalculationOverride != null) {
+            shouldCreateInterestRefundTransaction = interestRefundCalculationOverride;
+        } else {
+            shouldCreateInterestRefundTransaction = loan.getLoanProductRelatedDetail().getSupportedInterestRefundTypes().stream()
+                    .map(LoanSupportedInterestRefundTypes::getTransactionType)
+                    .anyMatch(transactionType -> transactionType.equals(loanTransactionType));
+        }
         LoanTransaction interestRefundTransaction = null;
 
         if (shouldCreateInterestRefundTransaction) {
@@ -1028,6 +1075,36 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final ScheduleGeneratorDTO scheduleGeneratorDTO) {
         loan.setLoanSubStatus(LoanSubStatus.FORECLOSED);
         loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, repaymentTransaction, null, scheduleGeneratorDTO);
+    }
+
+    private LoanTransaction persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
+            List<LoanTransaction> transactionsToJournal, LoanTransaction transactionToReturn) {
+        LoanTransaction savedReference = null;
+        for (LoanTransaction transaction : transactions) {
+            LoanTransaction savedTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(transaction);
+            loan.addLoanTransaction(savedTransaction);
+            if (transactionsToJournal != null) {
+                transactionsToJournal.add(savedTransaction);
+            }
+            if (transactionIds != null) {
+                transactionIds.add(savedTransaction.getId());
+            }
+            if (transactionToReturn == transaction) {
+                savedReference = savedTransaction;
+            }
+        }
+        return savedReference;
+    }
+
+    private void persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
+            List<LoanTransaction> transactionsToJournal) {
+        persistLoanTransactions(loan, transactions, transactionIds, transactionsToJournal, null);
+    }
+
+    private void postJournalEntriesForTransactions(List<LoanTransaction> transactions) {
+        for (LoanTransaction transaction : transactions) {
+            journalEntryPoster.postJournalEntriesForLoanTransaction(transaction, false, false);
+        }
     }
 
     @Override

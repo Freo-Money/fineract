@@ -68,9 +68,11 @@ public class LoanTransactionData implements Serializable {
     private final BigDecimal interestPortion;
     private final BigDecimal feeChargesPortion;
     private final BigDecimal penaltyChargesPortion;
+    private BigDecimal foreclosureChargePercentage;
     private final BigDecimal overpaymentPortion;
     private final BigDecimal unrecognizedIncomePortion;
     private final ExternalId externalId;
+    private final String transactionMetaData;
     private final AccountTransferData transfer;
     private final BigDecimal fixedEmiAmount;
     private final BigDecimal outstandingLoanBalance;
@@ -144,8 +146,10 @@ public class LoanTransactionData implements Serializable {
                 .currency(loanTransactionData.currency).date(loanTransactionData.date).amount(loanTransactionData.amount)
                 .netDisbursalAmount(loanTransactionData.netDisbursalAmount).principalPortion(loanTransactionData.principalPortion)
                 .interestPortion(loanTransactionData.interestPortion).feeChargesPortion(loanTransactionData.feeChargesPortion)
+                .foreclosureChargePercentage(loanTransactionData.foreclosureChargePercentage)
                 .penaltyChargesPortion(loanTransactionData.penaltyChargesPortion).overpaymentPortion(loanTransactionData.overpaymentPortion)
-                .unrecognizedIncomePortion(loanTransactionData.unrecognizedIncomePortion).paymentTypeOptions(paymentTypeOptions)
+                .unrecognizedIncomePortion(loanTransactionData.unrecognizedIncomePortion)
+                .transactionMetaData(loanTransactionData.transactionMetaData).paymentTypeOptions(paymentTypeOptions)
                 .externalId(loanTransactionData.externalId).transfer(loanTransactionData.transfer)
                 .fixedEmiAmount(loanTransactionData.fixedEmiAmount).outstandingLoanBalance(loanTransactionData.outstandingLoanBalance)
                 .manuallyReversed(loanTransactionData.manuallyReversed).loanId(loanTransactionData.loanId)
@@ -158,12 +162,14 @@ public class LoanTransactionData implements Serializable {
                 .date(loanTransactionData.date).amount(loanTransactionData.amount)
                 .netDisbursalAmount(loanTransactionData.netDisbursalAmount).principalPortion(loanTransactionData.principalPortion)
                 .interestPortion(loanTransactionData.interestPortion).feeChargesPortion(loanTransactionData.feeChargesPortion)
+                .foreclosureChargePercentage(loanTransactionData.foreclosureChargePercentage)
                 .penaltyChargesPortion(loanTransactionData.penaltyChargesPortion).overpaymentPortion(loanTransactionData.overpaymentPortion)
                 .unrecognizedIncomePortion(loanTransactionData.unrecognizedIncomePortion)
-                .paymentTypeOptions(loanTransactionData.paymentTypeOptions).externalId(loanTransactionData.externalId)
-                .transfer(loanTransactionData.transfer).fixedEmiAmount(loanTransactionData.fixedEmiAmount)
-                .outstandingLoanBalance(loanTransactionData.outstandingLoanBalance).manuallyReversed(loanTransactionData.manuallyReversed)
-                .loanId(loanTransactionData.loanId).externalLoanId(loanTransactionData.externalLoanId).build();
+                .transactionMetaData(loanTransactionData.transactionMetaData).paymentTypeOptions(loanTransactionData.paymentTypeOptions)
+                .externalId(loanTransactionData.externalId).transfer(loanTransactionData.transfer)
+                .fixedEmiAmount(loanTransactionData.fixedEmiAmount).outstandingLoanBalance(loanTransactionData.outstandingLoanBalance)
+                .manuallyReversed(loanTransactionData.manuallyReversed).loanId(loanTransactionData.loanId)
+                .externalLoanId(loanTransactionData.externalLoanId).build();
     }
 
     public static LoanTransactionData loanTransactionDataForCreditTemplate(final LoanTransactionEnumData transactionType,

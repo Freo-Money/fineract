@@ -120,6 +120,9 @@ public class LoanChargeAssembler {
                     final ExternalId externalId = externalIdFactory.create(externalIdStr);
                     if (loanChargeId == null) {
                         final Charge chargeDefinition = this.chargeRepository.findOneWithNotFoundDetection(chargeId);
+                        if (ChargeTimeType.FORECLOSURE.getValue().equals(chargeDefinition.getChargeTimeType())) {
+                            continue;
+                        }
                         ChargeTimeType chargeTime = null;
                         if (chargeTimeType != null) {
                             chargeTime = ChargeTimeType.fromInt(chargeTimeType);
@@ -209,6 +212,10 @@ public class LoanChargeAssembler {
                     } else {
                         final LoanCharge loanCharge = this.loanChargeRepository.findById(loanChargeId)
                                 .orElseThrow(() -> new LoanChargeNotFoundException(loanChargeId));
+
+                        if (loanCharge.isDueAtForeclosure()) {
+                            continue;
+                        }
 
                         if (!loanCharge.isTrancheDisbursementCharge() || disbursementChargeIds.contains(loanChargeId)) {
                             loanChargeService.update(loanCharge, amount, dueDate, numberOfRepayments);

@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
@@ -138,7 +139,7 @@ public interface LoanReadPlatformService {
 
     Collection<Long> retrieveLoanIdsWithPendingIncomePostingTransactions();
 
-    LoanTransactionData retrieveLoanForeclosureTemplate(Long loanId, LocalDate transactionDate);
+    LoanTransactionData retrieveLoanForeclosureTemplate(Long loanId, LocalDate transactionDate, BigDecimal foreclosureChargePercentage);
 
     LoanAccountData retrieveLoanByLoanAccount(String loanAccountNumber);
 

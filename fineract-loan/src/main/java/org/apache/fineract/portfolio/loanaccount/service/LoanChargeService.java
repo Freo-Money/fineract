@@ -63,6 +63,7 @@ public class LoanChargeService {
     private final LoanTransactionProcessingService loanTransactionProcessingService;
     private final LoanLifecycleStateMachine loanLifecycleStateMachine;
     private final LoanBalanceService loanBalanceService;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
 
     public void recalculateAllCharges(final Loan loan) {
         Set<LoanCharge> charges = loan.getActiveCharges();
@@ -82,6 +83,9 @@ public class LoanChargeService {
     }
 
     public void recalculateLoanCharge(final Loan loan, final LoanCharge loanCharge, final int penaltyWaitPeriod) {
+        if (loanCharge.isDueAtForeclosure()) {
+            return;
+        }
         BigDecimal amount = BigDecimal.ZERO;
         BigDecimal chargeAmt;
         BigDecimal totalChargeAmt = BigDecimal.ZERO;
@@ -108,6 +112,9 @@ public class LoanChargeService {
 
     public void recalculateLoanCharge(final Loan loan, final LoanCharge loanCharge, final int penaltyWaitPeriod,
             final LocalDate transactionDate) {
+        if (loanCharge.isDueAtForeclosure()) {
+            return;
+        }
         BigDecimal amount = BigDecimal.ZERO;
         BigDecimal chargeAmt;
         BigDecimal totalChargeAmt = BigDecimal.ZERO;
@@ -162,6 +169,10 @@ public class LoanChargeService {
 
     public LoanTransaction createChargeAppliedTransaction(final Loan loan, final LoanCharge loanCharge,
             final LocalDate suppliedTransactionDate) {
+        if (loanCharge.isDueAtForeclosure()) {
+            return null;
+        }
+
         final Money chargeAmount = loanCharge.getAmount(loan.getCurrency());
         Money feeCharges = chargeAmount;
         Money penaltyCharges = Money.zero(loan.getCurrency());
@@ -236,7 +247,6 @@ public class LoanChargeService {
         final SingleLoanChargeRepaymentScheduleProcessingWrapper wrapper = new SingleLoanChargeRepaymentScheduleProcessingWrapper();
         wrapper.reprocess(loan.getCurrency(), loan.getDisbursementDate(), loan.getRepaymentScheduleInstallments(), loanCharge);
         loanBalanceService.updateLoanSummaryDerivedFields(loan);
-
         loanLifecycleStateMachine.transition(LoanEvent.LOAN_CHARGE_ADDED, loan);
     }
 
@@ -390,6 +400,11 @@ public class LoanChargeService {
 
     public void populateDerivedFields(final LoanCharge loanCharge, final BigDecimal amountPercentageAppliedTo,
             final BigDecimal chargeAmount, Integer numberOfRepayments, BigDecimal loanChargeAmount) {
+        if (loanCharge.isDueAtForeclosure()) {
+            foreclosureChargeHelper.initialiseForeclosureChargeAmounts(loanCharge, amountPercentageAppliedTo, chargeAmount,
+                    loanCharge.getChargeCalculation().getValue());
+            return;
+        }
         switch (loanCharge.getChargeCalculation()) {
             case INVALID:
                 loanCharge.setPercentage(null);
@@ -439,6 +454,10 @@ public class LoanChargeService {
     }
 
     public void update(final LoanCharge loanCharge, final BigDecimal amount, final LocalDate dueDate, final Integer numberOfRepayments) {
+        if (loanCharge.isDueAtForeclosure()) {
+            loanCharge.setAmountOutstanding(BigDecimal.ZERO);
+            return;
+        }
         BigDecimal amountPercentageAppliedTo = BigDecimal.ZERO;
         if (loanCharge.getLoan() != null) {
             switch (loanCharge.getChargeCalculation()) {
