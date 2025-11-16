@@ -257,8 +257,9 @@ public class LoanAssemblerImpl implements LoanAssembler {
         final List<Holiday> holidays = this.holidayRepository.findByOfficeIdAndGreaterThanDate(officeId,
                 loanApplicationTerms.getExpectedDisbursementDate(), HolidayStatusType.ACTIVE.getValue());
         final WorkingDays workingDays = this.workingDaysRepository.findOne();
+        final Boolean includeLoanChargeDetails = false;
         final LoanScheduleModel loanScheduleModel = this.loanScheduleAssembler.assembleLoanScheduleFrom(loanApplicationTerms,
-                isHolidayEnabled, holidays, workingDays, element, disbursementDetails);
+                isHolidayEnabled, holidays, workingDays, element, disbursementDetails, includeLoanChargeDetails);
 
         if (client != null && group != null) {
             loanApplication = Loan.newIndividualLoanApplicationFromGroup(accountNo, client, group, loanAccountType, loanProduct, fund,
@@ -882,7 +883,7 @@ public class LoanAssemblerImpl implements LoanAssembler {
             final JsonElement parsedQuery = this.fromApiJsonHelper.parse(command.json());
             final JsonQuery query = JsonQuery.from(command.json(), parsedQuery, this.fromApiJsonHelper);
 
-            final LoanScheduleModel loanScheduleModel = this.calculationPlatformService.calculateLoanSchedule(query, false);
+            final LoanScheduleModel loanScheduleModel = this.calculationPlatformService.calculateLoanSchedule(query, false, false);
             loanSchedule.updateLoanSchedule(loan, loanScheduleModel);
             loanAccrualsProcessingService.reprocessExistingAccruals(loan, false);
             loanChargeService.recalculateAllCharges(loan);

@@ -65,7 +65,7 @@ public class LoanScheduleCalculationPlatformServiceImpl implements LoanScheduleC
     private final LoanTermVariationsMapper loanTermVariationsMapper;
 
     @Override
-    public LoanScheduleModel calculateLoanSchedule(final JsonQuery query, Boolean validateParams) {
+    public LoanScheduleModel calculateLoanSchedule(final JsonQuery query, Boolean validateParams, Boolean includeLoanChargeDetails) {
 
         /***
          * TODO: Vishwas, this is probably not required, test and remove the same
@@ -76,7 +76,7 @@ public class LoanScheduleCalculationPlatformServiceImpl implements LoanScheduleC
         }
         this.fromApiJsonDeserializer.validate(query.json());
 
-        return this.loanScheduleAssembler.assembleLoanScheduleFrom(query.parsedJson());
+        return this.loanScheduleAssembler.assembleLoanScheduleFrom(query.parsedJson(), includeLoanChargeDetails);
     }
 
     @Override

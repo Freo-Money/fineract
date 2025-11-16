@@ -268,7 +268,8 @@ public class LoanStepDef extends AbstractStepDef {
         Long clientId = clientResponse.body().getClientId();
         PostLoansRequest loansRequest = loanRequestFactory.defaultLoansRequest(clientId);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -282,7 +283,8 @@ public class LoanStepDef extends AbstractStepDef {
         PostLoansRequest loansRequest = loanRequestFactory.defaultLoansRequest(clientId).submittedOnDate(date)
                 .expectedDisbursementDate(date);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -296,7 +298,8 @@ public class LoanStepDef extends AbstractStepDef {
         final PostLoansRequest loansRequest = loanRequestFactory.defaultProgressiveLoansRequest(clientId).submittedOnDate(date)
                 .expectedDisbursementDate(date);
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -310,7 +313,8 @@ public class LoanStepDef extends AbstractStepDef {
         PostLoansRequest loansRequest = loanRequestFactory.defaultLoansRequest(clientId).submittedOnDate(date)
                 .expectedDisbursementDate(date);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_SECOND_LOAN_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -324,7 +328,8 @@ public class LoanStepDef extends AbstractStepDef {
         PostLoansRequest loansRequest = loanRequestFactory.defaultLoansRequest(clientId).submittedOnDate(date)
                 .expectedDisbursementDate(date);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_SECOND_LOAN_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -345,7 +350,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .loanTermFrequency(1)//
                 .repaymentEvery(1);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
     }
@@ -814,7 +820,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestPayment)//
                 .graceOnInterestPayment(graceOnInterestCharged).transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
 
         ErrorHelper.checkSuccessfulApiCall(response);
@@ -886,7 +893,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestPayment)//
                 .graceOnInterestPayment(graceOnInterestCharged).transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
 
         ErrorResponse errorDetails = ErrorResponse.from(response);
@@ -965,7 +973,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestPayment)//
                 .graceOnInterestPayment(graceOnInterestCharged).transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
 
         ErrorHelper.checkSuccessfulApiCall(response);
@@ -1038,7 +1047,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestPayment)//
                 .graceOnInterestPayment(graceOnInterestCharged).transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
 
         ErrorHelper.checkSuccessfulApiCall(response);
@@ -1111,7 +1121,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .fixedLength(fixedLength);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -1184,7 +1195,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .fixedLength(fixedLength);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         String errorToString = response.errorBody().string();
         ErrorResponse errorResponse = GSON.fromJson(errorToString, ErrorResponse.class);
         String errorMessageActual = errorResponse.getErrors().get(0).getDeveloperMessage();
@@ -1264,7 +1276,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestCharged)//
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         int errorCodeActual = response.code();
         String errorBody = response.errorBody().string();
         ErrorResponse errorResponse = GSON.fromJson(errorBody, ErrorResponse.class);
@@ -1344,7 +1357,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .enableInstallmentLevelDelinquency(true);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -1447,7 +1461,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .repaymentFrequencyType(RepaymentFrequencyType.MONTHS.value).submittedOnDate(submitDate)
                 .expectedDisbursementDate(submitDate);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
     }
@@ -1526,7 +1541,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .repaymentFrequencyType(RepaymentFrequencyType.MONTHS.value).submittedOnDate(submitDate)
                 .expectedDisbursementDate(submitDate);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorResponse errorDetails = ErrorResponse.from(response);
         assertThat(errorDetails.getHttpStatusCode()).as(ErrorMessageHelper.dateFailureErrorCodeMsg()).isEqualTo(403);
@@ -3525,7 +3541,8 @@ public class LoanStepDef extends AbstractStepDef {
             loansRequest.fixedEmiAmount(new BigDecimal(555));
         }
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -3596,7 +3613,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestCharged).transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)
                 .charges(loanCharges);
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -3671,7 +3689,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .interestRateFrequencyType(interestRateFrequencyTypeValue);//
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -3750,7 +3769,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .charges(charges);//
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -3858,7 +3878,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .disbursementData(disbursementDetail)//
                 .charges(charges);//
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -3978,7 +3999,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .disbursementData(disbursementDetail);//
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -4019,7 +4041,8 @@ public class LoanStepDef extends AbstractStepDef {
                         : InterestCalculationPeriodTime.SAME_AS_REPAYMENT_PERIOD.value)//
                 .transactionProcessingStrategyCode(ADVANCED_PAYMENT_ALLOCATION.value);
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 
@@ -4059,7 +4082,8 @@ public class LoanStepDef extends AbstractStepDef {
                         : InterestCalculationPeriodTime.SAME_AS_REPAYMENT_PERIOD.value)//
                 .transactionProcessingStrategyCode(ADVANCED_PAYMENT_ALLOCATION.value);
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "").execute();
+        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
+                .execute();
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         ErrorHelper.checkSuccessfulApiCall(response);
 

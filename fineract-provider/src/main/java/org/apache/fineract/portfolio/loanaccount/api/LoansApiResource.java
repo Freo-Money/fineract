@@ -569,14 +569,16 @@ public class LoansApiResource {
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoansApiResourceSwagger.PostLoansResponse.class))) })
     public String calculateLoanScheduleOrSubmitLoanApplication(
             @QueryParam("command") @Parameter(description = "command") final String commandParam, @Context final UriInfo uriInfo,
-            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
+            @Parameter(hidden = true) final String apiRequestBodyAsJson,
+            @DefaultValue("false") @QueryParam("includeLoanChargeDetails") @Parameter(description = "includeLoanChargeDetails") final Boolean includeLoanChargeDetails) {
 
         if (CommandParameterUtil.is(commandParam, "calculateLoanSchedule")) {
 
             final JsonElement parsedQuery = this.fromJsonHelper.parse(apiRequestBodyAsJson);
             final JsonQuery query = JsonQuery.from(apiRequestBodyAsJson, parsedQuery, this.fromJsonHelper);
 
-            final LoanScheduleModel loanSchedule = this.calculationPlatformService.calculateLoanSchedule(query, true);
+            final LoanScheduleModel loanSchedule = this.calculationPlatformService.calculateLoanSchedule(query, true,
+                    includeLoanChargeDetails);
 
             final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
             return this.loanScheduleToApiJsonSerializer.serialize(settings, loanSchedule.toData(), new HashSet<>());

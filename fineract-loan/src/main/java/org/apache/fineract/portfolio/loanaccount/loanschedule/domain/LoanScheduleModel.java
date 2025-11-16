@@ -21,9 +21,11 @@ package org.apache.fineract.portfolio.loanaccount.loanschedule.domain;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import lombok.Getter;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.domain.Money;
+import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanSchedulePeriodData;
 
@@ -48,6 +50,7 @@ public final class LoanScheduleModel {
     private final BigDecimal totalRepaymentExpected;
     private final BigDecimal totalOutstanding;
     private Money brokenPeriodInterest;
+    Set<LoanChargeData> loanCharges;
 
     public static LoanScheduleModel from(final List<LoanScheduleModelPeriod> periods, final CurrencyData currency, final int loanTermInDays,
             final Money principalDisbursed, final BigDecimal totalPrincipalExpected, final BigDecimal totalPrincipalPaid,
@@ -113,6 +116,10 @@ public final class LoanScheduleModel {
         this.brokenPeriodInterest = brokenPeriodInterest;
     }
 
+    public void setLoanCharges(Set<LoanChargeData> loanCharges) {
+        this.loanCharges = loanCharges;
+    }
+
     public LoanScheduleData toData() {
         final BigDecimal totalCredits = BigDecimal.ZERO;
 
@@ -127,10 +134,14 @@ public final class LoanScheduleModel {
         final BigDecimal totalPaidInAdvance = null;
         final BigDecimal totalPaidLate = null;
 
-        return new LoanScheduleData(currency, periodsData, this.loanTermInDays, this.totalPrincipalDisbursed.getAmount(),
+        LoanScheduleData data = new LoanScheduleData(currency, periodsData, this.loanTermInDays, this.totalPrincipalDisbursed.getAmount(),
                 this.totalPrincipalExpected, this.totalPrincipalPaid, this.totalInterestCharged, this.totalFeeChargesCharged,
                 this.totalPenaltyChargesCharged, totalWaived, totalWrittenOff, this.totalRepaymentExpected, totalRepayment,
                 totalPaidInAdvance, totalPaidLate, this.totalOutstanding, totalCredits);
+        if (this.loanCharges != null && !this.loanCharges.isEmpty()) {
+            data.setLoanCharges(this.loanCharges);
+        }
+        return data;
     }
 
 }
