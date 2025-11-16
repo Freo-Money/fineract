@@ -2917,12 +2917,12 @@ public class LoanTransactionHelper {
     }
 
     public PostLoansResponse applyLoan(PostLoansRequest request) {
-        return Calls.ok(FineractClientHelper.getFineractClient().loans.calculateLoanScheduleOrSubmitLoanApplication(request, null));
+        return Calls.ok(FineractClientHelper.getFineractClient().loans.calculateLoanScheduleOrSubmitLoanApplication(request, null, null));
     }
 
     public void applyLoanWithError(PostLoansRequest request, Integer httpStatus) {
-        CallFailedRuntimeException exception = assertThrows(CallFailedRuntimeException.class,
-                () -> Calls.ok(FineractClientHelper.getFineractClient().loans.calculateLoanScheduleOrSubmitLoanApplication(request, null)));
+        CallFailedRuntimeException exception = assertThrows(CallFailedRuntimeException.class, () -> Calls
+                .ok(FineractClientHelper.getFineractClient().loans.calculateLoanScheduleOrSubmitLoanApplication(request, null, null)));
         assertEquals(exception.getResponse().code(), httpStatus);
     }
 
@@ -3160,7 +3160,8 @@ public class LoanTransactionHelper {
     }
 
     public PostLoansResponse calculateRepaymentScheduleForApplyLoan(PostLoansRequest request, String command) {
-        return Calls.ok(FineractClientHelper.getFineractClient().loans.calculateLoanScheduleOrSubmitLoanApplication(request, command));
+        return Calls
+                .ok(FineractClientHelper.getFineractClient().loans.calculateLoanScheduleOrSubmitLoanApplication(request, command, null));
     }
 
     // TODO: Rewrite to use fineract-client instead!

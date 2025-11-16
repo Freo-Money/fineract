@@ -36,11 +36,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
@@ -48,6 +50,7 @@ import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDoma
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
+import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -55,6 +58,7 @@ import org.apache.fineract.organisation.holiday.domain.Holiday;
 import org.apache.fineract.organisation.holiday.domain.HolidayRepository;
 import org.apache.fineract.organisation.holiday.domain.HolidayStatusType;
 import org.apache.fineract.organisation.holiday.service.HolidayUtil;
+import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.domain.ApplicationCurrency;
 import org.apache.fineract.organisation.monetary.domain.ApplicationCurrencyRepositoryWrapper;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
@@ -74,6 +78,8 @@ import org.apache.fineract.portfolio.calendar.domain.CalendarType;
 import org.apache.fineract.portfolio.calendar.exception.CalendarNotFoundException;
 import org.apache.fineract.portfolio.calendar.exception.MeetingFrequencyMismatchException;
 import org.apache.fineract.portfolio.calendar.service.CalendarUtils;
+import org.apache.fineract.portfolio.charge.domain.Charge;
+import org.apache.fineract.portfolio.charge.service.ChargeEnumerations;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.common.domain.DayOfWeekType;
@@ -90,6 +96,8 @@ import org.apache.fineract.portfolio.group.domain.GroupRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
+import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanInstallmentChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
 import org.apache.fineract.portfolio.loanaccount.data.OutstandingAmountsDTO;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
@@ -97,6 +105,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanEvent;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanOfficerAssignmentHistory;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
@@ -718,7 +727,7 @@ public class LoanScheduleAssembler {
         return assembleLoanProductRelatedDetail(assembleLoanApplicationTermsFrom(element, loanProduct), element);
     }
 
-    public LoanScheduleModel assembleLoanScheduleFrom(final JsonElement element) {
+    public LoanScheduleModel assembleLoanScheduleFrom(final JsonElement element, final Boolean includeLoanChargeDetails) {
         // This method is getting called from calculate loan schedule.
         final LoanApplicationTerms loanApplicationTerms = assembleLoanTerms(element);
         // Get holiday details
@@ -749,14 +758,19 @@ public class LoanScheduleAssembler {
         List<LoanDisbursementDetails> loanDisbursementDetails = this.loanDisbursementDetailsAssembler
                 .fetchDisbursementData(element.getAsJsonObject());
 
-        return assembleLoanScheduleFrom(loanApplicationTerms, isHolidayEnabled, holidays, workingDays, element, loanDisbursementDetails);
+        return assembleLoanScheduleFrom(loanApplicationTerms, isHolidayEnabled, holidays, workingDays, element, loanDisbursementDetails,
+                includeLoanChargeDetails);
     }
 
     public LoanScheduleModel assembleLoanScheduleFrom(final LoanApplicationTerms loanApplicationTerms, final boolean isHolidayEnabled,
             final List<Holiday> holidays, final WorkingDays workingDays, final JsonElement element,
-            List<LoanDisbursementDetails> disbursementDetails) {
+            List<LoanDisbursementDetails> disbursementDetails, final Boolean includeLoanChargeDetails) {
 
         Set<LoanCharge> loanCharges = this.loanChargeAssembler.fromParsedJson(element, disbursementDetails);
+        Set<LoanChargeData> loanChargeData = null;
+        if (Boolean.TRUE.equals(includeLoanChargeDetails)) {
+            loanChargeData = convertLoanChargesToData(loanCharges);
+        }
         final Set<LoanCharge> nonCompoundingCharges = validateDisbursementPercentageCharges(loanCharges);
         loanCharges.removeAll(nonCompoundingCharges);
 
@@ -785,6 +799,9 @@ public class LoanScheduleAssembler {
         if (!nonCompoundingCharges.isEmpty()) {
             updateDisbursementWithCharges(loanApplicationTerms.getPrincipal().getAmount(), loanScheduleModel.getPeriods(),
                     nonCompoundingCharges);
+        }
+        if (loanChargeData != null) {
+            loanScheduleModel.setLoanCharges(loanChargeData);
         }
         return loanScheduleModel;
     }
@@ -1615,6 +1632,39 @@ public class LoanScheduleAssembler {
                 }
             }
         }
+    }
+
+    private Set<LoanChargeData> convertLoanChargesToData(Set<LoanCharge> loanCharges) {
+        if (loanCharges == null || loanCharges.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+        return loanCharges.stream().map(this::mapToLoanChargeData).collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private LoanChargeData mapToLoanChargeData(LoanCharge loanCharge) {
+        Charge chargeDefinition = loanCharge.getCharge();
+        if (chargeDefinition == null) {
+            return loanCharge.toData();
+        }
+
+        CurrencyData currency = chargeDefinition.toData().getCurrency();
+        EnumOptionData chargeTimeType = ChargeEnumerations.chargeTimeType(chargeDefinition.getChargeTimeType());
+        EnumOptionData chargeCalculationType = ChargeEnumerations.chargeCalculationType(chargeDefinition.getChargeCalculation());
+        EnumOptionData chargePaymentMode = ChargeEnumerations.chargePaymentMode(chargeDefinition.getChargePaymentMode());
+        List<LoanInstallmentChargeData> installmentChargeData = loanCharge.installmentCharges().stream().map(LoanInstallmentCharge::toData)
+                .toList();
+
+        return LoanChargeData.builder().id(loanCharge.getId()).chargeId(chargeDefinition.getId()).name(chargeDefinition.getName())
+                .currency(currency).amount(loanCharge.getAmount()).amountPaid(loanCharge.getAmountPaid())
+                .amountWaived(loanCharge.getAmountWaived()).amountWrittenOff(loanCharge.getAmountWrittenOff())
+                .amountOutstanding(loanCharge.getAmountOutstanding()).chargeTimeType(chargeTimeType)
+                .submittedOnDate(loanCharge.getSubmittedOnDate()).dueDate(loanCharge.getDueLocalDate())
+                .chargeCalculationType(chargeCalculationType).percentage(loanCharge.getPercentage())
+                .amountPercentageAppliedTo(loanCharge.getAmountPercentageAppliedTo()).amountOrPercentage(loanCharge.getAmountOrPercentage())
+                .penalty(chargeDefinition.isPenalty()).chargePaymentMode(chargePaymentMode).paid(loanCharge.isPaid())
+                .waived(loanCharge.isWaived()).loanId(loanCharge.getLoan() != null ? loanCharge.getLoan().getId() : null)
+                .minCap(chargeDefinition.getMinCap()).maxCap(chargeDefinition.getMaxCap()).installmentChargeData(installmentChargeData)
+                .externalId(loanCharge.getExternalId()).build();
     }
 
 }

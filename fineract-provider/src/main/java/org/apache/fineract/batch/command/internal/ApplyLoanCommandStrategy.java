@@ -57,7 +57,7 @@ public class ApplyLoanCommandStrategy implements CommandStrategy {
 
         // Calls 'SubmitLoanFunction' function from 'LoansApiResource' to
         // Apply Loan to an existing client
-        responseBody = loansApiResource.calculateLoanScheduleOrSubmitLoanApplication(null, null, request.getBody());
+        responseBody = loansApiResource.calculateLoanScheduleOrSubmitLoanApplication(null, null, request.getBody(), false);
 
         response.setStatusCode(HttpStatus.SC_OK);
         // Sets the body of the response after loan is successfully applied
