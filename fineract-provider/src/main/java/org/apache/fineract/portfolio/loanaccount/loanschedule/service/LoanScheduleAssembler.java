@@ -90,6 +90,7 @@ import org.apache.fineract.portfolio.group.domain.GroupRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
+import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
 import org.apache.fineract.portfolio.loanaccount.data.OutstandingAmountsDTO;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
@@ -712,7 +713,7 @@ public class LoanScheduleAssembler {
         return assembleLoanProductRelatedDetail(assembleLoanApplicationTermsFrom(element, loanProduct), element);
     }
 
-    public LoanScheduleModel assembleLoanScheduleFrom(final JsonElement element) {
+    public LoanScheduleModel assembleLoanScheduleFrom(final JsonElement element, final Boolean includeLoanChargeDetails) {
         // This method is getting called from calculate loan schedule.
         final LoanApplicationTerms loanApplicationTerms = assembleLoanTerms(element);
         // Get holiday details
@@ -743,14 +744,16 @@ public class LoanScheduleAssembler {
         List<LoanDisbursementDetails> loanDisbursementDetails = this.loanDisbursementDetailsAssembler
                 .fetchDisbursementData(element.getAsJsonObject());
 
-        return assembleLoanScheduleFrom(loanApplicationTerms, isHolidayEnabled, holidays, workingDays, element, loanDisbursementDetails);
+        return assembleLoanScheduleFrom(loanApplicationTerms, isHolidayEnabled, holidays, workingDays, element, loanDisbursementDetails,
+                includeLoanChargeDetails);
     }
 
     public LoanScheduleModel assembleLoanScheduleFrom(final LoanApplicationTerms loanApplicationTerms, final boolean isHolidayEnabled,
             final List<Holiday> holidays, final WorkingDays workingDays, final JsonElement element,
-            List<LoanDisbursementDetails> disbursementDetails) {
+            List<LoanDisbursementDetails> disbursementDetails, final Boolean includeLoanChargeDetails) {
 
         Set<LoanCharge> loanCharges = this.loanChargeAssembler.fromParsedJson(element, disbursementDetails);
+        Set<LoanChargeData> loanChargeData = this.loanChargeAssembler.convertLoanChargesToData(loanCharges);
         final Set<LoanCharge> nonCompoundingCharges = validateDisbursementPercentageCharges(loanCharges);
         loanCharges.removeAll(nonCompoundingCharges);
 
@@ -779,6 +782,9 @@ public class LoanScheduleAssembler {
         if (!nonCompoundingCharges.isEmpty()) {
             updateDisbursementWithCharges(loanApplicationTerms.getPrincipal().getAmount(), loanScheduleModel.getPeriods(),
                     nonCompoundingCharges);
+        }
+        if (loanChargeData != null) {
+            loanScheduleModel.setLoanCharges(loanChargeData);
         }
         return loanScheduleModel;
     }
