@@ -60,6 +60,7 @@ public class ClientApiConstants {
     public static final String GENDER = "Gender";
     public static final String CLIENT_TYPE = "ClientType";
     public static final String CLIENT_CLASSIFICATION = "ClientClassification";
+    public static final String CLIENT_MARITAL_STATUS = "ClientMaritalStatus";
 
     public static final String CLIENT_NON_PERSON_CONSTITUTION = "Constitution";
     public static final String CLIENT_NON_PERSON_MAIN_BUSINESS_LINE = "Main Business Line";
@@ -71,6 +72,7 @@ public class ClientApiConstants {
     public static final String familyMembers = "familyMembers";
     public static final String MARITALSTATUS = "MARITALSTATUS";
     public static final String maritalStatusIdParamName = "maritalStatusId";
+    public static final String maritalStatusParamName = "maritalStatus";
 
     public static final String CLIENT_TYPE_INDIVIDUAL = "Individual";
 
@@ -197,7 +199,8 @@ public class ClientApiConstants {
             officeNameParamName, transferToOfficeIdParamName, transferToOfficeNameParamName, hierarchyParamName, imageIdParamName,
             imagePresentParamName, staffIdParamName, staffNameParamName, timelineParamName, groupsParamName, officeOptionsParamName,
             staffOptionsParamName, dateOfBirthParamName, genderParamName, clientTypeParamName, clientClassificationParamName,
-            legalFormParamName, clientNonPersonDetailsParamName, isStaffParamName, legalFormParamName));
+            legalFormParamName, clientNonPersonDetailsParamName, isStaffParamName, legalFormParamName, maritalStatusIdParamName,
+            maritalStatusParamName));
 
     protected static final Set<String> CLIENT_CHARGES_RESPONSE_DATA_PARAMETERS = new HashSet<>(Arrays.asList(chargeIdParamName,
             clientIdParamName, chargeNameParamName, penaltyParamName, chargeTimeTypeParamName, dueAsOfDateParamName,

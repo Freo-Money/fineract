@@ -52,6 +52,7 @@ public interface ClientMapper {
     @Mapping(target = "savingsAccountId", source = "source.savingsAccountId")
     @Mapping(target = "clientType", source = "source", qualifiedByName = "clientTypeCode")
     @Mapping(target = "clientClassification", source = "source", qualifiedByName = "clientClassificationCode")
+    @Mapping(target = "maritalStatus", source = "source", qualifiedByName = "clientMaritalStatusCode")
     @Mapping(target = "legalForm", source = "source", qualifiedByName = "clientLegalFormEnum")
     @Mapping(target = "isStaff", source = "source", qualifiedByName = "clientIsStaff")
     @Mapping(target = "imagePresent", ignore = true)
@@ -78,6 +79,8 @@ public interface ClientMapper {
     @Mapping(target = "genderId", ignore = true)
     @Mapping(target = "clientClassificationId", ignore = true)
     @Mapping(target = "legalFormId", ignore = true)
+    @Mapping(target = "maritalStatusId", source = "source", qualifiedByName = "clientMaritalStatusId")
+    @Mapping(target = "maritalStatusOptions", ignore = true)
     @Mapping(target = "clientCollateralManagements", ignore = true)
     @Mapping(target = "groups", ignore = true)
     ClientData map(Client source);
@@ -98,6 +101,20 @@ public interface ClientMapper {
             return null;
         }
         return CodeValueData.instance(code.getId(), code.getLabel());
+    }
+
+    @Named("clientMaritalStatusCode")
+    default CodeValueData clientMaritalStatusCode(Client client) {
+        final CodeValue code = client.getMaritalStatus();
+        if (code == null) {
+            return null;
+        }
+        return CodeValueData.instance(code.getId(), code.getLabel());
+    }
+
+    @Named("clientMaritalStatusId")
+    default Long clientMaritalStatusId(Client client) {
+        return client.maritalStatusId();
     }
 
     @Named("clientSubStatusCode")
