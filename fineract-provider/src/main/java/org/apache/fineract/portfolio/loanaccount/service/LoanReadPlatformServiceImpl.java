@@ -21,6 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import static java.lang.Boolean.TRUE;
 import static org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations.interestType;
 
+import com.google.gson.Gson;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Predicate;
 import java.math.BigDecimal;
@@ -117,6 +118,7 @@ import org.apache.fineract.portfolio.loanaccount.data.OutstandingAmountsDTO;
 import org.apache.fineract.portfolio.loanaccount.data.PaidInAdvanceData;
 import org.apache.fineract.portfolio.loanaccount.data.RepaymentScheduleRelatedLoanData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanBuyDownFeeBalance;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanBuyDownFeeCalculationType;
@@ -200,6 +202,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     private final LoanTransactionMapper loanTransactionMapper;
     private final LoanTransactionProcessingService loadTransactionProcessingService;
     private final LoanBalanceService loanBalanceService;
+    private final org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper foreclosureChargeHelper;
     private final LoanCapitalizedIncomeBalanceRepository loanCapitalizedIncomeBalanceRepository;
     private final LoanBuyDownFeeBalanceRepository loanBuyDownFeeBalanceRepository;
     private final InterestRefundServiceDelegate interestRefundServiceDelegate;
@@ -1523,6 +1526,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " totran.id as toTransferId, totran.is_reversed as toTransferReversed, "
                     + " totran.transaction_date as toTransferDate, totran.amount as toTransferAmount, "
                     + " clcv.id as classificationCodeId, clcv.code_value as classificationCodeValue, "
+                    + " tr.transaction_meta_data as transactionMetaData, "
                     + " totran.description as toTransferDescription from m_loan l join m_loan_transaction tr on tr.loan_id = l.id "
                     + " join m_currency rc on rc." + sqlGenerator.escape("code") + " = l.currency_code "
                     + " left JOIN m_payment_detail pd ON tr.payment_detail_id = pd.id"
@@ -1613,6 +1617,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                         toTransferDescription, toTransferReversed);
             }
 
+            // Deserialize transactionMetaData from JSON string
+            TransactionMetaData transactionMetaData = null;
+            String transactionMetaDataJson = rs.getString("transactionMetaData");
+            if (StringUtils.isNotBlank(transactionMetaDataJson)) {
+                try {
+                    Gson gson = new Gson();
+                    transactionMetaData = gson.fromJson(transactionMetaDataJson, TransactionMetaData.class);
+                } catch (Exception e) {
+                    // If deserialization fails, log and continue with null
+                    // transactionMetaData will remain null
+                }
+            }
+
             return LoanTransactionData.builder().id(id).officeId(officeId).officeName(officeName).type(transactionType)
                     .paymentDetailData(paymentDetailData).currency(currencyData).date(date).amount(totalAmount)
                     .netDisbursalAmount(netDisbursalAmount).principalPortion(principalPortion).interestPortion(interestPortion)
@@ -1620,7 +1637,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     .overpaymentPortion(overPaymentPortion).unrecognizedIncomePortion(unrecognizedIncomePortion).externalId(externalId)
                     .transfer(transfer).outstandingLoanBalance(outstandingLoanBalance).submittedOnDate(submittedOnDate)
                     .manuallyReversed(manuallyReversed).reversalExternalId(reversalExternalId).reversedOnDate(reversedOnDate).loanId(loanId)
-                    .externalLoanId(externalLoanId).classification(classificationData).build();
+                    .externalLoanId(externalLoanId).classification(classificationData).transactionMetaData(transactionMetaData).build();
         }
     }
 
@@ -2225,7 +2242,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     }
 
     @Override
-    public LoanTransactionData retrieveLoanForeclosureTemplate(final Long loanId, final LocalDate transactionDate) {
+    public LoanTransactionData retrieveLoanForeclosureTemplate(final Long loanId, final LocalDate transactionDate,
+            final Map<Long, BigDecimal> chargePercentages) {
         this.context.authenticatedUser();
 
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
@@ -2236,26 +2254,32 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         final CurrencyData currencyData = applicationCurrency.toData();
 
         final LocalDate earliestUnpaidInstallmentDate = DateUtils.getBusinessLocalDate();
-
+        Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.mergeForeclosureChargesFromLoanProduct(loan,
+                chargePercentages);
+        Money foreclosureFees = foreclosureChargeHelper.calculateForeclosureFee(loan, mergedChargePercentages, currency);
         final LoanRepaymentScheduleInstallment loanRepaymentScheduleInstallment = loanBalanceService.fetchLoanForeclosureDetail(loan,
-                transactionDate);
+                transactionDate, foreclosureFees);
         BigDecimal unrecognizedIncomePortion = null;
         final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.REPAYMENT);
         final Collection<PaymentTypeData> paymentTypeOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         final BigDecimal outstandingLoanBalance = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency).getAmount();
         final Boolean isManuallyReversed = false;
 
-        final Money outStandingAmount = loanRepaymentScheduleInstallment.getTotalOutstanding(currency);
+        Money feeChargesOutstanding = loanRepaymentScheduleInstallment.getFeeChargesOutstanding(currency);
+        Money penaltyChargesOutstanding = loanRepaymentScheduleInstallment.getPenaltyChargesOutstanding(currency);
+        Money principalOutstanding = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency);
+        Money interestOutstanding = loanRepaymentScheduleInstallment.getInterestOutstanding(currency);
+
+        final Money outStandingAmount = principalOutstanding.plus(interestOutstanding).plus(feeChargesOutstanding)
+                .plus(penaltyChargesOutstanding);
 
         return LoanTransactionData.builder().type(transactionType).currency(currencyData).date(earliestUnpaidInstallmentDate)
                 .amount(outStandingAmount.getAmount()).netDisbursalAmount(loan.getNetDisbursalAmount())
-                .principalPortion(loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency).getAmount())
-                .interestPortion(loanRepaymentScheduleInstallment.getInterestOutstanding(currency).getAmount())
-                .feeChargesPortion(loanRepaymentScheduleInstallment.getFeeChargesOutstanding(currency).getAmount())
-                .penaltyChargesPortion(loanRepaymentScheduleInstallment.getPenaltyChargesOutstanding(currency).getAmount())
+                .principalPortion(principalOutstanding.getAmount()).interestPortion(interestOutstanding.getAmount())
+                .feeChargesPortion(feeChargesOutstanding.getAmount()).penaltyChargesPortion(penaltyChargesOutstanding.getAmount())
                 .unrecognizedIncomePortion(unrecognizedIncomePortion).paymentTypeOptions(paymentTypeOptions).externalId(ExternalId.empty())
                 .outstandingLoanBalance(outstandingLoanBalance).manuallyReversed(isManuallyReversed).loanId(loanId)
-                .externalLoanId(loan.getExternalId()).build();
+                .externalLoanId(loan.getExternalId()).foreclosureChargePercentageMap(mergedChargePercentages).build();
     }
 
     private static final class CurrencyMapper implements RowMapper<CurrencyData> {
