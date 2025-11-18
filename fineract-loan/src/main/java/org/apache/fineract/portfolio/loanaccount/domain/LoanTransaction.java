@@ -155,6 +155,13 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
     @JoinColumn(name = "classification_cv_id")
     private CodeValue classification;
 
+    @Column(name = "transaction_meta_data", columnDefinition = "TEXT")
+    private String transactionMetaData;
+
+    public void updateTransactionMetaData(String transactionMetaData) {
+        this.transactionMetaData = transactionMetaData;
+    }
+
     protected LoanTransaction() {}
 
     public static LoanTransaction incomePosting(final Loan loan, final Office office, final LocalDate dateOf, final BigDecimal amount,

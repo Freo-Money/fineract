@@ -81,6 +81,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepositor
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionToRepaymentScheduleMapping;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
+import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleGeneratorFactory;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestRecalculationCompoundingMethod;
@@ -114,6 +115,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
     private final LoanBalanceService loanBalanceService;
     private final LoanChargePaidByRepository loanChargePaidByRepository;
     private final LoanJournalEntryPoster journalEntryPoster;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
 
     /**
      * method adds accrual for batch job "Add Periodic Accrual Transactions" and add accruals api for Loan
@@ -298,11 +300,12 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
      */
     @Override
     public void processAccrualsOnLoanForeClosure(@NonNull Loan loan, @NonNull LocalDate foreClosureDate,
-            @NonNull List<LoanTransaction> newAccrualTransactions) {
+            @NonNull List<LoanTransaction> newAccrualTransactions, @NonNull Money foreclosureFee) {
         // TODO implement progressive accrual case
         if (loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()
                 && (loan.getAccruedTill() == null || !DateUtils.isEqual(foreClosureDate, loan.getAccruedTill()))) {
-            final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate);
+            final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
+                    foreclosureFee);
             MonetaryCurrency currency = loan.getCurrency();
             reverseTransactionsAfter(loan, ACCRUAL_TYPES, foreClosureDate, false);
 

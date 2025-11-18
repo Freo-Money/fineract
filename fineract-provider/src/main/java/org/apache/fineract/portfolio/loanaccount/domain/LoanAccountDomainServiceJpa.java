@@ -93,6 +93,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleDelinquencyDat
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.MoneyHolder;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.TransactionCtx;
+import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
@@ -163,6 +164,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanAccountDomainServiceJpaHelper loanAccountDomainServiceJpaHelper;
     private final LoanJournalEntryPoster journalEntryPoster;
     private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
 
     @Transactional
     @Override
@@ -702,7 +704,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
     @Override
     public LoanTransaction foreCloseLoan(Loan loan, final LocalDate foreClosureDate, final String noteText, final ExternalId externalId,
-            Map<String, Object> changes) {
+            Map<Long, BigDecimal> foreclosureChargePercentageMap, Map<String, Object> changes) {
 
         if (loan.isChargedOff() && DateUtils.isBefore(foreClosureDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
@@ -715,9 +717,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         List<LoanTransaction> newTransactions = new ArrayList<>();
 
         final ScheduleGeneratorDTO scheduleGeneratorDTO = null;
-        final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate);
-
-        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions);
+        Money foreclosureFee = foreclosureChargeHelper.calculateForeclosureFee(loan, foreclosureChargePercentageMap, currency);
+        final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
+                foreclosureFee);
+        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions, foreclosureFee);
 
         Money interestPayable = foreCloseDetail.getInterestCharged(currency);
         Money feePayable = foreCloseDetail.getFeeChargesCharged(currency);

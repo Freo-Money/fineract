@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -121,6 +122,8 @@ public class LoanTransactionData implements Serializable {
     private CodeValueData classification;
     private LoanOverdueDTO loanOverdueData;
     private LoanChargesDueDTO loanOverdueChargeData;
+    private Map<Long, BigDecimal> foreclosureChargePercentageMap;
+    private TransactionMetaData transactionMetaData;
 
     private Collection<CodeValueData> reAgeReasonOptions = null;
     private Collection<PeriodFrequencyType> periodFrequencyOptions = null;

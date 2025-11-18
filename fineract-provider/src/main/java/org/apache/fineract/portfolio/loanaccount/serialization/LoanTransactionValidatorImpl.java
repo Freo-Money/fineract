@@ -64,7 +64,6 @@ import org.apache.fineract.portfolio.calendar.domain.CalendarInstanceRepository;
 import org.apache.fineract.portfolio.calendar.exception.NotValidRecurringDateException;
 import org.apache.fineract.portfolio.charge.data.ChargeData;
 import org.apache.fineract.portfolio.charge.domain.Charge;
-import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargeRepositoryWrapper;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
@@ -96,7 +95,6 @@ import org.apache.fineract.portfolio.loanaccount.exception.LoanChargeRefundExcep
 import org.apache.fineract.portfolio.loanaccount.exception.LoanDisbursalException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanRepaymentScheduleNotFoundException;
-import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
@@ -672,9 +670,7 @@ public class LoanTransactionValidatorImpl implements LoanTransactionValidator {
         Long loanProductId = loan.getLoanProduct().getId();
         List<ChargeData> loanProductForeclosureCharges = chargeReadPlatformService.retrieveLoanProductCharges(loanProductId,
                 ChargeTimeType.FORECLOSURE);
-        Set<Long> productChargeIds = loanProductForeclosureCharges.stream()
-                .map(ChargeData::getId)
-                .collect(Collectors.toSet());
+        Set<Long> productChargeIds = loanProductForeclosureCharges.stream().map(ChargeData::getId).collect(Collectors.toSet());
 
         for (Map.Entry<Long, BigDecimal> entry : chargePercentages.entrySet()) {
             Long chargeId = entry.getKey();
@@ -682,9 +678,8 @@ public class LoanTransactionValidatorImpl implements LoanTransactionValidator {
 
             // Validate chargeId exists in product charges
             if (!productChargeIds.contains(chargeId)) {
-                baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(chargeId)
-                        .failWithCode("error.msg.charge.not.in.product",
-                                "Charge with ID " + chargeId + " is not present in the loan product charges");
+                baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(chargeId).failWithCode(
+                        "error.msg.charge.not.in.product", "Charge with ID " + chargeId + " is not present in the loan product charges");
                 continue;
             }
 
@@ -709,9 +704,9 @@ public class LoanTransactionValidatorImpl implements LoanTransactionValidator {
             // Validate charge is a foreclosure charge
             ChargeTimeType chargeTimeType = ChargeTimeType.fromInt(charge.getChargeTimeType());
             if (!ChargeTimeType.FORECLOSURE.equals(chargeTimeType)) {
-                baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(chargeId)
-                        .failWithCode("error.msg.charge.not.foreclosure.type",
-                                "Charge with ID " + chargeId + " is not a foreclosure charge (chargeTimeType must be FORECLOSURE)");
+                baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(chargeId).failWithCode(
+                        "error.msg.charge.not.foreclosure.type",
+                        "Charge with ID " + chargeId + " is not a foreclosure charge (chargeTimeType must be FORECLOSURE)");
                 continue;
             }
 
@@ -720,16 +715,14 @@ public class LoanTransactionValidatorImpl implements LoanTransactionValidator {
             BigDecimal maxCap = charge.getMaxCap();
             if (minCap != null && percentage.compareTo(minCap) < 0) {
                 baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(percentage)
-                        .failWithCode("error.msg.charge.percentage.below.minimum",
-                                "Percentage " + percentage + " for charge ID " + chargeId
-                                        + " is below the minimum allowed value of " + minCap);
+                        .failWithCode("error.msg.charge.percentage.below.minimum", "Percentage " + percentage + " for charge ID " + chargeId
+                                + " is below the minimum allowed value of " + minCap);
                 continue;
             }
             if (maxCap != null && percentage.compareTo(maxCap) > 0) {
                 baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(percentage)
-                        .failWithCode("error.msg.charge.percentage.above.maximum",
-                                "Percentage " + percentage + " for charge ID " + chargeId
-                                        + " is above the maximum allowed value of " + maxCap);
+                        .failWithCode("error.msg.charge.percentage.above.maximum", "Percentage " + percentage + " for charge ID " + chargeId
+                                + " is above the maximum allowed value of " + maxCap);
                 continue;
             }
         }
