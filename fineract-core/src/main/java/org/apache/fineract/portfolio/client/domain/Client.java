@@ -208,6 +208,10 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     @Column(name = "proposed_transfer_date")
     private LocalDate proposedTransferDate;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "marital_status_cv_id")
+    private CodeValue maritalStatus;
+
     @OneToMany(cascade = CascadeType.ALL, mappedBy = "client", orphanRemoval = true, fetch = FetchType.LAZY)
     protected Set<ClientIdentifier> identifiers = new HashSet<>();
 
@@ -726,5 +730,21 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom<Long> {
             setLastname(null);
             setDisplayName(null);
         }
+    }
+
+    public Long maritalStatusId() {
+        Long maritalStatusId = null;
+        if (this.maritalStatus != null) {
+            maritalStatusId = this.maritalStatus.getId();
+        }
+        return maritalStatusId;
+    }
+
+    public CodeValue maritalStatus() {
+        return this.maritalStatus;
+    }
+
+    public void updateMaritalStatus(CodeValue maritalStatus) {
+        this.maritalStatus = maritalStatus;
     }
 }

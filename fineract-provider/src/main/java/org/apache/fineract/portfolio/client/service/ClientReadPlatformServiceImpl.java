@@ -312,6 +312,8 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             sqlBuilder.append("cvclienttype.code_value as clienttypeValue, ");
             sqlBuilder.append("c.client_classification_cv_id as classificationId, ");
             sqlBuilder.append("cvclassification.code_value as classificationValue, ");
+            sqlBuilder.append("c.marital_status_cv_id as maritalStatusId, ");
+            sqlBuilder.append("cvmaritalstatus.code_value as maritalStatusValue, ");
             sqlBuilder.append("c.legal_form_enum as legalFormEnum, ");
             sqlBuilder.append("c.activation_date as activationDate, c.image_id as imageId, ");
             sqlBuilder.append("c.staff_id as staffId, s.display_name as staffName,");
@@ -354,6 +356,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             sqlBuilder.append("left join m_code_value cv on cv.id = c.gender_cv_id ");
             sqlBuilder.append("left join m_code_value cvclienttype on cvclienttype.id = c.client_type_cv_id ");
             sqlBuilder.append("left join m_code_value cvclassification on cvclassification.id = c.client_classification_cv_id ");
+            sqlBuilder.append("left join m_code_value cvmaritalstatus on cvmaritalstatus.id = c.marital_status_cv_id ");
             sqlBuilder.append("left join m_code_value cvSubStatus on cvSubStatus.id = c.sub_status ");
             sqlBuilder.append("left join m_code_value cvConstitution on cvConstitution.id = cnp.constitution_cv_id ");
             sqlBuilder.append("left join m_code_value cvMainBusinessLine on cvMainBusinessLine.id = cnp.main_business_line_cv_id ");
@@ -408,6 +411,10 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             final String classificationValue = rs.getString("classificationValue");
             final CodeValueData classification = CodeValueData.instance(classificationId, classificationValue);
 
+            final Long maritalStatusId = JdbcSupport.getLong(rs, "maritalStatusId");
+            final String maritalStatusValue = rs.getString("maritalStatusValue");
+            final CodeValueData maritalStatus = CodeValueData.instance(maritalStatusId, maritalStatusValue);
+
             final LocalDate activationDate = JdbcSupport.getLocalDate(rs, "activationDate");
             final Long imageId = JdbcSupport.getLong(rs, "imageId");
             final Long staffId = JdbcSupport.getLong(rs, "staffId");
@@ -458,7 +465,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             return ClientData.instance(accountNo, status, subStatus, officeId, officeName, transferToOfficeId, transferToOfficeName, id,
                     firstname, middlename, lastname, fullname, displayName, externalId, mobileNo, emailAddress, dateOfBirth, gender,
                     activationDate, imageId, staffId, staffName, timeline, savingsProductId, savingsProductName, savingsAccountId,
-                    clienttype, classification, legalForm, clientNonPerson, isStaff);
+                    clienttype, classification, legalForm, clientNonPerson, isStaff, maritalStatus);
 
         }
     }
@@ -576,8 +583,10 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
         final Collection<CodeValueData> clientNonPersonConstitutionOptions = null;
         final Collection<CodeValueData> clientNonPersonMainBusinessLineOptions = null;
         final List<EnumOptionData> clientLegalFormOptions = null;
+        final Collection<CodeValueData> maritalStatusOptions = null;
         return ClientData.template(null, null, null, null, narrations, null, null, clientTypeOptions, clientClassificationOptions,
-                clientNonPersonConstitutionOptions, clientNonPersonMainBusinessLineOptions, clientLegalFormOptions, null, null, null, null);
+                maritalStatusOptions, clientNonPersonConstitutionOptions, clientNonPersonMainBusinessLineOptions, clientLegalFormOptions,
+                null, null, null, null);
     }
 
     @Override
@@ -625,6 +634,8 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             builder.append("cvclienttype.code_value as clienttypeValue, ");
             builder.append("c.client_classification_cv_id as classificationId, ");
             builder.append("cvclassification.code_value as classificationValue, ");
+            builder.append("c.marital_status_cv_id as maritalStatusId, ");
+            builder.append("cvmaritalstatus.code_value as maritalStatusValue, ");
             builder.append("c.legal_form_enum as legalFormEnum, ");
 
             builder.append("c.submittedon_date as submittedOnDate, ");
@@ -666,6 +677,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             builder.append("left join m_code_value cv on cv.id = c.gender_cv_id ");
             builder.append("left join m_code_value cvclienttype on cvclienttype.id = c.client_type_cv_id ");
             builder.append("left join m_code_value cvclassification on cvclassification.id = c.client_classification_cv_id ");
+            builder.append("left join m_code_value cvmaritalstatus on cvmaritalstatus.id = c.marital_status_cv_id ");
             builder.append("left join m_code_value cvSubStatus on cvSubStatus.id = c.sub_status ");
             builder.append("left join m_code_value cvConstitution on cvConstitution.id = cnp.constitution_cv_id ");
             builder.append("left join m_code_value cvMainBusinessLine on cvMainBusinessLine.id = cnp.main_business_line_cv_id ");
@@ -720,6 +732,10 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             final String classificationValue = rs.getString("classificationValue");
             final CodeValueData classification = CodeValueData.instance(classificationId, classificationValue);
 
+            final Long maritalStatusId = JdbcSupport.getLong(rs, "maritalStatusId");
+            final String maritalStatusValue = rs.getString("maritalStatusValue");
+            final CodeValueData maritalStatus = CodeValueData.instance(maritalStatusId, maritalStatusValue);
+
             final LocalDate activationDate = JdbcSupport.getLocalDate(rs, "activationDate");
             final Long imageId = JdbcSupport.getLong(rs, "imageId");
             final Long staffId = JdbcSupport.getLong(rs, "staffId");
@@ -769,7 +785,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             return ClientData.instance(accountNo, status, subStatus, officeId, officeName, transferToOfficeId, transferToOfficeName, id,
                     firstname, middlename, lastname, fullname, displayName, externalId, mobileNo, emailAddress, dateOfBirth, gender,
                     activationDate, imageId, staffId, staffName, timeline, savingsProductId, savingsProductName, savingsAccountId,
-                    clienttype, classification, legalForm, clientNonPerson, isStaff);
+                    clienttype, classification, legalForm, clientNonPerson, isStaff, maritalStatus);
 
         }
     }
