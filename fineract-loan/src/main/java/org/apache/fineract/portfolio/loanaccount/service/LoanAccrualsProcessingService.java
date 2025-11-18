@@ -21,6 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import java.time.LocalDate;
 import java.util.List;
 import org.apache.fineract.infrastructure.core.exception.MultiException;
+import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.springframework.lang.NonNull;
@@ -44,5 +45,5 @@ public interface LoanAccrualsProcessingService {
     void processAccrualsOnLoanClosure(@NonNull Loan loan, boolean addJournal);
 
     void processAccrualsOnLoanForeClosure(@NonNull Loan loan, @NonNull LocalDate foreClosureDate,
-            @NonNull List<LoanTransaction> newAccrualTransactions);
+            @NonNull List<LoanTransaction> newAccrualTransactions, @NonNull Money foreclosureFee);
 }

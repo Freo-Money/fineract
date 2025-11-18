@@ -144,6 +144,7 @@ public interface LoanApiConstants {
     // fore closure constants
     String transactionDateParamName = "transactionDate";
     String noteParamName = "note";
+    String foreclosureChargePercentageMapParamName = "foreclosureChargePercentageMap";
 
     String canUseForTopup = "canUseForTopup";
     String clientActiveLoanOptions = "clientActiveLoanOptions";
