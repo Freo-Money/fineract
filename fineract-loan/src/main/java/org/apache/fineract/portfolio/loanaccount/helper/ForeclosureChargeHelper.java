@@ -24,11 +24,10 @@ import com.google.gson.JsonObject;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.charge.data.ChargeData;
@@ -40,13 +39,13 @@ import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeService;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 /**
  * Helper class for handling foreclosure charge-related operations.
  */
 @Component
-@RequiredArgsConstructor
 public class ForeclosureChargeHelper {
 
     private static final Gson GSON = new Gson();
@@ -54,6 +53,13 @@ public class ForeclosureChargeHelper {
     private final ChargeReadPlatformService chargeReadPlatformService;
     private final ChargeRepositoryWrapper chargeRepositoryWrapper;
     private final LoanChargeService loanChargeService;
+
+    public ForeclosureChargeHelper(ChargeReadPlatformService chargeReadPlatformService, ChargeRepositoryWrapper chargeRepositoryWrapper,
+            @Lazy LoanChargeService loanChargeService) {
+        this.chargeReadPlatformService = chargeReadPlatformService;
+        this.chargeRepositoryWrapper = chargeRepositoryWrapper;
+        this.loanChargeService = loanChargeService;
+    }
 
     public Map<Long, BigDecimal> extractChargePercentagesFromJsonElement(JsonElement element, String paramName) {
         if (element == null || element.isJsonNull()) {
@@ -73,13 +79,10 @@ public class ForeclosureChargeHelper {
                 BigDecimal percentage = entry.getValue().getAsBigDecimal();
                 chargePercentages.put(chargeId, percentage);
             } catch (NumberFormatException e) {
-                throw new IllegalArgumentException(
-                        "Invalid charge ID format in " + paramName + ": " + entry.getKey(), e);
+                throw new IllegalArgumentException("Invalid charge ID format in " + paramName + ": " + entry.getKey(), e);
             } catch (IllegalStateException | UnsupportedOperationException e) {
                 throw new IllegalArgumentException(
-                        "Invalid percentage value for charge " + entry.getKey() + " in " + paramName + ": "
-                                + entry.getValue(),
-                        e);
+                        "Invalid percentage value for charge " + entry.getKey() + " in " + paramName + ": " + entry.getValue(), e);
             }
         }
 
@@ -100,41 +103,36 @@ public class ForeclosureChargeHelper {
     }
 
     /**
-     * Merges foreclosure charges from the loan product with the provided charge percentages.
-     * If a charge is in the loan product but not in the provided map, it will be added with
-     * the percentage from the request (if provided).
-     *
-     * @param loan
-     *            the loan
-     * @param chargePercentages
-     *            the charge percentages provided in the request (may be null or empty)
-     * @return merged map of charge ID to percentage
+     * Merges foreclosure charges from the loan product with the provided charge percentages. Charges from the request
+     * override the default charge definition values. Charges in the loan product but not in the request are added with
+     * their default charge definition values.
      */
-    public Map<Long, BigDecimal> mergeForeclosureChargesFromLoanProduct(Loan loan,
-            Map<Long, BigDecimal> chargePercentages) {
-        if (chargePercentages == null || chargePercentages.isEmpty()) {
-            return new HashMap<>();
-        }
-
+    public Map<Long, BigDecimal> mergeForeclosureChargesFromLoanProduct(Loan loan, Map<Long, BigDecimal> chargePercentages) {
         Long loanProductId = loan.getLoanProduct().getId();
-        List<ChargeData> loanProductForeclosureCharges = chargeReadPlatformService.retrieveLoanProductCharges(
-                loanProductId, ChargeTimeType.FORECLOSURE);
-        Set<Long> productChargeIds = loanProductForeclosureCharges.stream()
-                .map(ChargeData::getId)
-                .collect(Collectors.toSet());
+        List<ChargeData> loanProductForeclosureCharges = chargeReadPlatformService.retrieveLoanProductCharges(loanProductId,
+                ChargeTimeType.FORECLOSURE);
 
+        Set<Long> requestChargeIds = chargePercentages != null ? new HashSet<>(chargePercentages.keySet()) : new HashSet<>();
         Map<Long, BigDecimal> merged = new HashMap<>();
-        for (Map.Entry<Long, BigDecimal> entry : chargePercentages.entrySet()) {
-            if (productChargeIds.contains(entry.getKey()) && entry.getValue() != null) {
-                merged.put(entry.getKey(), entry.getValue());
+
+        for (ChargeData chargeData : loanProductForeclosureCharges) {
+            Long chargeId = chargeData.getId();
+            if (chargePercentages != null && requestChargeIds.contains(chargeId)) {
+                merged.put(chargeId, chargePercentages.get(chargeId));
+            } else {
+                try {
+                    Charge chargeDefinition = chargeRepositoryWrapper.findOneWithNotFoundDetection(chargeId);
+                    merged.put(chargeId, chargeDefinition.getAmount());
+                } catch (Exception e) {
+                    // Skip charges that cannot be loaded
+                }
             }
         }
 
         return merged;
     }
 
-    public Money calculateForeclosureFee(Loan loan, Map<Long, BigDecimal> mergedChargePercentages,
-            MonetaryCurrency currency) {
+    public Money calculateForeclosureFee(Loan loan, Map<Long, BigDecimal> mergedChargePercentages, MonetaryCurrency currency) {
         if (mergedChargePercentages == null || mergedChargePercentages.isEmpty()) {
             return Money.zero(currency);
         }
@@ -150,7 +148,9 @@ public class ForeclosureChargeHelper {
                 Charge chargeDefinition = chargeRepositoryWrapper.findOneWithNotFoundDetection(entry.getKey());
                 ChargeCalculationType calculationType = ChargeCalculationType.fromInt(chargeDefinition.getChargeCalculation());
 
-                BigDecimal chargeAmount = calculationType.isPercentageBased() ? calculatePercentageBasedCharge(loan, chargeDefinition, calculationType, percentage) : percentage;
+                BigDecimal chargeAmount = calculationType.isPercentageBased()
+                        ? calculatePercentageBasedCharge(loan, chargeDefinition, calculationType, percentage)
+                        : percentage;
                 chargeAmount = chargeAmount.setScale(currency.getDigitsAfterDecimal(), RoundingMode.HALF_UP);
                 totalFees = totalFees.plus(Money.of(currency, chargeAmount));
             } catch (Exception e) {
@@ -161,8 +161,8 @@ public class ForeclosureChargeHelper {
         return totalFees;
     }
 
-    private BigDecimal calculatePercentageBasedCharge(Loan loan, Charge chargeDefinition,
-            ChargeCalculationType calculationType, BigDecimal percentage) {
+    private BigDecimal calculatePercentageBasedCharge(Loan loan, Charge chargeDefinition, ChargeCalculationType calculationType,
+            BigDecimal percentage) {
         LoanCharge tempLoanCharge = new LoanCharge();
         tempLoanCharge.setLoan(loan);
         tempLoanCharge.setCharge(chargeDefinition);
@@ -177,4 +177,3 @@ public class ForeclosureChargeHelper {
     }
 
 }
-

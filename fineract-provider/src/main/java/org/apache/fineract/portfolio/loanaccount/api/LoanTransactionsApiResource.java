@@ -692,8 +692,8 @@ public class LoanTransactionsApiResource {
             try {
                 chargePercentages = foreclosureChargeHelper.extractChargePercentagesFromJsonString(chargePercentagesJson);
             } catch (IllegalArgumentException e) {
-                throw new UnrecognizedQueryParamException(LoanApiConstants.foreclosureChargePercentageMapParamName, chargePercentagesJson, e,
-                        e.getMessage());
+                throw new UnrecognizedQueryParamException(LoanApiConstants.foreclosureChargePercentageMapParamName, chargePercentagesJson,
+                        e, e.getMessage());
             }
             transactionData = this.loanReadPlatformService.retrieveLoanForeclosureTemplate(resolvedLoanId, transactionDate,
                     chargePercentages);
