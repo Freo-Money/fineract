@@ -298,7 +298,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
      */
     @Override
     public void processAccrualsOnLoanForeClosure(@NonNull Loan loan, @NonNull LocalDate foreClosureDate,
-            @NonNull List<LoanTransaction> newAccrualTransactions) {
+            @NonNull List<LoanTransaction> newAccrualTransactions, @NonNull Money foreclosureFee) {
         // TODO implement progressive accrual case
         if (loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()
                 && (loan.getAccruedTill() == null || !DateUtils.isEqual(foreClosureDate, loan.getAccruedTill()))) {
@@ -309,7 +309,8 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
             final Map<String, Money> incomeDetails = determineReceivableIncomeForeClosure(loan, foreClosureDate);
 
             final Money interestPortion = foreCloseDetail.getInterestCharged(currency).minus(incomeDetails.get(Loan.INTEREST));
-            final Money feePortion = foreCloseDetail.getFeeChargesCharged(currency).minus(incomeDetails.get(Loan.FEE));
+            // Include foreclosure fee in the fee portion for accrual
+            final Money feePortion = foreCloseDetail.getFeeChargesCharged(currency).minus(incomeDetails.get(Loan.FEE)).plus(foreclosureFee);
             final Money penaltyPortion = foreCloseDetail.getPenaltyChargesCharged(currency).minus(incomeDetails.get(Loan.PENALTIES));
             final Money total = interestPortion.plus(feePortion).plus(penaltyPortion);
 

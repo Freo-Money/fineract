@@ -18,11 +18,13 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
+import com.google.gson.Gson;
 import jakarta.annotation.Nullable;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -77,6 +79,8 @@ import org.apache.fineract.organisation.workingdays.domain.WorkingDaysRepository
 import org.apache.fineract.portfolio.account.domain.AccountTransferStandingInstruction;
 import org.apache.fineract.portfolio.account.domain.StandingInstructionRepository;
 import org.apache.fineract.portfolio.account.domain.StandingInstructionStatus;
+import org.apache.fineract.portfolio.charge.domain.Charge;
+import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.exception.ClientNotActiveException;
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagement;
@@ -91,10 +95,13 @@ import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRefundRequestData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleDelinquencyData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.MoneyHolder;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.TransactionCtx;
+import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanForeclosureValidator;
@@ -163,6 +170,9 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanAccountDomainServiceJpaHelper loanAccountDomainServiceJpaHelper;
     private final LoanJournalEntryPoster journalEntryPoster;
     private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
+    private final LoanChargeRepository loanChargeRepository;
+    private final LoanChargePaidByRepository loanChargePaidByRepository;
 
     @Transactional
     @Override
@@ -704,7 +714,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
     @Override
     public LoanTransaction foreCloseLoan(Loan loan, final LocalDate foreClosureDate, final String noteText, final ExternalId externalId,
-            Map<String, Object> changes) {
+            Map<Long, BigDecimal> chargePercentages, Map<String, Object> changes) {
 
         if (loan.isChargedOff() && DateUtils.isBefore(foreClosureDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
@@ -719,21 +729,126 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         final ScheduleGeneratorDTO scheduleGeneratorDTO = null;
         final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate);
 
-        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions);
+        // Merge with foreclosure charges from loan product and calculate fees FIRST so it can be included in accrual
+        // transaction
+        Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.mergeForeclosureChargesFromLoanProduct(loan,
+                chargePercentages);
+        Money foreclosureFeePayable = foreclosureChargeHelper.calculateForeclosureFees(loan, mergedChargePercentages, currency);
+
+        // Process accruals including foreclosure fee
+        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions, foreclosureFeePayable);
 
         Money interestPayable = foreCloseDetail.getInterestCharged(currency);
         Money feePayable = foreCloseDetail.getFeeChargesCharged(currency);
         Money penaltyPayable = foreCloseDetail.getPenaltyChargesCharged(currency);
         Money payPrincipal = foreCloseDetail.getPrincipal(currency);
+
+        // Add foreclosure fee to fee payable for the repayment transaction
+        feePayable = feePayable.plus(foreclosureFeePayable);
+
         updateInstallmentsPostDate(loan, foreClosureDate);
 
         LoanTransaction payment = null;
+        List<LoanCharge> foreclosureChargesToSave = new ArrayList<>();
 
         if (payPrincipal.plus(interestPayable).plus(feePayable).plus(penaltyPayable).isGreaterThanZero()) {
             final PaymentDetail paymentDetail = null;
             payment = LoanTransaction.repayment(loan.getOffice(), payPrincipal.plus(interestPayable).plus(feePayable).plus(penaltyPayable),
                     paymentDetail, foreClosureDate, externalId);
             payment.updateLoan(loan);
+
+            // Set transaction metadata with subtype "foreclosure"
+            TransactionMetaData transactionMetaData = new TransactionMetaData("foreclosure");
+            Gson gson = new Gson();
+            payment.updateTransactionMetaData(gson.toJson(transactionMetaData));
+
+            // Create actual LoanCharge entities for ALL foreclosure charges from product (even if not in request)
+            // These charges will be paid by the repayment transaction, which will create LoanChargePaidBy objects
+            if (mergedChargePercentages != null && !mergedChargePercentages.isEmpty()) {
+                BigDecimal principalOutstanding = loan.getSummary().getTotalPrincipalOutstanding();
+                for (Map.Entry<Long, BigDecimal> entry : mergedChargePercentages.entrySet()) {
+                    Long chargeId = entry.getKey();
+                    BigDecimal amountOrPercentage = entry.getValue();
+                    try {
+                        // Get charge definition
+                        Charge chargeDefinition = foreclosureChargeHelper
+                                .getChargeRepositoryWrapper().findOneWithNotFoundDetection(chargeId);
+
+                        // Validate it's a foreclosure charge (chargeTimeType must be FORECLOSURE)
+                        org.apache.fineract.portfolio.charge.domain.ChargeTimeType chargeTimeType = 
+                                org.apache.fineract.portfolio.charge.domain.ChargeTimeType.fromInt(chargeDefinition.getChargeTimeType());
+                        if (!org.apache.fineract.portfolio.charge.domain.ChargeTimeType.FORECLOSURE.equals(chargeTimeType)) {
+                            log.warn("Charge {} is not a foreclosure charge (chargeTimeType: {}), skipping", chargeId, chargeTimeType);
+                            continue;
+                        }
+
+                        // Validate charge calculation type - currently only support PERCENT_OF_PRINCIPAL_OUTSTANDING
+                        ChargeCalculationType chargeCalculationType = ChargeCalculationType
+                                .fromInt(chargeDefinition.getChargeCalculation());
+                        if (!chargeCalculationType.isPercentageOfPrincipalOutstanding()) {
+                            // TODO: Handle other calculation types (flat, other percentage types) in future
+                            log.warn("Foreclosure charge {} has unsupported calculation type {}, skipping. Only PERCENT_OF_PRINCIPAL_OUTSTANDING is supported currently.", 
+                                    chargeId, chargeCalculationType);
+                            continue;
+                        }
+
+                        // Calculate charge amount for PERCENT_OF_PRINCIPAL_OUTSTANDING
+                        BigDecimal chargeAmount = LoanCharge.percentageOf(principalOutstanding, amountOrPercentage);
+                        chargeAmount = chargeAmount.setScale(currency.getDigitsAfterDecimal(),
+                                java.math.RoundingMode.HALF_UP);
+
+                        // Create actual LoanCharge entity for foreclosure
+                        LoanCharge foreclosureLoanCharge = loanChargeService.create(loan, chargeDefinition,
+                                principalOutstanding, amountOrPercentage, null, null, foreClosureDate, null, null,
+                                chargeAmount, null);
+
+                        // Verify the charge was created with a valid amount
+                        Money chargeAmountMoney = foreclosureLoanCharge.getAmount(currency);
+                        if (chargeAmountMoney == null || !chargeAmountMoney.isGreaterThanZero()) {
+                            log.warn("Foreclosure charge {} was created with zero or invalid amount, skipping", chargeId);
+                            continue;
+                        }
+
+                        // Align due date with the foreclosure date so repayment processing sees these charges as due now
+                        foreclosureLoanCharge.setDueDate(foreClosureDate);
+
+                        // Add the charge to the loan - this will make it available for payment processing
+                        loanChargeService.addLoanCharge(loan, foreclosureLoanCharge);
+
+                        // Collect charges to save all at once after the loop
+                        foreclosureChargesToSave.add(foreclosureLoanCharge);
+                        
+                        log.debug("Created LoanCharge for foreclosure charge {} with amount {} (calculation type: {})", 
+                                chargeId, chargeAmountMoney, chargeCalculationType);
+                    } catch (Exception e) {
+                        // Log and skip invalid charges - validation should have caught these already
+                        log.warn("Failed to create LoanCharge for foreclosure charge {}: {}", chargeId, e.getMessage());
+                    }
+                }
+
+                // Save all charges at once to minimize database calls
+                // This ensures the charges are persisted and available when transaction processing runs
+                if (!foreclosureChargesToSave.isEmpty()) {
+                    loanChargeRepository.saveAllAndFlush(foreclosureChargesToSave);
+                    // Verify charges are in the loan's active charges set for transaction processing
+                    // They should already be there from addLoanCharge, but we ensure they're visible
+                    Set<LoanCharge> activeCharges = loan.getActiveCharges();
+                    Money totalForeclosureChargeOutstanding = Money.zero(currency);
+                    for (LoanCharge charge : foreclosureChargesToSave) {
+                        if (!activeCharges.contains(charge)) {
+                            log.error("Foreclosure charge {} not found in loan's active charges - this will cause accounting errors", 
+                                    charge.getId());
+                        } else {
+                            Money outstanding = charge.getAmountOutstanding(currency);
+                            totalForeclosureChargeOutstanding = totalForeclosureChargeOutstanding.plus(outstanding);
+                            log.debug("Foreclosure charge {} is in loan's active charges with outstanding amount {}", 
+                                    charge.getId(), outstanding);
+                        }
+                    }
+                    log.info("Total foreclosure charges outstanding: {} for loan {}", totalForeclosureChargeOutstanding, loan.getId());
+                }
+            }
+
             newTransactions.add(payment);
         }
 
@@ -742,7 +857,92 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             loanForeclosureValidator.validateForForeclosure(loan, payment.getTransactionDate());
         }
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_FORECLOSURE);
+        
+        // Ensure foreclosure charges are properly associated with the loan before transaction processing
+        // This ensures the transaction processor can find them via loan.getActiveCharges()
+        if (!foreclosureChargesToSave.isEmpty() && payment != null) {
+            // Verify charges are in getActiveCharges() which the transaction processor uses
+            Set<LoanCharge> activeCharges = loan.getActiveCharges();
+            Set<LoanCharge> feeCharges = activeCharges.stream()
+                    .filter(LoanCharge::isFeeCharge)
+                    .collect(java.util.stream.Collectors.toSet());
+            
+            for (LoanCharge charge : foreclosureChargesToSave) {
+                boolean inActiveCharges = activeCharges.contains(charge);
+                boolean inFeeCharges = feeCharges.contains(charge);
+                boolean hasOutstanding = charge.getAmountOutstanding(currency).isGreaterThanZero();
+                boolean isDueAtDisbursement = charge.isDueAtDisbursement();
+                
+                log.debug("Foreclosure charge {} - inActiveCharges: {}, inFeeCharges: {}, hasOutstanding: {}, isDueAtDisbursement: {}, outstanding: {}", 
+                        charge.getId(), inActiveCharges, inFeeCharges, hasOutstanding, isDueAtDisbursement, 
+                        charge.getAmountOutstanding(currency));
+                
+                if (!inActiveCharges) {
+                    log.warn("Foreclosure charge {} not in loan's active charges - transaction processor will not find it", 
+                            charge.getId());
+                } else if (!inFeeCharges) {
+                    log.warn("Foreclosure charge {} is not a fee charge - transaction processor will not process it for fee portion", 
+                            charge.getId());
+                } else if (!hasOutstanding) {
+                    log.warn("Foreclosure charge {} has no outstanding amount - transaction processor will skip it", 
+                            charge.getId());
+                } else if (isDueAtDisbursement) {
+                    log.warn("Foreclosure charge {} is marked as due at disbursement - transaction processor will skip it", 
+                            charge.getId());
+                }
+            }
+            
+            Money totalFeeChargesOutstanding = feeCharges.stream()
+                    .map(c -> c.getAmountOutstanding(currency))
+                    .reduce(Money.zero(currency), Money::plus);
+            Money totalForeclosureFeesOutstanding = foreclosureChargesToSave.stream()
+                    .map(c -> c.getAmountOutstanding(currency))
+                    .reduce(Money.zero(currency), Money::plus);
+            Money transactionFeePortion = payment.getFeeChargesPortion(currency);
+            
+            log.info("Before transaction processing - Total fee charges outstanding: {}, Foreclosure fees outstanding: {}, Transaction fee portion: {}", 
+                    totalFeeChargesOutstanding, totalForeclosureFeesOutstanding, transactionFeePortion);
+        }
+        
+        // Ensure foreclosure charges are properly initialized and visible to transaction processor
+        // The transaction processor will create LoanChargePaidBy entries during handleRepaymentOrRecoveryOrWaiverTransaction
+        if (!foreclosureChargesToSave.isEmpty() && payment != null) {
+            // Verify charges meet all conditions for transaction processor to find them:
+            // 1. Must be active (should be true by default)
+            // 2. Must be in loan.getActiveCharges() (should be there from addLoanCharge)
+            // 3. Must be fee charges (should be true for foreclosure charges)
+            // 4. Must have outstanding > 0 (should be set when created)
+            // 5. Must not be due at disbursement (should be false for foreclosure charges)
+            // 6. Must have a due date (we set it to foreclosure date)
+            Set<LoanCharge> activeCharges = loan.getActiveCharges();
+            for (LoanCharge charge : foreclosureChargesToSave) {
+                if (!charge.isActive()) {
+                    log.error("Foreclosure charge {} is not active - transaction processor will not find it", charge.getId());
+                    charge.setActive(true);
+                }
+                if (!activeCharges.contains(charge)) {
+                    log.error("Foreclosure charge {} not in loan's active charges - adding it", charge.getId());
+                    if (loan.getLoanCharges() == null) {
+                        loan.setCharges(new HashSet<>());
+                    }
+                    loan.getLoanCharges().add(charge);
+                }
+                if (charge.getDueLocalDate() == null) {
+                    log.error("Foreclosure charge {} has no due date - setting it to foreclosure date", charge.getId());
+                    charge.setDueDate(foreClosureDate);
+                }
+                if (charge.isDueAtDisbursement()) {
+                    log.error("Foreclosure charge {} is marked as due at disbursement - this is incorrect", charge.getId());
+                }
+            }
+        }
+        
         handleForeClosureTransactions(loan, payment, scheduleGeneratorDTO);
+        
+        // Collect charge allocation info (charge, amount) for foreclosure charges
+        // We'll create LoanChargePaidBy entries AFTER saving the transaction to ensure
+        // they reference the saved transaction with a proper ID
+        List<ChargeAllocationInfo> foreclosureChargeAllocations = new ArrayList<>();
 
         loanAccrualsProcessingService.reprocessExistingAccruals(loan, true);
         if (loan.isInterestBearingAndInterestRecalculationEnabled()) {
@@ -750,15 +950,278 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
 
         for (LoanTransaction newTransaction : newTransactions) {
+            // CRITICAL: Collect LoanChargePaidBy entries BEFORE saving, as they reference the unsaved transaction
+            // We'll need to create new entries with the saved transaction reference after saving
+            Set<LoanChargePaidBy> existingChargesPaidBy = newTransaction.getLoanChargesPaid();
+            List<LoanChargePaidBy> chargesToMigrate = new ArrayList<>();
+            if (existingChargesPaidBy != null && !existingChargesPaidBy.isEmpty()) {
+                log.info("Found {} existing LoanChargePaidBy entries in transaction before saving, will migrate them after saving", 
+                        existingChargesPaidBy.size());
+                // Create a copy of the entries to migrate (we can't use the original as they reference unsaved transaction)
+                for (LoanChargePaidBy chargePaidBy : existingChargesPaidBy) {
+                    chargesToMigrate.add(chargePaidBy);
+                }
+            }
+            
+            // Save the transaction first
             LoanTransaction savedNewTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(newTransaction);
             loan.addLoanTransaction(savedNewTransaction);
-            journalEntryPoster.postJournalEntriesForLoanTransaction(newTransaction, false, false);
+            
+            // CRITICAL: For foreclosure payment transaction, calculate allocations based on ACTUAL fee portion AFTER saving
+            // The transaction processor may have updated the fee portion, so we need to use the saved transaction's fee portion
+            if (newTransaction == payment && savedNewTransaction.getFeeChargesPortion(currency).isGreaterThanZero()) {
+                Money actualFeePortion = savedNewTransaction.getFeeChargesPortion(currency);
+                Set<LoanChargePaidBy> currentChargesPaidBy = savedNewTransaction.getLoanChargesPaid();
+                Money currentTotal = currentChargesPaidBy.stream()
+                        .filter(cpb -> cpb.getLoanCharge() != null && cpb.getLoanCharge().isFeeCharge())
+                        .map(cpb -> Money.of(currency, cpb.getAmount()))
+                        .reduce(Money.zero(currency), Money::plus);
+                
+                // If fee portion is greater than current total, we need to create entries for foreclosure charges
+                if (actualFeePortion.isGreaterThan(currentTotal) && !foreclosureChargesToSave.isEmpty()) {
+                    Money missingAmount = actualFeePortion.minus(currentTotal);
+                    log.info("ROOT CAUSE FIX: Fee portion ({}) is greater than existing LoanChargePaidBy total ({}), missing amount: {}. Creating entries for foreclosure charges.", 
+                            actualFeePortion, currentTotal, missingAmount);
+                    
+                    // Get foreclosure charge IDs that already have entries
+                    Set<Long> existingForeclosureChargeIds = currentChargesPaidBy.stream()
+                            .filter(cpb -> cpb.getLoanCharge() != null)
+                            .map(cpb -> cpb.getLoanCharge().getId())
+                            .collect(java.util.stream.Collectors.toSet());
+                    
+                    // Create allocations for missing amount from foreclosure charges
+                    Money amountToAllocate = missingAmount;
+                    List<LoanCharge> sortedForeclosureCharges = foreclosureChargesToSave.stream()
+                            .filter(LoanCharge::isFeeCharge)
+                            .filter(charge -> !existingForeclosureChargeIds.contains(charge.getId()))
+                            .sorted((c1, c2) -> {
+                                LocalDate d1 = c1.getDueLocalDate();
+                                LocalDate d2 = c2.getDueLocalDate();
+                                if (d1 == null && d2 == null) return 0;
+                                if (d1 == null) return 1;
+                                if (d2 == null) return -1;
+                                return d1.compareTo(d2);
+                            })
+                            .collect(java.util.stream.Collectors.toList());
+                    
+                    for (LoanCharge foreclosureCharge : sortedForeclosureCharges) {
+                        if (!amountToAllocate.isGreaterThanZero()) {
+                            break;
+                        }
+                        Money chargeOutstanding = foreclosureCharge.getAmountOutstanding(currency);
+                        if (!chargeOutstanding.isGreaterThanZero()) {
+                            continue;
+                        }
+                        
+                        Money amountForThisCharge = amountToAllocate.isGreaterThanOrEqualTo(chargeOutstanding) 
+                                ? chargeOutstanding 
+                                : amountToAllocate;
+                        
+                        // Update the charge's paid amount
+                        foreclosureCharge.updatePaidAmountBy(amountForThisCharge, null, amountForThisCharge);
+                        
+                        foreclosureChargeAllocations.add(new ChargeAllocationInfo(foreclosureCharge, amountForThisCharge.getAmount()));
+                        amountToAllocate = amountToAllocate.minus(amountForThisCharge);
+                        log.info("Added foreclosure charge {} to allocations with amount {} (outstanding was {})", 
+                                foreclosureCharge.getId(), amountForThisCharge, chargeOutstanding);
+                    }
+                    
+                    if (amountToAllocate.isGreaterThanZero()) {
+                        log.warn("ROOT CAUSE FIX: Remaining amount {} could not be allocated to foreclosure charges", amountToAllocate);
+                    }
+                }
+            }
+            
+            // CRITICAL: Collect existing entries before clearing (they reference the saved transaction now)
+            Set<LoanChargePaidBy> existingChargesPaidByAfterSave = savedNewTransaction.getLoanChargesPaid();
+            List<LoanChargePaidBy> chargesToMigrateAfterSave = new ArrayList<>();
+            if (existingChargesPaidByAfterSave != null && !existingChargesPaidByAfterSave.isEmpty()) {
+                for (LoanChargePaidBy chargePaidBy : existingChargesPaidByAfterSave) {
+                    chargesToMigrateAfterSave.add(chargePaidBy);
+                }
+            }
+            
+            // CRITICAL: Clear the collection to recreate all entries with proper managed entities
+            savedNewTransaction.getLoanChargesPaid().clear();
+            
+            // CRITICAL: Create ALL LoanChargePaidBy entries and add them to the collection
+            // Then save the transaction again to trigger cascade and persist the entries
+            boolean hasEntriesToAdd = false;
+            
+            // Migrate existing entries from BEFORE save (if any)
+            if (!chargesToMigrate.isEmpty()) {
+                log.info("Migrating {} existing LoanChargePaidBy entries from before save to saved transaction {}", 
+                        chargesToMigrate.size(), savedNewTransaction.getId());
+                for (LoanChargePaidBy oldChargePaidBy : chargesToMigrate) {
+                    LoanCharge oldLoanCharge = oldChargePaidBy.getLoanCharge();
+                    if (oldLoanCharge == null) {
+                        log.warn("Skipping migration of LoanChargePaidBy with null LoanCharge");
+                        continue;
+                    }
+                    LoanCharge managedCharge = loanChargeRepository.findById(oldLoanCharge.getId())
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "LoanCharge not found for migration: " + oldLoanCharge.getId()));
+                    
+                    LoanChargePaidBy newChargePaidBy = new LoanChargePaidBy(savedNewTransaction, 
+                            managedCharge, oldChargePaidBy.getAmount(), 
+                            oldChargePaidBy.getInstallmentNumber());
+                    savedNewTransaction.getLoanChargesPaid().add(newChargePaidBy);
+                    hasEntriesToAdd = true;
+                    log.info("Added LoanChargePaidBy to collection for migration - charge {} with amount {}", 
+                            managedCharge.getId(), oldChargePaidBy.getAmount());
+                }
+            }
+            
+            // Migrate existing entries from AFTER save (these already reference the saved transaction)
+            if (!chargesToMigrateAfterSave.isEmpty()) {
+                log.info("Migrating {} existing LoanChargePaidBy entries from after save to saved transaction {}", 
+                        chargesToMigrateAfterSave.size(), savedNewTransaction.getId());
+                for (LoanChargePaidBy existingChargePaidBy : chargesToMigrateAfterSave) {
+                    LoanCharge existingLoanCharge = existingChargePaidBy.getLoanCharge();
+                    if (existingLoanCharge == null) {
+                        log.warn("Skipping migration of LoanChargePaidBy with null LoanCharge");
+                        continue;
+                    }
+                    // Reload to ensure it's a managed entity
+                    LoanCharge managedCharge = loanChargeRepository.findById(existingLoanCharge.getId())
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "LoanCharge not found for migration: " + existingLoanCharge.getId()));
+                    
+                    LoanChargePaidBy newChargePaidBy = new LoanChargePaidBy(savedNewTransaction, 
+                            managedCharge, existingChargePaidBy.getAmount(), 
+                            existingChargePaidBy.getInstallmentNumber());
+                    savedNewTransaction.getLoanChargesPaid().add(newChargePaidBy);
+                    hasEntriesToAdd = true;
+                    log.info("Added LoanChargePaidBy to collection for migration (after save) - charge {} with amount {}", 
+                            managedCharge.getId(), existingChargePaidBy.getAmount());
+                }
+            }
+            
+            // Create new entries for foreclosure charges (if not already created by transaction processor)
+            if (newTransaction == payment && !foreclosureChargeAllocations.isEmpty()) {
+                log.info("Creating {} LoanChargePaidBy entries for foreclosure charges on transaction {}", 
+                        foreclosureChargeAllocations.size(), savedNewTransaction.getId());
+                for (ChargeAllocationInfo allocation : foreclosureChargeAllocations) {
+                    // CRITICAL: Reload the LoanCharge from repository to ensure it's a managed entity
+                    // A detached entity can cause issues when JPA tries to persist the relationship
+                    LoanCharge managedCharge = loanChargeRepository.findById(allocation.charge.getId())
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "LoanCharge not found after save: " + allocation.charge.getId()));
+                    
+                    // Create LoanChargePaidBy entry with the SAVED transaction reference and MANAGED charge
+                    LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(savedNewTransaction, managedCharge,
+                            allocation.amount, null);
+                    // CRITICAL: Add to collection - cascade will save it when we save the transaction
+                    savedNewTransaction.getLoanChargesPaid().add(loanChargePaidBy);
+                    hasEntriesToAdd = true;
+                    log.info("Added LoanChargePaidBy to collection for foreclosure charge {} with amount {} (managed charge loaded)", 
+                            managedCharge.getId(), allocation.amount);
+                }
+            }
+            
+            // CRITICAL: ALWAYS save the transaction again if we have any entries to ensure they're persisted
+            // This is needed even if entries were migrated (they need to be re-saved with the saved transaction reference)
+            if (hasEntriesToAdd || !chargesToMigrate.isEmpty() || !chargesToMigrateAfterSave.isEmpty()) {
+                log.info("Saving transaction {} again to trigger cascade for {} LoanChargePaidBy entries", 
+                        savedNewTransaction.getId(), savedNewTransaction.getLoanChargesPaid().size());
+                LoanTransaction savedTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(savedNewTransaction);
+                loanTransactionRepository.flush();
+                log.info("Transaction saved with LoanChargePaidBy entries via cascade");
+                
+                // CRITICAL: Reload the transaction from repository to ensure all relationships are properly loaded
+                // After save, the entity might have detached relationships, so we reload it
+                Long transactionId = savedTransaction.getId();
+                LoanTransaction reloadedTransaction = loanTransactionRepository.findById(transactionId)
+                        .orElseThrow(() -> new IllegalStateException("Transaction not found after save: " + transactionId));
+                savedNewTransaction = reloadedTransaction;
+                
+                // CRITICAL: Explicitly initialize all LoanCharge relationships in LoanChargePaidBy entries
+                // This ensures the relationships are loaded before passing to accounting system
+                Set<LoanChargePaidBy> chargesPaidBy = savedNewTransaction.getLoanChargesPaid();
+                if (chargesPaidBy != null) {
+                    for (LoanChargePaidBy chargePaidBy : chargesPaidBy) {
+                        // Force initialization of LoanCharge relationship by accessing it and its nested Charge
+                        LoanCharge loanCharge = chargePaidBy.getLoanCharge();
+                        if (loanCharge != null) {
+                            // Access the Charge relationship to force it to load (accounting system needs this)
+                            loanCharge.getCharge();
+                            // Access isFeeCharge/isPenaltyCharge to ensure the relationship is fully initialized
+                            loanCharge.isFeeCharge();
+                            loanCharge.isPenaltyCharge();
+                        }
+                    }
+                }
+            } else {
+                // Even if we didn't add new entries, we still need to reload to ensure relationships are loaded
+                // This handles the case where entries were already persisted by the transaction processor
+                Long transactionId = savedNewTransaction.getId();
+                LoanTransaction reloadedTransaction = loanTransactionRepository.findById(transactionId)
+                        .orElseThrow(() -> new IllegalStateException("Transaction not found: " + transactionId));
+                savedNewTransaction = reloadedTransaction;
+                
+                // Force initialization of relationships
+                Set<LoanChargePaidBy> chargesPaidBy = savedNewTransaction.getLoanChargesPaid();
+                if (chargesPaidBy != null) {
+                    for (LoanChargePaidBy chargePaidBy : chargesPaidBy) {
+                        LoanCharge loanCharge = chargePaidBy.getLoanCharge();
+                        if (loanCharge != null) {
+                            loanCharge.getCharge();
+                            loanCharge.isFeeCharge();
+                            loanCharge.isPenaltyCharge();
+                        }
+                    }
+                }
+            }
+            
+            // CRITICAL: Verify the collection has the entries (this forces lazy loading if needed)
+            // The collection should now contain all the entries we just added
+            Set<LoanChargePaidBy> chargesPaidBy = savedNewTransaction.getLoanChargesPaid();
+            if (chargesPaidBy != null) {
+                // Force initialization by iterating - the collection should have our entries
+                int count = 0;
+                int feeChargeCount = 0;
+                Money totalAmount = Money.zero(currency);
+                for (LoanChargePaidBy chargePaidBy : chargesPaidBy) {
+                    count++;
+                    LoanCharge loanCharge = chargePaidBy.getLoanCharge();
+                    if (loanCharge == null) {
+                        log.warn("LoanChargePaidBy entry {} has null LoanCharge relationship", chargePaidBy.getId());
+                        continue;
+                    }
+                    if (loanCharge.isFeeCharge()) {
+                        feeChargeCount++;
+                        totalAmount = totalAmount.plus(Money.of(currency, chargePaidBy.getAmount()));
+                    }
+                }
+                log.info("After saving - Transaction {}: loanChargesPaid collection has {} entries ({} fee charges), total fee amount: {}", 
+                        savedNewTransaction.getId(), count, feeChargeCount, totalAmount);
+                
+                if (count == 0 && savedNewTransaction.getFeeChargesPortion(currency).isGreaterThanZero()) {
+                    log.error("CRITICAL: Transaction {} has fee portion {} but collection has 0 entries after saving! " +
+                            "This will cause accounting error!", savedNewTransaction.getId(), 
+                            savedNewTransaction.getFeeChargesPortion(currency));
+                } else if (feeChargeCount == 0 && savedNewTransaction.getFeeChargesPortion(currency).isGreaterThanZero()) {
+                    log.error("CRITICAL: Transaction {} has fee portion {} but no fee charges found in collection ({} entries)! " +
+                            "This will cause accounting error!", savedNewTransaction.getId(), 
+                            savedNewTransaction.getFeeChargesPortion(currency), count);
+                }
+            }
+            
+            // Use savedNewTransaction - the collection should now have all entries
+            journalEntryPoster.postJournalEntriesForLoanTransaction(savedNewTransaction, false, false);
             transactionIds.add(savedNewTransaction.getId());
         }
         changes.put("transactions", transactionIds);
         changes.put("eventAmount", payPrincipal.getAmount().negate());
 
+        // Transition loan status to CLOSED after foreclosure
+        loanLifecycleStateMachine.determineAndTransition(loan, foreClosureDate);
+
         loan = loanAccountService.saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+
+        // Disable standing instructions and release collateral for closed loan
+        disableStandingInstructionsLinkedToClosedLoan(loan);
+        updateAndSaveLoanCollateralTransactionsForIndividualAccounts(loan, payment);
 
         if (StringUtils.isNotBlank(noteText)) {
             changes.put("note", noteText);
@@ -1026,8 +1489,11 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
     private void handleForeClosureTransactions(final Loan loan, final LoanTransaction repaymentTransaction,
             final ScheduleGeneratorDTO scheduleGeneratorDTO) {
-        loan.setLoanSubStatus(LoanSubStatus.FORECLOSED);
+        // Process the transaction first before marking as foreclosed
+        // This allows the transaction processor to use processLatest which is more efficient
         loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, repaymentTransaction, null, scheduleGeneratorDTO);
+        // Set foreclosure status after transaction processing
+        loan.setLoanSubStatus(LoanSubStatus.FORECLOSED);
     }
 
     @Override
@@ -1035,6 +1501,20 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         final LoanRescheduleRequest loanRescheduleRequest = null;
         final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
         this.loanScheduleHistoryWritePlatformService.createAndSaveLoanScheduleArchive(installments, loan, loanRescheduleRequest);
+    }
+
+    /**
+     * Helper class to hold charge allocation information before creating LoanChargePaidBy entries.
+     * This allows us to create the entries AFTER the transaction is saved, ensuring proper persistence.
+     */
+    private static class ChargeAllocationInfo {
+        final LoanCharge charge;
+        final BigDecimal amount;
+
+        ChargeAllocationInfo(LoanCharge charge, BigDecimal amount) {
+            this.charge = charge;
+            this.amount = amount;
+        }
     }
 
 }

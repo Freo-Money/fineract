@@ -55,6 +55,15 @@ public class LoanBalanceService {
         final MonetaryCurrency currency = loan.getCurrency();
         Money cumulativeTotalPaidOnInstallments = Money.zero(currency);
         Money cumulativeTotalWaivedOnInstallments = Money.zero(currency);
+        
+        // Calculate total foreclosure charges paid to exclude from overpayment calculation
+        // Foreclosure charges are only created at foreclosure time and shouldn't count toward expected schedule totals
+        Money totalForeclosureChargesPaid = loan.getLoanCharges().stream()
+                .filter(LoanCharge::isDueAtForeclosure)
+                .filter(LoanCharge::isFeeCharge)
+                .map(charge -> charge.getAmountPaid(currency))
+                .reduce(Money.zero(currency), Money::plus);
+        
         List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
         for (final LoanRepaymentScheduleInstallment scheduledRepayment : installments) {
             cumulativeTotalPaidOnInstallments = cumulativeTotalPaidOnInstallments
@@ -63,6 +72,9 @@ public class LoanBalanceService {
 
             cumulativeTotalWaivedOnInstallments = cumulativeTotalWaivedOnInstallments.plus(scheduledRepayment.getInterestWaived(currency));
         }
+        
+        // Exclude foreclosure charges from cumulative fee charges paid for overpayment calculation
+        cumulativeTotalPaidOnInstallments = cumulativeTotalPaidOnInstallments.minus(totalForeclosureChargesPaid);
 
         for (final LoanTransaction loanTransaction : loan.getLoanTransactions()) {
             if (loanTransaction.isReversed()) {
