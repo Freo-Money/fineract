@@ -210,13 +210,18 @@ public class LoanBalanceService {
         return receivableInterest;
     }
 
-    public LoanRepaymentScheduleInstallment fetchLoanForeclosureDetail(final Loan loan, final LocalDate closureDate) {
+    public LoanRepaymentScheduleInstallment fetchLoanForeclosureDetail(final Loan loan, final LocalDate closureDate,
+            final Money foreclosureFees) {
         Money[] receivables = retrieveIncomeOutstandingTillDate(loan, closureDate);
         Money totalPrincipal = Money.of(loan.getCurrency(), loan.getSummary().getTotalPrincipalOutstanding());
         totalPrincipal = totalPrincipal.minus(receivables[3]);
         final LocalDate currentDate = DateUtils.getBusinessLocalDate();
+        Money feeCharges = Money.of(loan.getCurrency(), receivables[1].getAmount());
+        if (foreclosureFees != null) {
+            feeCharges = feeCharges.plus(foreclosureFees);
+        }
         return new LoanRepaymentScheduleInstallment(null, 0, currentDate, currentDate, totalPrincipal.getAmount(),
-                receivables[0].getAmount(), receivables[1].getAmount(), receivables[2].getAmount(), false, null);
+                receivables[0].getAmount(), feeCharges.getAmount(), receivables[2].getAmount(), false, null);
     }
 
     public Money[] retrieveIncomeForOverlappingPeriod(final Loan loan, final LocalDate paymentDate) {

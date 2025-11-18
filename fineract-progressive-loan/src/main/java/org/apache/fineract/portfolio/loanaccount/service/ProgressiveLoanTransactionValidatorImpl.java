@@ -497,6 +497,11 @@ public class ProgressiveLoanTransactionValidatorImpl implements ProgressiveLoanT
     }
 
     @Override
+    public void validateLoanForeclosureChargePercentages(Loan loan, Map<Long, BigDecimal> chargePercentages) {
+        loanTransactionValidator.validateLoanForeclosureChargePercentages(loan, chargePercentages);
+    }
+
+    @Override
     public void validateLoanClientIsActive(Loan loan) {
         loanTransactionValidator.validateLoanClientIsActive(loan);
     }
