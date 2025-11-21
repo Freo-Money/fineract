@@ -727,7 +727,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         Money foreclosureFee = foreclosureChargeHelper.calculateForeclosureFee(loan, mergedChargePercentages, currency);
         final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
                 mergedChargePercentages, updateCharges);
-       loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions, mergedChargePercentages);
+        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions, mergedChargePercentages);
         if (!newTransactions.isEmpty()) {
             persistLoanTransactions(loan, newTransactions, null, transactionsToJournal);
             newTransactions.clear();
@@ -785,13 +785,11 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         return payment;
     }
 
-    private LoanTransaction persistLoanTransactions(Loan loan, List<LoanTransaction> transactions,
-            List<Long> transactionIds,
+    private LoanTransaction persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
             List<LoanTransaction> transactionsToJournal, LoanTransaction transactionToReturn) {
         LoanTransaction savedReference = null;
         for (LoanTransaction transaction : transactions) {
-            LoanTransaction savedTransaction = loanAccountService
-                    .saveLoanTransactionWithDataIntegrityViolationChecks(transaction);
+            LoanTransaction savedTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(transaction);
             loan.addLoanTransaction(savedTransaction);
             if (transactionsToJournal != null) {
                 transactionsToJournal.add(savedTransaction);

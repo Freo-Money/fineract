@@ -24,7 +24,6 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.persistence.FlushModeHandler;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -225,8 +224,7 @@ public class LoanBalanceService {
             refreshSummaryAndBalancesForDisbursedLoan(loan);
         }
         Money[] receivables = retrieveIncomeOutstandingTillDate(loan, closureDate);
-        Money totalPrincipal = Money.of(loan.getCurrency(), loan.getSummary().getTotalPrincipalOutstanding())
-                .minus(receivables[3]);
+        Money totalPrincipal = Money.of(loan.getCurrency(), loan.getSummary().getTotalPrincipalOutstanding()).minus(receivables[3]);
         final LocalDate currentDate = DateUtils.getBusinessLocalDate();
 
         return new LoanRepaymentScheduleInstallment(null, 0, currentDate, currentDate, totalPrincipal.getAmount(),
