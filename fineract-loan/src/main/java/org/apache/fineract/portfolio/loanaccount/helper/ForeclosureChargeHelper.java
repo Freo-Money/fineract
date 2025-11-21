@@ -23,6 +23,9 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -38,6 +41,11 @@ import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
+import org.apache.fineract.infrastructure.core.domain.ExternalId;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeService;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -62,12 +70,21 @@ public class ForeclosureChargeHelper {
     }
 
     public Map<Long, BigDecimal> extractChargePercentagesFromJsonElement(JsonElement element, String paramName) {
-        if (element == null || element.isJsonNull()) {
+        if (element == null || element.isJsonNull() || !element.isJsonObject()) {
             return new HashMap<>();
         }
 
-        if (!element.isJsonObject()) {
-            throw new IllegalArgumentException("Charge percentages must be a JSON object");
+        JsonObject jsonObject = element.getAsJsonObject();
+        if (!jsonObject.has(paramName)) {
+            return new HashMap<>();
+        }
+
+        return extractChargePercentagesFromJsonObject(jsonObject.get(paramName), paramName);
+    }
+
+    private Map<Long, BigDecimal> extractChargePercentagesFromJsonObject(JsonElement element, String paramName) {
+        if (element == null || element.isJsonNull() || !element.isJsonObject()) {
+            return new HashMap<>();
         }
 
         JsonObject jsonObject = element.getAsJsonObject();
@@ -96,7 +113,7 @@ public class ForeclosureChargeHelper {
 
         try {
             JsonElement element = GSON.fromJson(chargePercentagesJson, JsonElement.class);
-            return extractChargePercentagesFromJsonElement(element, "foreclosureChargePercentageMap");
+            return extractChargePercentagesFromJsonObject(element, "foreclosureChargePercentageMap");
         } catch (com.google.gson.JsonSyntaxException e) {
             throw new IllegalArgumentException("Invalid JSON format for charge percentages: " + chargePercentagesJson, e);
         }
@@ -172,8 +189,176 @@ public class ForeclosureChargeHelper {
         return LoanCharge.percentageOf(baseAmount, percentage);
     }
 
+    public List<LoanCharge> createAndAddForeclosureChargesToLoan(Loan loan, Map<Long, BigDecimal> mergedChargePercentages, LocalDate foreclosureDate) {
+        List<LoanCharge> foreclosureCharges = new ArrayList<>();
+        if (mergedChargePercentages == null || mergedChargePercentages.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        MonetaryCurrency currency = loan.getCurrency();
+
+        for (Map.Entry<Long, BigDecimal> entry : mergedChargePercentages.entrySet()) {
+            Long chargeId = entry.getKey();
+            BigDecimal amountOrPercentage = entry.getValue();
+
+            if (amountOrPercentage == null || amountOrPercentage.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            try {
+                Charge chargeDefinition = chargeRepositoryWrapper.findOneWithNotFoundDetection(chargeId);
+                ChargeCalculationType calculationType = ChargeCalculationType.fromInt(chargeDefinition.getChargeCalculation());
+                BigDecimal uncappedChargeAmount = calculationType.isPercentageBased()
+                        ? calculatePercentageBasedCharge(loan, chargeDefinition, calculationType, amountOrPercentage)
+                        : amountOrPercentage;
+                uncappedChargeAmount = uncappedChargeAmount.setScale(currency.getDigitsAfterDecimal(), RoundingMode.HALF_UP);
+
+                LoanCharge loanCharge = loanChargeService.create(loan, chargeDefinition, loan.getPrincipal().getAmount(),
+                        amountOrPercentage, ChargeTimeType.FORECLOSURE, calculationType, foreclosureDate, null, null, uncappedChargeAmount,
+                        null);
+                loanChargeService.addLoanCharge(loan, loanCharge);
+                resetChargeToUnpaidState(loanCharge, uncappedChargeAmount);
+                foreclosureCharges.add(loanCharge);
+            } catch (Exception e) {
+                // Ignore invalid charge definitions
+            }
+        }
+        return foreclosureCharges;
+    }
+
+    public void linkForeclosureChargesToPaymentTransactionAndMarkAsPaid(Loan loan, LoanTransaction paymentTransaction) {
+        if (paymentTransaction == null) {
+            return;
+        }
+
+        MonetaryCurrency currency = loan.getCurrency();
+        Money totalForeclosureFeeCharges = Money.zero(currency);
+        Set<LoanCharge> loanCharges = loan.getLoanCharges();
+
+        if (loanCharges == null) {
+            return;
+        }
+
+        paymentTransaction.getLoanChargesPaid().removeIf(paidBy -> paidBy.getLoanCharge() != null
+                && paidBy.getLoanCharge().getChargeTimeType().equals(ChargeTimeType.FORECLOSURE));
+
+        for (LoanCharge loanCharge : loanCharges) {
+            if (loanCharge.getChargeTimeType().equals(ChargeTimeType.FORECLOSURE) && loanCharge.isActive()) {
+                Money chargeAmount = loanCharge.getAmount(currency);
+                if (chargeAmount.isGreaterThanZero()) {
+                    paymentTransaction.getLoanChargesPaid()
+                            .add(new LoanChargePaidBy(paymentTransaction, loanCharge, chargeAmount.getAmount(), null));
+                    loanCharge.updatePaidAmountBy(chargeAmount, null, chargeAmount);
+                    totalForeclosureFeeCharges = totalForeclosureFeeCharges.plus(chargeAmount);
+                }
+            }
+        }
+
+        if (totalForeclosureFeeCharges.isGreaterThanZero()) {
+            Money currentFeeChargesPortion = paymentTransaction.getFeeChargesPortion(currency);
+            Money sumOfAllFeeChargePaidBy = Money.zero(currency);
+            for (LoanChargePaidBy paidBy : paymentTransaction.getLoanChargesPaid()) {
+                if (paidBy.getLoanCharge() != null && paidBy.getLoanCharge().isFeeCharge()) {
+                    sumOfAllFeeChargePaidBy = sumOfAllFeeChargePaidBy.plus(Money.of(currency, paidBy.getAmount()));
+                }
+            }
+            Money adjustment = sumOfAllFeeChargePaidBy.minus(currentFeeChargesPortion);
+            if (!adjustment.isZero()) {
+                paymentTransaction.updateChargesComponents(adjustment, Money.zero(currency));
+            }
+        }
+    }
+
     public ChargeRepositoryWrapper getChargeRepositoryWrapper() {
         return chargeRepositoryWrapper;
+    }
+
+    public LoanTransaction createForeclosurePaymentTransaction(Loan loan, LoanRepaymentScheduleInstallment foreCloseDetail,
+            LocalDate foreClosureDate, ExternalId externalId) {
+        MonetaryCurrency currency = loan.getCurrency();
+        Money principalPayable = foreCloseDetail.getPrincipal(currency);
+        Money interestPayable = foreCloseDetail.getInterestCharged(currency);
+        Money feePayable = foreCloseDetail.getFeeChargesCharged(currency);
+        Money penaltyPayable = foreCloseDetail.getPenaltyChargesCharged(currency);
+        Money totalPaymentAmount = principalPayable.plus(interestPayable).plus(feePayable).plus(penaltyPayable);
+
+        if (!totalPaymentAmount.isGreaterThanZero()) {
+            return null;
+        }
+
+        LoanTransaction payment = LoanTransaction.repayment(loan.getOffice(), totalPaymentAmount, null, foreClosureDate, externalId);
+        TransactionMetaData transactionMetaData = new TransactionMetaData("FORECLOSURE");
+        payment.updateTransactionMetaData(transactionMetaData.toString());
+        return payment;
+    }
+
+    public void updateForeclosureCharges(Loan loan, Map<Long, BigDecimal> mergedChargePercentages, LocalDate closureDate) {
+        MonetaryCurrency currency = loan.getCurrency();
+        Money totalPrincipalOutstanding = Money.of(loan.getCurrency(), loan.getSummary().getTotalPrincipalOutstanding());
+        List<LoanCharge> foreclosureCharges = createAndAddForeclosureChargesToLoan(loan, mergedChargePercentages, closureDate);
+        if (foreclosureCharges.isEmpty()) {
+            return;
+        }
+        Money totalForeclosureChargeAmount = Money.zero(currency);
+        for (LoanCharge charge : foreclosureCharges) {
+            Money chargeAmount = charge.getAmount(currency);
+            totalForeclosureChargeAmount = totalForeclosureChargeAmount.plus(chargeAmount);
+            applyForeclosureChargeUpdate(charge, chargeAmount, totalPrincipalOutstanding, closureDate,
+                    mergedChargePercentages.get(charge.getCharge().getId()));
+        }
+        applyForeclosureChargeOnRepaymentSchedule(loan, currency, totalForeclosureChargeAmount);
+    }
+
+    private void resetChargeToUnpaidState(final LoanCharge charge, final BigDecimal chargeAmount) {
+        charge.setAmount(chargeAmount);
+        charge.setAmountPaid(BigDecimal.ZERO);
+        charge.setAmountWaived(BigDecimal.ZERO);
+        charge.setAmountWrittenOff(BigDecimal.ZERO);
+        charge.setPaid(false);
+        charge.setWaived(false);
+        charge.setAmountOutstanding(charge.calculateOutstanding());
+    }
+
+    private void applyForeclosureChargeUpdate(final LoanCharge charge, final Money amount, final Money principalOutstanding,
+            final LocalDate closureDate, final BigDecimal foreclosureChargePercentage) {
+        charge.setDueDate(closureDate);
+        resetChargeToUnpaidState(charge, amount.getAmount());
+        charge.setAmountPercentageAppliedTo(principalOutstanding.getAmount());
+        if (foreclosureChargePercentage != null) {
+            charge.setPercentage(foreclosureChargePercentage);
+            charge.setAmountOrPercentage(foreclosureChargePercentage);
+        }
+    }
+
+    private void applyForeclosureChargeOnRepaymentSchedule(final Loan loan, final MonetaryCurrency currency,
+            final Money foreclosureAmount) {
+        updateRepaymentScheduleWithForeclosureFee(loan, currency, foreclosureAmount, false);
+    }
+
+    public void syncForeclosureFeeOnRepaymentSchedule(final Loan loan, final Money foreclosureFee) {
+        updateRepaymentScheduleWithForeclosureFee(loan, loan.getCurrency(), foreclosureFee, true);
+    }
+
+    private void updateRepaymentScheduleWithForeclosureFee(final Loan loan, final MonetaryCurrency currency,
+            final Money foreclosureAmount, final boolean markAsPaid) {
+        if (!foreclosureAmount.isGreaterThanZero()) {
+            return;
+        }
+        List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
+        if (installments == null || installments.isEmpty()) {
+            return;
+        }
+        LoanRepaymentScheduleInstallment lastInstallment = LoanRepaymentScheduleInstallment.getLastNonDownPaymentInstallment(installments);
+        if (!markAsPaid) {
+            Money existingFeeCharges = lastInstallment.getFeeChargesCharged(currency);
+            if (existingFeeCharges.isEqualTo(foreclosureAmount)) {
+                return;
+            }
+        }
+        lastInstallment.setFeeChargesCharged(foreclosureAmount.getAmount());
+        lastInstallment.setFeeChargesPaid(markAsPaid ? foreclosureAmount.getAmount() : Money.zero(currency).getAmount());
+        lastInstallment.setFeeChargesWaived(Money.zero(currency).getAmount());
+        lastInstallment.setFeeChargesWrittenOff(Money.zero(currency).getAmount());
     }
 
 }

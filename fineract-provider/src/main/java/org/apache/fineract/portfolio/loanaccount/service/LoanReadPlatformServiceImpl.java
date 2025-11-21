@@ -2256,9 +2256,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         final LocalDate earliestUnpaidInstallmentDate = DateUtils.getBusinessLocalDate();
         Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.mergeForeclosureChargesFromLoanProduct(loan,
                 chargePercentages);
+        boolean updateCharges = false;
         Money foreclosureFees = foreclosureChargeHelper.calculateForeclosureFee(loan, mergedChargePercentages, currency);
         final LoanRepaymentScheduleInstallment loanRepaymentScheduleInstallment = loanBalanceService.fetchLoanForeclosureDetail(loan,
-                transactionDate, foreclosureFees);
+                transactionDate, mergedChargePercentages, updateCharges);
         BigDecimal unrecognizedIncomePortion = null;
         final LoanTransactionEnumData transactionType = LoanEnumerations.transactionType(LoanTransactionType.REPAYMENT);
         final Collection<PaymentTypeData> paymentTypeOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
@@ -2266,6 +2267,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         final Boolean isManuallyReversed = false;
 
         Money feeChargesOutstanding = loanRepaymentScheduleInstallment.getFeeChargesOutstanding(currency);
+        feeChargesOutstanding = feeChargesOutstanding.plus(foreclosureFees);
         Money penaltyChargesOutstanding = loanRepaymentScheduleInstallment.getPenaltyChargesOutstanding(currency);
         Money principalOutstanding = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency);
         Money interestOutstanding = loanRepaymentScheduleInstallment.getInterestOutstanding(currency);
