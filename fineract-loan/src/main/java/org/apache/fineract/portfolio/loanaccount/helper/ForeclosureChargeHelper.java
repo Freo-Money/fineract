@@ -25,12 +25,12 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.fineract.infrastructure.core.domain.ExternalId;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.charge.data.ChargeData;
@@ -39,13 +39,12 @@ import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargeRepositoryWrapper;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
-import org.apache.fineract.infrastructure.core.domain.ExternalId;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
-import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeService;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -189,10 +188,11 @@ public class ForeclosureChargeHelper {
         return LoanCharge.percentageOf(baseAmount, percentage);
     }
 
-    public List<LoanCharge> createAndAddForeclosureChargesToLoan(Loan loan, Map<Long, BigDecimal> mergedChargePercentages, LocalDate foreclosureDate) {
+    public List<LoanCharge> createAndAddForeclosureChargesToLoan(Loan loan, Map<Long, BigDecimal> mergedChargePercentages,
+            LocalDate foreclosureDate) {
         List<LoanCharge> foreclosureCharges = new ArrayList<>();
         if (mergedChargePercentages == null || mergedChargePercentages.isEmpty()) {
-            return Collections.emptyList();
+            return foreclosureCharges;
         }
 
         MonetaryCurrency currency = loan.getCurrency();
@@ -239,8 +239,8 @@ public class ForeclosureChargeHelper {
             return;
         }
 
-        paymentTransaction.getLoanChargesPaid().removeIf(paidBy -> paidBy.getLoanCharge() != null
-                && paidBy.getLoanCharge().getChargeTimeType().equals(ChargeTimeType.FORECLOSURE));
+        paymentTransaction.getLoanChargesPaid().removeIf(
+                paidBy -> paidBy.getLoanCharge() != null && paidBy.getLoanCharge().getChargeTimeType().equals(ChargeTimeType.FORECLOSURE));
 
         for (LoanCharge loanCharge : loanCharges) {
             if (loanCharge.getChargeTimeType().equals(ChargeTimeType.FORECLOSURE) && loanCharge.isActive()) {
@@ -339,8 +339,8 @@ public class ForeclosureChargeHelper {
         updateRepaymentScheduleWithForeclosureFee(loan, loan.getCurrency(), foreclosureFee, true);
     }
 
-    private void updateRepaymentScheduleWithForeclosureFee(final Loan loan, final MonetaryCurrency currency,
-            final Money foreclosureAmount, final boolean markAsPaid) {
+    private void updateRepaymentScheduleWithForeclosureFee(final Loan loan, final MonetaryCurrency currency, final Money foreclosureAmount,
+            final boolean markAsPaid) {
         if (!foreclosureAmount.isGreaterThanZero()) {
             return;
         }

@@ -231,6 +231,6 @@
     <include file="parts/0203_add_charge_pay_and_bulk_waive_permissions.xml" relativeToChangelogFile="true" />
     <include file="parts/0204_add_custom_schedule_defined_column_to_loan.xml" relativeToChangelogFile="true" />
     <include file="parts/0205_add_client_marital_status_code.xml" relativeToChangelogFile="true" />
-    <include file="parts/0206_add_transaction_meta_data_field_to_loan_transaction.xml" relativeToChangelogFile="true" />  
+    <include file="parts/0206_add_transaction_meta_data_field_to_loan_transaction.xml" relativeToChangelogFile="true" />
     <include file="parts/1035_add_adjust_interest_for_rounding_to_product_loan.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

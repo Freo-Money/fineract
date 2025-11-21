@@ -305,7 +305,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         if (loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()
                 && (loan.getAccruedTill() == null || !DateUtils.isEqual(foreClosureDate, loan.getAccruedTill()))) {
             final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
-            mergedChargePercentages, false);
+                    mergedChargePercentages, false);
             MonetaryCurrency currency = loan.getCurrency();
             reverseTransactionsAfter(loan, ACCRUAL_TYPES, foreClosureDate, false);
 
@@ -314,12 +314,12 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
             final Money interestPortion = foreCloseDetail.getInterestCharged(currency).minus(incomeDetails.get(Loan.INTEREST));
             Money feePortion = foreCloseDetail.getFeeChargesCharged(currency).minus(incomeDetails.get(Loan.FEE));
             final Money penaltyPortion = foreCloseDetail.getPenaltyChargesCharged(currency).minus(incomeDetails.get(Loan.PENALTIES));
-            
+
             Money foreclosureFee = foreclosureChargeHelper.calculateForeclosureFee(loan, mergedChargePercentages, currency);
             if (foreclosureFee.isGreaterThanZero()) {
                 feePortion = feePortion.plus(foreclosureFee);
             }
-            
+
             final Money total = interestPortion.plus(feePortion).plus(penaltyPortion);
             if (total.isGreaterThanZero()) {
                 boolean includeForeclosureCharges = foreclosureFee.isGreaterThanZero();
