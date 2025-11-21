@@ -89,7 +89,10 @@ public class ReprocessLoanTransactionsServiceImpl implements ReprocessLoanTransa
 
     @Override
     public void processPostDisbursementTransactions(final Loan loan) {
-        loanTransactionProcessingService.processPostDisbursementTransactions(loan).ifPresent(this::handleChangedDetail);
+        loanTransactionProcessingService.processPostDisbursementTransactions(loan).ifPresent(changedDetail -> {
+            loanBalanceService.updateLoanSummaryDerivedFields(loan);
+            handleChangedDetail(changedDetail);
+        });
     }
 
     @Override
