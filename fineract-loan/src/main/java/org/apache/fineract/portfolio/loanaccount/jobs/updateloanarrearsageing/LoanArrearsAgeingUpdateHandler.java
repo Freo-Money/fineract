@@ -29,8 +29,10 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.JdbcSupport;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
+import org.apache.fineract.portfolio.loanaccount.domain.ArrearsBasedOn;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanSchedulePeriodData;
 import org.apache.fineract.portfolio.loanaccount.service.LoanArrearsAgingService;
 import org.springframework.dao.DataAccessException;
@@ -49,6 +51,7 @@ public class LoanArrearsAgeingUpdateHandler {
     private final JdbcTemplate jdbcTemplate;
     private final DatabaseSpecificSQLGenerator sqlGenerator;
     private final LoanArrearsAgingService loanArrearsAgingService;
+    private final ConfigurationDomainService configurationDomainService;
 
     private void truncateLoanArrearsAgingDetails() {
         jdbcTemplate.execute("truncate table m_loan_arrears_aging");
@@ -110,6 +113,7 @@ public class LoanArrearsAgeingUpdateHandler {
     }
 
     private String buildQueryForInsertAgeingDetails(boolean isForAllLoans) {
+        ArrearsBasedOn arrearsBasedOn = ArrearsBasedOn.fromInt(configurationDomainService.getArrearsBasedOnValue());
         final StringBuilder insertSqlStatementBuilder = new StringBuilder(900);
         final String principalOverdueCalculationSql = "SUM(COALESCE(mr.principal_amount, 0) - coalesce(mr.principal_completed_derived, 0) - coalesce(mr.principal_writtenoff_derived, 0))";
         final String interestOverdueCalculationSql = "SUM(COALESCE(mr.interest_amount, 0) - coalesce(mr.interest_writtenoff_derived, 0) - coalesce(mr.interest_waived_derived, 0) - "
@@ -143,7 +147,10 @@ public class LoanArrearsAgeingUpdateHandler {
                 .append(" ");
         insertSqlStatementBuilder
                 .append(" and (prd.arrears_based_on_original_schedule = false or prd.arrears_based_on_original_schedule is null) ");
+
         insertSqlStatementBuilder.append(" GROUP BY ml.id");
+        appendArrearsBasedOnFilter(insertSqlStatementBuilder, arrearsBasedOn, principalOverdueCalculationSql,
+                interestOverdueCalculationSql);
         return insertSqlStatementBuilder.toString();
     }
 
@@ -181,6 +188,7 @@ public class LoanArrearsAgeingUpdateHandler {
     }
 
     private String buildQueryForLoanIdentifiersWithOriginalSchedule(boolean isForAllLoans) {
+        ArrearsBasedOn arrearsBasedOn = ArrearsBasedOn.fromInt(configurationDomainService.getArrearsBasedOnValue());
         final StringBuilder loanIdentifier = new StringBuilder();
         loanIdentifier.append("select ml.id as loanId FROM m_loan ml  ");
         loanIdentifier.append("INNER JOIN m_loan_repayment_schedule mr on mr.loan_id = ml.id ");
@@ -192,8 +200,23 @@ public class LoanArrearsAgeingUpdateHandler {
         }
         loanIdentifier.append(" and mr.completed_derived is false  and mr.duedate < ")
                 .append(sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "COALESCE(ml.grace_on_arrears_ageing, 0)", "day"))
-                .append(" group by ml.id");
+                .append(" ");
+
+        loanIdentifier.append(" group by ml.id");
+        final String principalOverdueCalculationSql = "SUM(COALESCE(mr.principal_amount, 0) - COALESCE(mr.principal_completed_derived, 0) - COALESCE(mr.principal_writtenoff_derived, 0))";
+        final String interestOverdueCalculationSql = "SUM(COALESCE(mr.interest_amount, 0) - COALESCE(mr.interest_waived_derived, 0) - COALESCE(mr.interest_writtenoff_derived, 0) - COALESCE(mr.interest_completed_derived, 0))";
+        appendArrearsBasedOnFilter(loanIdentifier, arrearsBasedOn, principalOverdueCalculationSql, interestOverdueCalculationSql);
         return loanIdentifier.toString();
+    }
+
+    private void appendArrearsBasedOnFilter(StringBuilder sqlBuilder, ArrearsBasedOn arrearsBasedOn, String principalOverdueCalculationSql,
+            String interestOverdueCalculationSql) {
+        if (arrearsBasedOn.isPrincipalOnly()) {
+            sqlBuilder.append(" HAVING (").append(principalOverdueCalculationSql).append(") > 0 ");
+        } else if (arrearsBasedOn.isPrincipalAndInterestOnly()) {
+            sqlBuilder.append(" HAVING ((").append(principalOverdueCalculationSql).append(") > 0 OR (")
+                    .append(interestOverdueCalculationSql).append(") > 0) ");
+        }
     }
 
     private List<Map<String, Object>> getLoanSummary(final List<Long> loanIds) {
