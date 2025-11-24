@@ -93,6 +93,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleDelinquencyDat
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.MoneyHolder;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.TransactionCtx;
+import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
@@ -163,6 +164,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanAccountDomainServiceJpaHelper loanAccountDomainServiceJpaHelper;
     private final LoanJournalEntryPoster journalEntryPoster;
     private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
 
     @Transactional
     @Override
@@ -704,7 +706,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
     @Override
     public LoanTransaction foreCloseLoan(Loan loan, final LocalDate foreClosureDate, final String noteText, final ExternalId externalId,
-            Map<String, Object> changes) {
+            Map<Long, BigDecimal> foreclosureChargePercentageMap, Map<String, Object> changes) {
 
         if (loan.isChargedOff() && DateUtils.isBefore(foreClosureDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
@@ -714,47 +716,59 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
         businessEventNotifierService.notifyPreBusinessEvent(new LoanForeClosurePreBusinessEvent(loan));
         MonetaryCurrency currency = loan.getCurrency();
+        List<Long> transactionIds = new ArrayList<>();
         List<LoanTransaction> newTransactions = new ArrayList<>();
+        List<LoanTransaction> transactionsToJournal = new ArrayList<>();
 
         final ScheduleGeneratorDTO scheduleGeneratorDTO = null;
-        final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate);
-
-        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions);
-
-        Money interestPayable = foreCloseDetail.getInterestCharged(currency);
-        Money feePayable = foreCloseDetail.getFeeChargesCharged(currency);
-        Money penaltyPayable = foreCloseDetail.getPenaltyChargesCharged(currency);
+        Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.mergeForeclosureChargesFromLoanProduct(loan,
+                foreclosureChargePercentageMap);
+        final boolean updateCharges = true;
+        Money foreclosureFee = foreclosureChargeHelper.calculateForeclosureFee(loan, mergedChargePercentages, currency);
+        final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
+                mergedChargePercentages, updateCharges);
+        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions, mergedChargePercentages);
+        if (!newTransactions.isEmpty()) {
+            persistLoanTransactions(loan, newTransactions, null, transactionsToJournal);
+            newTransactions.clear();
+        }
         Money payPrincipal = foreCloseDetail.getPrincipal(currency);
         updateInstallmentsPostDate(loan, foreClosureDate);
+        LoanTransaction payment = foreclosureChargeHelper.createForeclosurePaymentTransaction(loan, foreCloseDetail, foreClosureDate,
+                externalId);
 
-        LoanTransaction payment = null;
-
-        if (payPrincipal.plus(interestPayable).plus(feePayable).plus(penaltyPayable).isGreaterThanZero()) {
-            final PaymentDetail paymentDetail = null;
-            payment = LoanTransaction.repayment(loan.getOffice(), payPrincipal.plus(interestPayable).plus(feePayable).plus(penaltyPayable),
-                    paymentDetail, foreClosureDate, externalId);
-            payment.updateLoan(loan);
-            newTransactions.add(payment);
-        }
-
-        List<Long> transactionIds = new ArrayList<>();
         if (payment != null) {
             loanForeclosureValidator.validateForForeclosure(loan, payment.getTransactionDate());
         }
+        if (payment != null) {
+            payment.updateLoan(loan);
+            newTransactions.add(payment);
+        }
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_FORECLOSURE);
         handleForeClosureTransactions(loan, payment, scheduleGeneratorDTO);
+        LoanTransaction savedPayment = null;
+        if (!newTransactions.isEmpty()) {
+            savedPayment = persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal, payment);
+            newTransactions.clear();
+        }
+        if (savedPayment != null) {
+            payment = savedPayment;
+        }
 
         loanAccrualsProcessingService.reprocessExistingAccruals(loan, true);
         if (loan.isInterestBearingAndInterestRecalculationEnabled()) {
             loanAccrualsProcessingService.processIncomePostingAndAccruals(loan, true);
         }
 
-        for (LoanTransaction newTransaction : newTransactions) {
-            LoanTransaction savedNewTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(newTransaction);
-            loan.addLoanTransaction(savedNewTransaction);
-            journalEntryPoster.postJournalEntriesForLoanTransaction(newTransaction, false, false);
-            transactionIds.add(savedNewTransaction.getId());
+        if (!newTransactions.isEmpty()) {
+            persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal);
+            newTransactions.clear();
         }
+        if (payment != null && foreclosureFee.isGreaterThanZero()) {
+            foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
+        }
+        loanBalanceService.updateLoanSummaryDerivedFields(loan);
+        loanLifecycleStateMachine.determineAndTransition(loan, foreClosureDate);
         changes.put("transactions", transactionIds);
         changes.put("eventAmount", payPrincipal.getAmount().negate());
 
@@ -765,10 +779,40 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final Note note = Note.loanNote(loan, noteText);
             this.noteRepository.save(note);
         }
-
+        postJournalEntriesForTransactions(transactionsToJournal);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanForeClosurePostBusinessEvent(payment));
         return payment;
+    }
+
+    private LoanTransaction persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
+            List<LoanTransaction> transactionsToJournal, LoanTransaction transactionToReturn) {
+        LoanTransaction savedReference = null;
+        for (LoanTransaction transaction : transactions) {
+            LoanTransaction savedTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(transaction);
+            loan.addLoanTransaction(savedTransaction);
+            if (transactionsToJournal != null) {
+                transactionsToJournal.add(savedTransaction);
+            }
+            if (transactionIds != null) {
+                transactionIds.add(savedTransaction.getId());
+            }
+            if (transactionToReturn == transaction) {
+                savedReference = savedTransaction;
+            }
+        }
+        return savedReference;
+    }
+
+    private void persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
+            List<LoanTransaction> transactionsToJournal) {
+        persistLoanTransactions(loan, transactions, transactionIds, transactionsToJournal, null);
+    }
+
+    private void postJournalEntriesForTransactions(List<LoanTransaction> transactions) {
+        for (LoanTransaction transaction : transactions) {
+            journalEntryPoster.postJournalEntriesForLoanTransaction(transaction, false, false);
+        }
     }
 
     @Override

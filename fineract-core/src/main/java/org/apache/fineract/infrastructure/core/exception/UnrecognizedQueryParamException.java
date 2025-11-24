@@ -30,6 +30,14 @@ public class UnrecognizedQueryParamException extends RuntimeException {
         this.supportedParams = supportedParams;
     }
 
+    public UnrecognizedQueryParamException(final String queryParamKey, final String queryParamValue, final Throwable cause,
+            final Object... supportedParams) {
+        super(cause);
+        this.queryParamKey = queryParamKey;
+        this.queryParamValue = queryParamValue;
+        this.supportedParams = supportedParams;
+    }
+
     public String getQueryParamKey() {
         return this.queryParamKey;
     }

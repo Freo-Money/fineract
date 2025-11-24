@@ -194,6 +194,7 @@ import org.apache.fineract.portfolio.loanaccount.exception.MultiDisbursementData
 import org.apache.fineract.portfolio.loanaccount.exception.MultiDisbursementDataRequiredException;
 import org.apache.fineract.portfolio.loanaccount.exception.UndoLastTrancheDisbursementException;
 import org.apache.fineract.portfolio.loanaccount.guarantor.service.GuarantorDomainService;
+import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryWritePlatformService;
@@ -268,6 +269,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanAccountLockService loanAccountLockService;
     private final ExternalIdFactory externalIdFactory;
     private final LoanAccrualTransactionBusinessEventService loanAccrualTransactionBusinessEventService;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
     private final ErrorHandler errorHandler;
     private final LoanDownPaymentHandlerService loanDownPaymentHandlerService;
     private final LoanTransactionAssembler loanTransactionAssembler;
@@ -2664,6 +2666,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed(LoanApiConstants.transactionDateParamName, element);
         final ExternalId externalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
         this.loanTransactionValidator.validateLoanForeclosure(command.json());
+        Map<Long, BigDecimal> foreclosureChargePercentageMap;
+        try {
+            foreclosureChargePercentageMap = foreclosureChargeHelper.extractChargePercentagesFromJsonElement(element,
+                    LoanApiConstants.foreclosureChargePercentageMapParamName);
+        } catch (IllegalArgumentException e) {
+            ApiParameterError error = ApiParameterError.parameterError("error.msg.invalid.charge.percentage.format", e.getMessage(),
+                    LoanApiConstants.foreclosureChargePercentageMapParamName);
+            throw new PlatformApiDataValidationException(List.of(error), e);
+        }
+        this.loanTransactionValidator.validateLoanForeclosureChargePercentages(loan, foreclosureChargePercentageMap);
         final Map<String, Object> changes = new LinkedHashMap<>();
         // Got changed to match with the rest of the APIs
         changes.put("dateFormat", command.dateFormat());
@@ -2684,7 +2696,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 loanRescheduleRequest);
 
         LoanTransaction foreclosureTransaction = this.loanAccountDomainService.foreCloseLoan(loan, transactionDate, noteText, externalId,
-                changes);
+                foreclosureChargePercentageMap, changes);
 
         final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
         return commandProcessingResultBuilder //

@@ -18,8 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import org.apache.fineract.infrastructure.core.exception.MultiException;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
@@ -44,5 +46,5 @@ public interface LoanAccrualsProcessingService {
     void processAccrualsOnLoanClosure(@NonNull Loan loan, boolean addJournal);
 
     void processAccrualsOnLoanForeClosure(@NonNull Loan loan, @NonNull LocalDate foreClosureDate,
-            @NonNull List<LoanTransaction> newAccrualTransactions);
+            @NonNull List<LoanTransaction> newAccrualTransactions, @NonNull Map<Long, BigDecimal> mergedChargePercentages);
 }

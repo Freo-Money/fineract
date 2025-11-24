@@ -23,6 +23,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.persistence.FlushModeHandler;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -38,6 +39,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentSchedulePro
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionComparator;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
+import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanproduct.domain.CreditAllocationTransactionType;
 import org.springframework.stereotype.Service;
 
@@ -48,6 +50,7 @@ public class LoanBalanceService {
     private final CapitalizedIncomeBalanceService capitalizedIncomeBalanceService;
     private final FlushModeHandler flushModeHandler;
     private final LoanTransactionRepository loanTransactionRepository;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
 
     public Money calculateTotalOverpayment(final Loan loan) {
         Money totalPaidInRepayments = loan.getTotalPaidInRepayments();
@@ -62,6 +65,10 @@ public class LoanBalanceService {
                     .plus(scheduledRepayment.getFeeChargesPaid(currency)).plus(scheduledRepayment.getPenaltyChargesPaid(currency));
 
             cumulativeTotalWaivedOnInstallments = cumulativeTotalWaivedOnInstallments.plus(scheduledRepayment.getInterestWaived(currency));
+        }
+
+        if (loan.isForeclosure() && loan.getSummary() != null && loan.getSummary().getTotalOutstanding(currency).isZero()) {
+            return Money.zero(currency);
         }
 
         for (final LoanTransaction loanTransaction : loan.getLoanTransactions()) {
@@ -210,11 +217,16 @@ public class LoanBalanceService {
         return receivableInterest;
     }
 
-    public LoanRepaymentScheduleInstallment fetchLoanForeclosureDetail(final Loan loan, final LocalDate closureDate) {
+    public LoanRepaymentScheduleInstallment fetchLoanForeclosureDetail(final Loan loan, final LocalDate closureDate,
+            final Map<Long, BigDecimal> mergedChargePercentages, final boolean updateCharges) {
+        if (updateCharges) {
+            foreclosureChargeHelper.updateForeclosureCharges(loan, mergedChargePercentages, closureDate);
+            refreshSummaryAndBalancesForDisbursedLoan(loan);
+        }
         Money[] receivables = retrieveIncomeOutstandingTillDate(loan, closureDate);
-        Money totalPrincipal = Money.of(loan.getCurrency(), loan.getSummary().getTotalPrincipalOutstanding());
-        totalPrincipal = totalPrincipal.minus(receivables[3]);
+        Money totalPrincipal = Money.of(loan.getCurrency(), loan.getSummary().getTotalPrincipalOutstanding()).minus(receivables[3]);
         final LocalDate currentDate = DateUtils.getBusinessLocalDate();
+
         return new LoanRepaymentScheduleInstallment(null, 0, currentDate, currentDate, totalPrincipal.getAmount(),
                 receivables[0].getAmount(), receivables[1].getAmount(), receivables[2].getAmount(), false, null);
     }

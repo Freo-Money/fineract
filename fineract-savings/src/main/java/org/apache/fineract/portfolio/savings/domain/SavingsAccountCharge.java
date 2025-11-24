@@ -307,6 +307,15 @@ public class SavingsAccountCharge extends AbstractAuditableWithUTCDateTimeCustom
                 this.amountWaived = null;
                 this.amountWrittenOff = null;
             break;
+            case PERCENT_OF_PRINCIPAL_OUTSTANDING:
+                this.percentage = null;
+                this.amount = null;
+                this.amountPercentageAppliedTo = null;
+                this.amountPaid = null;
+                this.amountOutstanding = BigDecimal.ZERO;
+                this.amountWaived = null;
+                this.amountWrittenOff = null;
+            break;
         }
     }
 
@@ -438,6 +447,9 @@ public class SavingsAccountCharge extends AbstractAuditableWithUTCDateTimeCustom
                 case PERCENT_OF_DISBURSEMENT_AMOUNT:
                     LOG.error("TODO Implement update ChargeCalculationType for PERCENT_OF_DISBURSEMENT_AMOUNT");
                 break;
+                case PERCENT_OF_PRINCIPAL_OUTSTANDING:
+                    LOG.error("TODO Implement update ChargeCalculationType for PERCENT_OF_PRINCIPAL_OUTSTANDING");
+                break;
             }
         }
     }
@@ -512,6 +524,9 @@ public class SavingsAccountCharge extends AbstractAuditableWithUTCDateTimeCustom
                 break;
                 case PERCENT_OF_DISBURSEMENT_AMOUNT:
                     LOG.error("TODO Implement update ChargeCalculationType for PERCENT_OF_DISBURSEMENT_AMOUNT");
+                break;
+                case PERCENT_OF_PRINCIPAL_OUTSTANDING:
+                    LOG.error("TODO Implement update ChargeCalculationType for PERCENT_OF_PRINCIPAL_OUTSTANDING");
                 break;
             }
         }

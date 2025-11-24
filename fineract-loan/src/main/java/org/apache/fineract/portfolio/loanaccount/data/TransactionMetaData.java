@@ -16,20 +16,19 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.test.data;
+package org.apache.fineract.portfolio.loanaccount.data;
 
-public enum ChargeCalculationType {
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-    FLAT(1), //
-    PERCENTAGE_AMOUNT(2), //
-    PERCENTAGE_LOAN_AMOUNT_PLUS_INTEREST(3), //
-    PERCENTAGE_INTEREST(4), //
-    PERCENTAGE_DISBURSEMENT_AMOUNT(5), //
-    PERCENTAGE_PRINCIPAL_OUTSTANDING(6); //
+@Getter
+@Setter
+@AllArgsConstructor
+@NoArgsConstructor
+public class TransactionMetaData {
 
-    public final Integer value;
+    private String transactionSubType;
 
-    ChargeCalculationType(Integer value) {
-        this.value = value;
-    }
 }

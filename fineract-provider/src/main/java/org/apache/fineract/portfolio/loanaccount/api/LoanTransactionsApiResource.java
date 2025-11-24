@@ -38,11 +38,13 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.UriInfo;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import lombok.AllArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
@@ -70,6 +72,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanTransactionTypeException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanTransactionNotFoundException;
+import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargePaidByReadService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionReadService;
@@ -107,6 +110,7 @@ public class LoanTransactionsApiResource {
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
     private final LoanChargePaidByReadService loanChargePaidByReadService;
     private final LoanTransactionReadService loanTransactionReadService;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
 
     @GET
     @Path("{loanId}/transactions/template")
@@ -683,7 +687,16 @@ public class LoanTransactionsApiResource {
             } else {
                 transactionDate = transactionDateParam.getDate("transactionDate", dateFormat, locale);
             }
-            transactionData = this.loanReadPlatformService.retrieveLoanForeclosureTemplate(resolvedLoanId, transactionDate);
+            Map<Long, BigDecimal> chargePercentages;
+            String chargePercentagesJson = uriInfo.getQueryParameters().getFirst(LoanApiConstants.foreclosureChargePercentageMapParamName);
+            try {
+                chargePercentages = foreclosureChargeHelper.extractChargePercentagesFromJsonString(chargePercentagesJson);
+            } catch (IllegalArgumentException e) {
+                throw new UnrecognizedQueryParamException(LoanApiConstants.foreclosureChargePercentageMapParamName, chargePercentagesJson,
+                        e, e.getMessage());
+            }
+            transactionData = this.loanReadPlatformService.retrieveLoanForeclosureTemplate(resolvedLoanId, transactionDate,
+                    chargePercentages);
         } else if (CommandParameterUtil.is(commandParam, "creditBalanceRefund")) {
             transactionData = this.loanReadPlatformService.retrieveCreditBalanceRefundTemplate(resolvedLoanId);
         } else if (CommandParameterUtil.is(commandParam, CHARGE_OFF_COMMAND_VALUE)) {

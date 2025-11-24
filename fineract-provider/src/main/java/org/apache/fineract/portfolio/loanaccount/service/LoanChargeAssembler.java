@@ -128,14 +128,14 @@ public class LoanChargeAssembler {
                     final ExternalId externalId = externalIdFactory.create(externalIdStr);
                     if (loanChargeId == null) {
                         final Charge chargeDefinition = this.chargeRepository.findOneWithNotFoundDetection(chargeId);
-                        ChargeTimeType chargeTime = null;
-                        if (chargeTimeType != null) {
-                            chargeTime = ChargeTimeType.fromInt(chargeTimeType);
+                        // Skip FORECLOSURE charges - they should only be created at actual foreclosure time
+                        if (ChargeTimeType.FORECLOSURE.getValue().equals(chargeDefinition.getChargeTimeType())) {
+                            continue;
                         }
-                        ChargeCalculationType chargeCalculation = null;
-                        if (chargeCalculationType != null) {
-                            chargeCalculation = ChargeCalculationType.fromInt(chargeCalculationType);
-                        }
+                        final ChargeTimeType chargeTime = chargeTimeType != null ? ChargeTimeType.fromInt(chargeTimeType) : null;
+                        final ChargeCalculationType chargeCalculation = chargeCalculationType != null
+                                ? ChargeCalculationType.fromInt(chargeCalculationType)
+                                : null;
                         ChargePaymentMode chargePaymentModeEnum = null;
                         if (chargePaymentMode != null) {
                             chargePaymentModeEnum = ChargePaymentMode.fromInt(chargePaymentMode);
@@ -218,6 +218,11 @@ public class LoanChargeAssembler {
                         final LoanCharge loanCharge = this.loanChargeRepository.findById(loanChargeId)
                                 .orElseThrow(() -> new LoanChargeNotFoundException(loanChargeId));
 
+                        // Skip FORECLOSURE charges - they should only be created at actual foreclosure time
+                        if (loanCharge.isDueAtForeclosure()) {
+                            continue;
+                        }
+
                         if (!loanCharge.isTrancheDisbursementCharge() || disbursementChargeIds.contains(loanChargeId)) {
                             loanChargeService.update(loanCharge, amount, dueDate, numberOfRepayments);
                             loanCharges.add(loanCharge);
@@ -293,6 +298,13 @@ public class LoanChargeAssembler {
                     amountPercentageAppliedTo = command.bigDecimalValueOfParameterNamed("interest");
                 } else {
                     amountPercentageAppliedTo = loan.getTotalInterest();
+                }
+            break;
+            case PERCENT_OF_PRINCIPAL_OUTSTANDING:
+                if (command.hasParameter("principalOutstanding")) {
+                    amountPercentageAppliedTo = command.bigDecimalValueOfParameterNamed("principalOutstanding");
+                } else {
+                    amountPercentageAppliedTo = loan.getSummary().getTotalPrincipalOutstanding();
                 }
             break;
             default:
