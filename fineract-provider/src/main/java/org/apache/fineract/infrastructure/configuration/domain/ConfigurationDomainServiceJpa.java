@@ -548,4 +548,15 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
         return getGlobalConfigurationPropertyData(
                 GlobalConfigurationConstants.ASSET_OWNER_TRANSFER_OUTSTANDING_INTEREST_CALCULATION_STRATEGY).getStringValue();
     }
+
+    @Override
+    public Integer getArrearsBasedOnValue() {
+        final String propertyName = "arrears-based-on";
+        final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(propertyName);
+        int arrearsBasedOnValue = -1;
+        if (property.isEnabled() && property.getValue() != null) {
+            return property.getValue().intValue();
+        }
+        return arrearsBasedOnValue;
+    }
 }
