@@ -246,8 +246,9 @@ public class LoanAccountConfiguration {
     @Bean
     @ConditionalOnMissingBean(LoanArrearsAgingService.class)
     public LoanArrearsAgingService loanArrearsAgingService(JdbcTemplate jdbcTemplate,
-            BusinessEventNotifierService businessEventNotifierService, DatabaseSpecificSQLGenerator sqlGenerator) {
-        return new LoanArrearsAgingServiceImpl(jdbcTemplate, businessEventNotifierService, sqlGenerator);
+            BusinessEventNotifierService businessEventNotifierService, DatabaseSpecificSQLGenerator sqlGenerator,
+            ConfigurationDomainService configurationDomainService) {
+        return new LoanArrearsAgingServiceImpl(jdbcTemplate, businessEventNotifierService, sqlGenerator, configurationDomainService);
     }
 
     @Bean
