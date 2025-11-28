@@ -32,9 +32,9 @@ import org.apache.fineract.portfolio.tax.domain.TaxGroupMappings;
 
 public final class TaxUtils {
 
-    private TaxUtils() {
+    private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
 
-    }
+    private TaxUtils() {}
 
     public static Map<TaxComponent, BigDecimal> splitTax(final BigDecimal amount, final LocalDate date,
             final Set<TaxGroupMappings> taxGroupMappings, final int scale) {
@@ -107,23 +107,50 @@ public final class TaxUtils {
 
     public static BigDecimal addTax(final BigDecimal amount, final LocalDate date, final List<TaxGroupMappings> taxGroupMappings,
             final int scale) {
-        BigDecimal totalAmount = null;
-        if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0) {
-            double percentageVal = 0;
-            double amountVal = amount.doubleValue();
-            double cent_percentage = Double.parseDouble("100.0");
-            for (TaxGroupMappings groupMappings : taxGroupMappings) {
-                if (groupMappings.occursOnDayFromAndUpToAndIncluding(date)) {
-                    TaxComponent component = groupMappings.getTaxComponent();
-                    BigDecimal percentage = component.getApplicablePercentage(date);
-                    if (percentage != null) {
-                        percentageVal = percentageVal + percentage.doubleValue();
-                    }
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return amount;
+        }
+        BigDecimal totalPercentage = getTotalPercentage(date, taxGroupMappings);
+        if (totalPercentage.compareTo(BigDecimal.ZERO) <= 0) {
+            return amount;
+        }
+        BigDecimal taxInclusiveMultiplier = HUNDRED.add(totalPercentage).divide(HUNDRED, scale + 2, MoneyHelper.getRoundingMode());
+        return amount.multiply(taxInclusiveMultiplier).setScale(scale, MoneyHelper.getRoundingMode());
+    }
+
+    public static BigDecimal extractBaseAmountFromTaxInclusive(final BigDecimal taxInclusiveAmount, final LocalDate date,
+            final Set<TaxGroupMappings> taxGroupMappings, final int scale) {
+        if (taxInclusiveAmount == null || taxInclusiveAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return taxInclusiveAmount;
+        }
+        BigDecimal totalPercentage = getTotalPercentage(date, taxGroupMappings);
+        if (totalPercentage.compareTo(BigDecimal.ZERO) <= 0) {
+            return taxInclusiveAmount;
+        }
+        BigDecimal baseMultiplier = HUNDRED.divide(HUNDRED.add(totalPercentage), scale + 2, MoneyHelper.getRoundingMode());
+        return taxInclusiveAmount.multiply(baseMultiplier).setScale(scale, MoneyHelper.getRoundingMode());
+    }
+
+    public static Map<TaxComponent, BigDecimal> splitTaxForLoanCharge(final BigDecimal taxInclusiveAmount, final LocalDate date,
+            final Set<TaxGroupMappings> taxGroupMappings, final int scale) {
+        if (taxInclusiveAmount == null || taxInclusiveAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return new HashMap<>();
+        }
+        BigDecimal baseAmount = extractBaseAmountFromTaxInclusive(taxInclusiveAmount, date, taxGroupMappings, scale);
+        return splitTax(baseAmount, date, taxGroupMappings, scale);
+    }
+
+    private static BigDecimal getTotalPercentage(final LocalDate date, final Iterable<TaxGroupMappings> taxGroupMappings) {
+        BigDecimal totalPercentage = BigDecimal.ZERO;
+        for (TaxGroupMappings groupMappings : taxGroupMappings) {
+            if (groupMappings.occursOnDayFromAndUpToAndIncluding(date)) {
+                TaxComponent component = groupMappings.getTaxComponent();
+                BigDecimal percentage = component.getApplicablePercentage(date);
+                if (percentage != null) {
+                    totalPercentage = totalPercentage.add(percentage);
                 }
             }
-            double total = amountVal * cent_percentage / (cent_percentage - percentageVal);
-            totalAmount = BigDecimal.valueOf(total).setScale(scale, MoneyHelper.getRoundingMode());
         }
-        return totalAmount;
+        return totalPercentage;
     }
 }

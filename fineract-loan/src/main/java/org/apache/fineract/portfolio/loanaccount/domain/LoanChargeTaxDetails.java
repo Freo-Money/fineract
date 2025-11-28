@@ -18,58 +18,44 @@
  */
 package org.apache.fineract.portfolio.loanaccount.domain;
 
-import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
-import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
-import java.util.HashSet;
-import java.util.Set;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
+import org.apache.fineract.portfolio.tax.domain.TaxComponent;
 
 @Entity
-@Table(name = "m_loan_charge_paid_by")
-public class LoanChargePaidBy extends AbstractPersistableCustom<Long> {
+@Table(name = "m_loan_charge_tax_details")
+public class LoanChargeTaxDetails extends AbstractPersistableCustom<Long> {
 
     @ManyToOne
-    @JoinColumn(name = "loan_transaction_id", nullable = false)
-    private LoanTransaction loanTransaction;
-
-    @ManyToOne(optional = false)
     @JoinColumn(name = "loan_charge_id", nullable = false)
     private LoanCharge loanCharge;
+
+    @ManyToOne
+    @JoinColumn(name = "tax_component_id", nullable = false)
+    private TaxComponent taxComponent;
 
     @Column(name = "amount", scale = 6, precision = 19, nullable = false)
     private BigDecimal amount;
 
-    @Column(name = "installment_number", nullable = true)
-    private Integer installmentNumber;
+    protected LoanChargeTaxDetails() {}
 
-    @OneToMany(cascade = CascadeType.ALL, mappedBy = "loanChargePaidBy", orphanRemoval = true, fetch = FetchType.LAZY)
-    private Set<LoanChargeTaxDetailsPaidBy> loanChargeTaxDetailsPaidBy = new HashSet<>();
-
-    protected LoanChargePaidBy() {
-
-    }
-
-    public LoanChargePaidBy(final LoanTransaction loanTransaction, final LoanCharge loanCharge, final BigDecimal amount,
-            Integer installmentNumber) {
-        this.loanTransaction = loanTransaction;
+    public LoanChargeTaxDetails(final LoanCharge loanCharge, final TaxComponent taxComponent, final BigDecimal amount) {
         this.loanCharge = loanCharge;
+        this.taxComponent = taxComponent;
         this.amount = amount;
-        this.installmentNumber = installmentNumber;
-    }
-
-    public LoanTransaction getLoanTransaction() {
-        return this.loanTransaction;
     }
 
     public LoanCharge getLoanCharge() {
         return this.loanCharge;
+    }
+
+    public TaxComponent getTaxComponent() {
+        return this.taxComponent;
     }
 
     public BigDecimal getAmount() {
@@ -80,11 +66,4 @@ public class LoanChargePaidBy extends AbstractPersistableCustom<Long> {
         this.amount = amount;
     }
 
-    public Integer getInstallmentNumber() {
-        return this.installmentNumber;
-    }
-
-    public void setInstallmentNumber(Integer installmentNumber) {
-        this.installmentNumber = installmentNumber;
-    }
 }

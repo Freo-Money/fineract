@@ -390,6 +390,9 @@ public class LoanChargeService {
             if (loanCharge.isInstalmentFee()) {
                 updateInstallmentCharges(loanCharge);
             }
+            if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
+                LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(), loanCharge.getDueLocalDate());
+            }
         }
         return actualChanges;
     }
@@ -521,6 +524,8 @@ public class LoanChargeService {
         loanCharge.setChargePaymentMode(chargePaymentMode == null ? chargeDefinition.getChargePaymentMode() : chargePaymentMode.getValue());
 
         populateDerivedFields(loanCharge, loanPrincipal, chargeAmount, numberOfRepayments, loanChargeAmount);
+
+        LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, chargeDefinition, dueDate);
 
         loanCharge.setPaid(loanCharge.determineIfFullyPaid());
         loanCharge.setExternalId(externalId);
@@ -818,6 +823,9 @@ public class LoanChargeService {
             if (loanCharge.getLoan() != null && loanCharge.isInstalmentFee()) {
                 updateInstallmentCharges(loanCharge);
             }
+            if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
+                LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(), loanCharge.getDueLocalDate());
+            }
         }
     }
 
@@ -858,6 +866,10 @@ public class LoanChargeService {
             loanCharge.setAmountOutstanding(loanCharge.calculateOutstanding());
             if (loanCharge.getLoan() != null && loanCharge.isInstalmentFee()) {
                 updateInstallmentCharges(loanCharge, transactionDate);
+            }
+            if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
+                LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(),
+                        transactionDate != null ? transactionDate : loanCharge.getDueLocalDate());
             }
         }
     }

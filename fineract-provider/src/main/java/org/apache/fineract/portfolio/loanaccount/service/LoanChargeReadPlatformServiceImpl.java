@@ -70,6 +70,7 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
                     + "lc.due_for_collection_as_of_date as dueAsOfDate, lc.charge_calculation_enum as chargeCalculation, " //
                     + "lc.charge_payment_mode_enum as chargePaymentMode, lc.is_paid_derived as paid, lc.waived as waived, " //
                     + "lc.min_cap as minCap, lc.max_cap as maxCap, lc.charge_amount_or_percentage as amountOrPercentage, " //
+                    + "lc.tax_group_id as taxGroupId, lc.amount_sans_tax as amountSansTax, lc.tax_amount as taxAmount, " //
                     + "lc.loan_id as loanId, c.currency_code as currencyCode, oc.name as currencyName, " //
                     + "date(coalesce(dd.disbursedon_date,dd.expected_disburse_date)) as disbursementDate, " //
                     + "oc.decimal_places as currencyDecimalPlaces, oc.currency_multiplesof as inMultiplesOf, oc.display_symbol as currencyDisplaySymbol, " //
@@ -131,9 +132,17 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
             final String externalLoanIdStr = rs.getString("externalLoanId");
             final ExternalId externalLoanId = ExternalIdFactory.produce(externalLoanIdStr);
 
+            Long taxGroupId = rs.getLong("taxGroupId");
+            if (taxGroupId == 0 && rs.wasNull()) {
+                taxGroupId = null;
+            }
+            final BigDecimal amountSansTax = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "amountSansTax");
+            final BigDecimal taxAmount = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "taxAmount");
+
             return new LoanChargeData(id, chargeId, name, currency, amount, amountPaid, amountWaived, amountWrittenOff, amountOutstanding,
                     chargeTimeType, submittedOnDate, dueAsOfDate, chargeCalculationType, percentageOf, amountPercentageAppliedTo, penalty,
-                    paymentMode, paid, waived, loanId, externalLoanId, minCap, maxCap, amountOrPercentage, null, externalId);
+                    paymentMode, paid, waived, loanId, externalLoanId, minCap, maxCap, amountOrPercentage, null, externalId, taxGroupId,
+                    amountSansTax, taxAmount, null);
         }
     }
 
@@ -219,7 +228,7 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
             final ExternalId externalLoanId = ExternalIdFactory.produce(externalLoanIdStr);
 
             return new LoanChargeData(id, dueAsOfDate, submittedOnDate, amountOutstanding, chargeTimeType, loanId, externalLoanId, null,
-                    externalId);
+                    externalId, null, null, null, null);
         }
     }
 
@@ -373,7 +382,7 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
             if (existing == null) {
                 LoanChargeData newCharge = new LoanChargeData(null, charge.getChargeId(), charge.getName(), null, null, null, null, null,
                         amount, null, charge.getSubmittedOnDate(), null, null, null, null, charge.isPenalty(), null, false, false, null,
-                        null, null, null, null, null, null);
+                        null, null, null, null, null, null, null, null, null, null);
                 return newCharge;
             } else {
                 existing.setAmountOutstanding(existing.getAmountOutstanding().add(amount));

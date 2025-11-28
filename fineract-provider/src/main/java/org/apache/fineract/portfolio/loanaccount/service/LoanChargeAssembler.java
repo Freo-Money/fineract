@@ -369,6 +369,7 @@ public class LoanChargeAssembler {
         List<LoanInstallmentChargeData> installmentChargeData = loanCharge.installmentCharges().stream().map(LoanInstallmentCharge::toData)
                 .toList();
 
+        Long taxGroupIdValue = loanCharge.getTaxGroup() != null ? loanCharge.getTaxGroup().getId() : null;
         return LoanChargeData.builder().id(loanCharge.getId()).chargeId(chargeDefinition.getId()).name(chargeDefinition.getName())
                 .currency(currency).amount(loanCharge.getAmount()).amountPaid(loanCharge.getAmountPaid())
                 .amountWaived(loanCharge.getAmountWaived()).amountWrittenOff(loanCharge.getAmountWrittenOff())
@@ -379,7 +380,8 @@ public class LoanChargeAssembler {
                 .penalty(chargeDefinition.isPenalty()).chargePaymentMode(chargePaymentMode).paid(loanCharge.isPaid())
                 .waived(loanCharge.isWaived()).loanId(loanCharge.getLoan() != null ? loanCharge.getLoan().getId() : null)
                 .minCap(chargeDefinition.getMinCap()).maxCap(chargeDefinition.getMaxCap()).installmentChargeData(installmentChargeData)
-                .externalId(loanCharge.getExternalId()).build();
+                .externalId(loanCharge.getExternalId()).taxGroupId(taxGroupIdValue).amountSansTax(loanCharge.getAmountSansTax())
+                .taxAmount(loanCharge.getTaxAmount()).taxDetails(loanCharge.getTaxDetailsAsData()).build();
     }
 
 }
