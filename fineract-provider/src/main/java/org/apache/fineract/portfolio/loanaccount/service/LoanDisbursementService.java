@@ -224,6 +224,11 @@ public class LoanDisbursementService {
             final ScheduleGeneratorDTO scheduleGeneratorDTO) {
         final List<LoanTransaction> transactionsToSave = new ArrayList<>();
 
+        // Recalculate tax for all charges with actual disbursement date
+        for (LoanCharge loanCharge : loan.getActiveCharges()) {
+            loanCharge.updateLoanChargeTaxDetails(disbursedOn, loanCharge.amount());
+        }
+
         // Calculate disbursement charges and BPI amount
         final Money disbursementCharges = Money.of(loan.getCurrency(), loan.deriveSumTotalOfChargesDueAtDisbursement());
         final boolean collectBpiAtDisbursement = shouldCollectBpiAtDisbursement(loan);

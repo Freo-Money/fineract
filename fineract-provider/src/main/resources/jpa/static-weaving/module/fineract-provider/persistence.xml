@@ -187,6 +187,8 @@
         <class>org.apache.fineract.portfolio.loanaccount.domain.Loan</class>
         <class>org.apache.fineract.portfolio.loanaccount.domain.LoanCharge</class>
         <class>org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy</class>
+        <class>org.apache.fineract.portfolio.loanaccount.domain.LoanChargeTaxDetails</class>
+        <class>org.apache.fineract.portfolio.loanaccount.domain.LoanChargeTaxDetailsPaidBy</class>
         <class>org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement</class>
         <class>org.apache.fineract.portfolio.loanaccount.domain.LoanCreditAllocationRule</class>
         <class>org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails</class>
