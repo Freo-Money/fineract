@@ -771,7 +771,8 @@ public class CashBasedAccountingProcessorForLoan implements AccountingProcessorF
         if (feesAmount != null && feesAmount.compareTo(BigDecimal.ZERO) > 0) {
             totalDebitAmount = totalDebitAmount.add(feesAmount);
             this.helper.createCreditJournalEntryForLoanCharges(office, currencyCode, CashAccountsForLoan.INCOME_FROM_FEES.getValue(),
-                    loanProductId, loanId, transactionId, transactionDate, feesAmount, loanTransactionDTO.getFeePayments());
+                    loanProductId, loanId, transactionId, transactionDate, feesAmount, loanTransactionDTO.getFeePayments(),
+                    loanTransactionDTO.getTaxPayments());
             if (loanTransactionDTO.getTransactionType().isGoodwillCredit()) {
                 populateDebitAccountEntry(loanProductId, feesAmount, CashAccountsForLoan.INCOME_FROM_GOODWILL_CREDIT_FEES.getValue(),
                         debitAccountMapForGoodwillCredit, paymentTypeId);
@@ -781,7 +782,8 @@ public class CashBasedAccountingProcessorForLoan implements AccountingProcessorF
         if (penaltiesAmount != null && penaltiesAmount.compareTo(BigDecimal.ZERO) > 0) {
             totalDebitAmount = totalDebitAmount.add(penaltiesAmount);
             this.helper.createCreditJournalEntryForLoanCharges(office, currencyCode, CashAccountsForLoan.INCOME_FROM_PENALTIES.getValue(),
-                    loanProductId, loanId, transactionId, transactionDate, penaltiesAmount, loanTransactionDTO.getPenaltyPayments());
+                    loanProductId, loanId, transactionId, transactionDate, penaltiesAmount, loanTransactionDTO.getPenaltyPayments(),
+                    loanTransactionDTO.getTaxPayments());
             if (loanTransactionDTO.getTransactionType().isGoodwillCredit()) {
                 populateDebitAccountEntry(loanProductId, penaltiesAmount,
                         CashAccountsForLoan.INCOME_FROM_GOODWILL_CREDIT_PENALTY.getValue(), debitAccountMapForGoodwillCredit,
@@ -974,7 +976,8 @@ public class CashBasedAccountingProcessorForLoan implements AccountingProcessorF
                         chargePaymentDTO.getLoanChargeId()));
             }
             this.helper.createDebitJournalEntryForLoanCharges(office, currencyCode, CashAccountsForLoan.INCOME_FROM_FEES.getValue(),
-                    loanProductId, loanId, transactionId, transactionDate, feesAmount, chargePaymentDTOs);
+                    loanProductId, loanId, transactionId, transactionDate, feesAmount, chargePaymentDTOs,
+                    loanTransactionDTO.getTaxPayments());
         }
 
         if (penaltiesAmount != null && penaltiesAmount.compareTo(BigDecimal.ZERO) > 0) {
@@ -989,7 +992,8 @@ public class CashBasedAccountingProcessorForLoan implements AccountingProcessorF
             }
 
             this.helper.createDebitJournalEntryForLoanCharges(office, currencyCode, CashAccountsForLoan.INCOME_FROM_PENALTIES.getValue(),
-                    loanProductId, loanId, transactionId, transactionDate, penaltiesAmount, chargePaymentDTOs);
+                    loanProductId, loanId, transactionId, transactionDate, penaltiesAmount, chargePaymentDTOs,
+                    loanTransactionDTO.getTaxPayments());
         }
 
         if (overPaymentAmount != null && overPaymentAmount.compareTo(BigDecimal.ZERO) > 0) {

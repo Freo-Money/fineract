@@ -127,8 +127,8 @@ public final class TaxUtils {
         if (totalPercentage.compareTo(BigDecimal.ZERO) <= 0) {
             return taxInclusiveAmount;
         }
-        BigDecimal baseMultiplier = HUNDRED.divide(HUNDRED.add(totalPercentage), scale + 2, MoneyHelper.getRoundingMode());
-        return taxInclusiveAmount.multiply(baseMultiplier).setScale(scale, MoneyHelper.getRoundingMode());
+        return taxInclusiveAmount.multiply(HUNDRED).divide(HUNDRED.add(totalPercentage), scale + 4, MoneyHelper.getRoundingMode())
+                .setScale(scale, MoneyHelper.getRoundingMode());
     }
 
     public static Map<TaxComponent, BigDecimal> splitTaxForLoanCharge(final BigDecimal taxInclusiveAmount, final LocalDate date,

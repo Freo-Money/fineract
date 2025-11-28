@@ -36,6 +36,7 @@ import org.apache.fineract.accounting.journalentry.data.ChargePaymentDTO;
 import org.apache.fineract.accounting.journalentry.data.GLAccountBalanceHolder;
 import org.apache.fineract.accounting.journalentry.data.LoanDTO;
 import org.apache.fineract.accounting.journalentry.data.LoanTransactionDTO;
+import org.apache.fineract.accounting.journalentry.data.TaxPaymentDTO;
 import org.apache.fineract.accounting.producttoaccountmapping.domain.ProductToGLAccountMapping;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
 import org.apache.fineract.organisation.office.domain.Office;
@@ -1113,29 +1114,34 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
             }
         }
 
+        TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
+                penaltiesAmount, loanTransactionDTO.getTaxPayments(), true);
+
         // handle fees payment
         if (MathUtil.isGreaterThanZero(feesAmount)) {
+            BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
             totalDebitAmount = totalDebitAmount.add(feesAmount);
             GLAccount account = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
                     AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(), paymentTypeId);
             if (accountMap.containsKey(account)) {
-                BigDecimal amount = accountMap.get(account).add(feesAmount);
+                BigDecimal amount = accountMap.get(account).add(feesAmountSansTax);
                 accountMap.put(account, amount);
             } else {
-                accountMap.put(account, feesAmount);
+                accountMap.put(account, feesAmountSansTax);
             }
         }
 
         // handle penalties payment
         if (MathUtil.isGreaterThanZero(penaltiesAmount)) {
+            BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
             totalDebitAmount = totalDebitAmount.add(penaltiesAmount);
             GLAccount account = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
                     AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(), paymentTypeId);
             if (accountMap.containsKey(account)) {
-                BigDecimal amount = accountMap.get(account).add(penaltiesAmount);
+                BigDecimal amount = accountMap.get(account).add(penaltiesAmountSansTax);
                 accountMap.put(account, amount);
             } else {
-                accountMap.put(account, penaltiesAmount);
+                accountMap.put(account, penaltiesAmountSansTax);
             }
         }
 
@@ -1167,8 +1173,24 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
             } else {
                 accountMappingTypeId = AccrualAccountsForLoan.INCOME_FROM_FEES.getValue();
             }
+            // Create debit entry for income account (total amount includes tax, but tax was already credited
+            // separately)
             this.helper.createDebitJournalEntryForLoanCharges(office, currencyCode, accountMappingTypeId, loanProductId, chargeId, loanId,
                     transactionId, transactionDate, totalDebitAmount);
+        }
+
+        // Create debit entry for tax from fund source
+        if (loanTransactionDTO.getTaxPayments() != null && !loanTransactionDTO.getTaxPayments().isEmpty()) {
+            BigDecimal totalTaxAmount = BigDecimal.ZERO;
+            for (TaxPaymentDTO taxPayment : loanTransactionDTO.getTaxPayments()) {
+                if (taxPayment.getAmount() != null && taxPayment.getAmount().compareTo(BigDecimal.ZERO) > 0) {
+                    totalTaxAmount = totalTaxAmount.add(taxPayment.getAmount());
+                }
+            }
+            if (MathUtil.isGreaterThanZero(totalTaxAmount)) {
+                this.helper.createDebitJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.FUND_SOURCE.getValue(),
+                        loanProductId, paymentTypeId, loanId, transactionId, transactionDate, totalTaxAmount);
+            }
         }
     }
 
@@ -1442,39 +1464,46 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
 
         }
 
+        TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
+                penaltiesAmount, loanTransactionDTO.getTaxPayments(), true);
+
         // handle fees payment
         if (MathUtil.isGreaterThanZero(feesAmount)) {
+            BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
             totalDebitAmount = totalDebitAmount.add(feesAmount);
             if (loanTransactionDTO.getTransactionType().isMerchantIssuedRefund()) {
-                populateCreditDebitMaps(loanProductId, feesAmount, paymentTypeId,
+                populateCreditDebitMaps(loanProductId, feesAmountSansTax, paymentTypeId,
                         AccrualAccountsForLoan.INCOME_FROM_CHARGE_OFF_FEES.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
                         glAccountBalanceHolder);
 
             } else if (loanTransactionDTO.getTransactionType().isPayoutRefund()) {
-                populateCreditDebitMaps(loanProductId, feesAmount, paymentTypeId,
+                populateCreditDebitMaps(loanProductId, feesAmountSansTax, paymentTypeId,
                         AccrualAccountsForLoan.INCOME_FROM_CHARGE_OFF_FEES.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
                         glAccountBalanceHolder);
 
             } else if (loanTransactionDTO.getTransactionType().isGoodwillCredit()) {
-                populateCreditDebitMaps(loanProductId, feesAmount, paymentTypeId, AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(),
+                populateCreditDebitMaps(loanProductId, feesAmountSansTax, paymentTypeId,
+                        AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(),
                         AccrualAccountsForLoan.INCOME_FROM_GOODWILL_CREDIT_FEES.getValue(), glAccountBalanceHolder);
 
             } else if (loanTransactionDTO.getTransactionType().isRepayment()) {
-                populateCreditDebitMaps(loanProductId, feesAmount, paymentTypeId, AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(),
-                        AccrualAccountsForLoan.FUND_SOURCE.getValue(), glAccountBalanceHolder);
+                populateCreditDebitMaps(loanProductId, feesAmountSansTax, paymentTypeId,
+                        AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
+                        glAccountBalanceHolder);
 
             } else {
                 if (isIncomeFromFee) {
                     this.helper.createCreditJournalEntryForLoanCharges(office, currencyCode,
                             AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(), loanProductId, loanId, transactionId, transactionDate,
-                            feesAmount, loanTransactionDTO.getFeePayments());
+                            feesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getTaxPayments());
                     final GLAccount debitAccount = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
                             AccrualAccountsForLoan.FUND_SOURCE.getValue(), paymentTypeId);
                     glAccountBalanceHolder.addToDebit(debitAccount, feesAmount);
 
                 } else {
-                    populateCreditDebitMaps(loanProductId, feesAmount, paymentTypeId, AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(),
-                            AccrualAccountsForLoan.FUND_SOURCE.getValue(), glAccountBalanceHolder);
+                    populateCreditDebitMaps(loanProductId, feesAmountSansTax, paymentTypeId,
+                            AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
+                            glAccountBalanceHolder);
                 }
             }
 
@@ -1482,34 +1511,35 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
 
         // handle penalties
         if (MathUtil.isGreaterThanZero(penaltiesAmount)) {
+            BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
             totalDebitAmount = totalDebitAmount.add(penaltiesAmount);
             if (loanTransactionDTO.getTransactionType().isMerchantIssuedRefund()) {
-                populateCreditDebitMaps(loanProductId, penaltiesAmount, paymentTypeId,
+                populateCreditDebitMaps(loanProductId, penaltiesAmountSansTax, paymentTypeId,
                         AccrualAccountsForLoan.INCOME_FROM_CHARGE_OFF_PENALTY.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
                         glAccountBalanceHolder);
 
             } else if (loanTransactionDTO.getTransactionType().isPayoutRefund()) {
-                populateCreditDebitMaps(loanProductId, penaltiesAmount, paymentTypeId,
+                populateCreditDebitMaps(loanProductId, penaltiesAmountSansTax, paymentTypeId,
                         AccrualAccountsForLoan.INCOME_FROM_CHARGE_OFF_PENALTY.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
                         glAccountBalanceHolder);
 
             } else if (loanTransactionDTO.getTransactionType().isGoodwillCredit()) {
-                populateCreditDebitMaps(loanProductId, penaltiesAmount, paymentTypeId,
+                populateCreditDebitMaps(loanProductId, penaltiesAmountSansTax, paymentTypeId,
                         AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(),
                         AccrualAccountsForLoan.INCOME_FROM_GOODWILL_CREDIT_PENALTY.getValue(), glAccountBalanceHolder);
 
             } else if (loanTransactionDTO.getTransactionType().isRepayment()) {
-                populateCreditDebitMaps(loanProductId, penaltiesAmount, paymentTypeId,
+                populateCreditDebitMaps(loanProductId, penaltiesAmountSansTax, paymentTypeId,
                         AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
                         glAccountBalanceHolder);
 
             } else {
                 if (isIncomeFromFee) {
-                    populateCreditDebitMaps(loanProductId, penaltiesAmount, paymentTypeId,
+                    populateCreditDebitMaps(loanProductId, penaltiesAmountSansTax, paymentTypeId,
                             AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
                             glAccountBalanceHolder);
                 } else {
-                    populateCreditDebitMaps(loanProductId, penaltiesAmount, paymentTypeId,
+                    populateCreditDebitMaps(loanProductId, penaltiesAmountSansTax, paymentTypeId,
                             AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
                             glAccountBalanceHolder);
                 }
@@ -1622,17 +1652,23 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                     glAccountBalanceHolder);
         }
 
+        TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
+                penaltiesAmount, loanTransactionDTO.getTaxPayments(), true);
+
         // handle fees payment
         if (MathUtil.isGreaterThanZero(feesAmount)) {
+            BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
             totalDebitAmount = totalDebitAmount.add(feesAmount);
-            populateCreditDebitMaps(loanProductId, feesAmount, paymentTypeId, AccrualAccountsForLoan.INCOME_FROM_CHARGE_OFF_FEES.getValue(),
-                    AccrualAccountsForLoan.FUND_SOURCE.getValue(), glAccountBalanceHolder);
+            populateCreditDebitMaps(loanProductId, feesAmountSansTax, paymentTypeId,
+                    AccrualAccountsForLoan.INCOME_FROM_CHARGE_OFF_FEES.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
+                    glAccountBalanceHolder);
         }
 
         // handle penalties
         if (MathUtil.isGreaterThanZero(penaltiesAmount)) {
+            BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
             totalDebitAmount = totalDebitAmount.add(penaltiesAmount);
-            populateCreditDebitMaps(loanProductId, penaltiesAmount, paymentTypeId,
+            populateCreditDebitMaps(loanProductId, penaltiesAmountSansTax, paymentTypeId,
                     AccrualAccountsForLoan.INCOME_FROM_CHARGE_OFF_PENALTY.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
                     glAccountBalanceHolder);
         }
@@ -1711,53 +1747,60 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
             }
         }
 
+        TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
+                penaltiesAmount, loanTransactionDTO.getTaxPayments(), !isIncomeFromFee);
+
         // handle fees payment
         if (MathUtil.isGreaterThanZero(feesAmount)) {
+            BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
             totalDebitAmount = totalDebitAmount.add(feesAmount);
             if (isIncomeFromFee) {
                 this.helper.createCreditJournalEntryForLoanCharges(office, currencyCode, AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(),
-                        loanProductId, loanId, transactionId, transactionDate, feesAmount, loanTransactionDTO.getFeePayments());
+                        loanProductId, loanId, transactionId, transactionDate, feesAmount, loanTransactionDTO.getFeePayments(),
+                        loanTransactionDTO.getTaxPayments());
             } else {
                 final GLAccount account = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
                         AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(), paymentTypeId);
                 if (accountMap.containsKey(account)) {
-                    final BigDecimal amount = accountMap.get(account).add(feesAmount);
+                    final BigDecimal amount = accountMap.get(account).add(feesAmountSansTax);
                     accountMap.put(account, amount);
                 } else {
-                    accountMap.put(account, feesAmount);
+                    accountMap.put(account, feesAmountSansTax);
                 }
             }
             if (loanTransactionDTO.getTransactionType().isGoodwillCredit()) {
-                populateDebitAccountEntry(loanProductId, feesAmount, AccrualAccountsForLoan.INCOME_FROM_GOODWILL_CREDIT_FEES.getValue(),
-                        debitAccountMapForGoodwillCredit, paymentTypeId);
+                populateDebitAccountEntry(loanProductId, feesAmountSansTax,
+                        AccrualAccountsForLoan.INCOME_FROM_GOODWILL_CREDIT_FEES.getValue(), debitAccountMapForGoodwillCredit,
+                        paymentTypeId);
             }
         }
 
         // handle penalties payment
         if (MathUtil.isGreaterThanZero(penaltiesAmount)) {
+            BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
             totalDebitAmount = totalDebitAmount.add(penaltiesAmount);
             if (isIncomeFromFee) {
                 final GLAccount account = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
                         AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(), paymentTypeId);
                 if (accountMap.containsKey(account)) {
-                    final BigDecimal amount = accountMap.get(account).add(penaltiesAmount);
+                    final BigDecimal amount = accountMap.get(account).add(penaltiesAmountSansTax);
                     accountMap.put(account, amount);
                 } else {
-                    accountMap.put(account, penaltiesAmount);
+                    accountMap.put(account, penaltiesAmountSansTax);
                 }
             } else {
                 final GLAccount account = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
                         AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(), paymentTypeId);
                 if (accountMap.containsKey(account)) {
-                    final BigDecimal amount = accountMap.get(account).add(penaltiesAmount);
+                    final BigDecimal amount = accountMap.get(account).add(penaltiesAmountSansTax);
                     accountMap.put(account, amount);
                 } else {
-                    accountMap.put(account, penaltiesAmount);
+                    accountMap.put(account, penaltiesAmountSansTax);
                 }
             }
 
             if (loanTransactionDTO.getTransactionType().isGoodwillCredit()) {
-                populateDebitAccountEntry(loanProductId, penaltiesAmount,
+                populateDebitAccountEntry(loanProductId, penaltiesAmountSansTax,
                         AccrualAccountsForLoan.INCOME_FROM_GOODWILL_CREDIT_PENALTY.getValue(), debitAccountMapForGoodwillCredit,
                         paymentTypeId);
             }
@@ -1787,7 +1830,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
 
         /**
-         * Single DEBIT transaction for Repayments
+         * Single DEBIT transaction for Repayments Note: totalDebitAmount includes tax, and tax debit is included in the
+         * total
          ***/
         if (MathUtil.isGreaterThanZero(totalDebitAmount)) {
             if (loanTransactionDTO.isLoanToLoanTransfer()) {
@@ -1864,29 +1908,34 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
             }
         }
 
+        TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
+                penaltiesAmount, loanTransactionDTO.getTaxPayments(), true);
+
         // handle fees payment of writeOff
         if (MathUtil.isGreaterThanZero(feesAmount)) {
+            BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
             totalDebitAmount = totalDebitAmount.add(feesAmount);
             final GLAccount account = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
                     AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(), paymentTypeId);
             if (accountMap.containsKey(account)) {
-                final BigDecimal amount = accountMap.get(account).add(feesAmount);
+                final BigDecimal amount = accountMap.get(account).add(feesAmountSansTax);
                 accountMap.put(account, amount);
             } else {
-                accountMap.put(account, feesAmount);
+                accountMap.put(account, feesAmountSansTax);
             }
         }
 
         // handle penalties payment of writeOff
         if (MathUtil.isGreaterThanZero(penaltiesAmount)) {
+            BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
             totalDebitAmount = totalDebitAmount.add(penaltiesAmount);
             final GLAccount account = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
                     AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(), paymentTypeId);
             if (accountMap.containsKey(account)) {
-                final BigDecimal amount = accountMap.get(account).add(penaltiesAmount);
+                final BigDecimal amount = accountMap.get(account).add(penaltiesAmountSansTax);
                 accountMap.put(account, amount);
             } else {
-                accountMap.put(account, penaltiesAmount);
+                accountMap.put(account, penaltiesAmountSansTax);
             }
         }
 
@@ -1937,6 +1986,45 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                 .getLinkedGLAccountForLoanProduct(loanProductId, account.getKey(), paymentTypeId).getGlCode().equals(glAccount.getGlCode()))
                 .map(Map.Entry::getKey).findFirst().orElse(accountType);
         return accountEntry;
+    }
+
+    private TaxCalculationResult calculateAndHandleTax(final Office office, final String currencyCode, final Long loanId,
+            final String transactionId, final LocalDate transactionDate, final BigDecimal feesAmount, final BigDecimal penaltiesAmount,
+            final List<TaxPaymentDTO> taxPayments, final boolean createTaxCreditEntries) {
+        BigDecimal feesTaxAmount = BigDecimal.ZERO;
+        BigDecimal penaltiesTaxAmount = BigDecimal.ZERO;
+        BigDecimal feesAmountSansTax = feesAmount != null ? feesAmount : BigDecimal.ZERO;
+        BigDecimal penaltiesAmountSansTax = penaltiesAmount != null ? penaltiesAmount : BigDecimal.ZERO;
+
+        if (taxPayments != null && !taxPayments.isEmpty()) {
+            BigDecimal[] taxAmounts = this.helper.calculateTaxAmountsForCharges(feesAmount, penaltiesAmount, taxPayments);
+            feesTaxAmount = taxAmounts[0];
+            penaltiesTaxAmount = taxAmounts[1];
+            feesAmountSansTax = feesAmountSansTax.subtract(feesTaxAmount);
+            penaltiesAmountSansTax = penaltiesAmountSansTax.subtract(penaltiesTaxAmount);
+
+            if (createTaxCreditEntries) {
+                this.helper.createTaxCreditJournalEntries(office, currencyCode, loanId, transactionId, transactionDate, taxPayments);
+            }
+        }
+
+        return new TaxCalculationResult(feesTaxAmount, penaltiesTaxAmount, feesAmountSansTax, penaltiesAmountSansTax);
+    }
+
+    private static class TaxCalculationResult {
+
+        final BigDecimal feesTaxAmount;
+        final BigDecimal penaltiesTaxAmount;
+        final BigDecimal feesAmountSansTax;
+        final BigDecimal penaltiesAmountSansTax;
+
+        TaxCalculationResult(final BigDecimal feesTaxAmount, final BigDecimal penaltiesTaxAmount, final BigDecimal feesAmountSansTax,
+                final BigDecimal penaltiesAmountSansTax) {
+            this.feesTaxAmount = feesTaxAmount;
+            this.penaltiesTaxAmount = penaltiesTaxAmount;
+            this.feesAmountSansTax = feesAmountSansTax;
+            this.penaltiesAmountSansTax = penaltiesAmountSansTax;
+        }
     }
 
     /**
@@ -2001,28 +2089,76 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                         transactionDate, interestAmount);
             }
         }
-        // create journal entries for the fees application
-        if (MathUtil.isGreaterThanZero(feesAmount)) {
+        TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
+                penaltiesAmount, loanTransactionDTO.getTaxPayments(), false);
+
+        BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
+        BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
+
+        // create journal entries for the fees application (using amount sans tax)
+        if (MathUtil.isGreaterThanZero(feesAmountSansTax)) {
             if (transactionType.isAccrualAdjustment()) {
                 this.helper.createJournalEntriesForLoanCharges(office, currencyCode, AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(),
                         AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(), loanProductId, loanId, transactionId, transactionDate,
-                        feesAmount, loanTransactionDTO.getFeePayments());
+                        feesAmountSansTax, loanTransactionDTO.getFeePayments());
             } else {
                 this.helper.createJournalEntriesForLoanCharges(office, currencyCode, AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(),
                         AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(), loanProductId, loanId, transactionId, transactionDate,
-                        feesAmount, loanTransactionDTO.getFeePayments());
+                        feesAmountSansTax, loanTransactionDTO.getFeePayments());
             }
         }
-        // create journal entries for the penalties application
-        if (MathUtil.isGreaterThanZero(penaltiesAmount)) {
+        // create journal entries for the penalties application (using amount sans tax)
+        if (MathUtil.isGreaterThanZero(penaltiesAmountSansTax)) {
             if (transactionType.isAccrualAdjustment()) {
                 this.helper.createJournalEntriesForLoanCharges(office, currencyCode,
                         AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(), AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(),
-                        loanProductId, loanId, transactionId, transactionDate, penaltiesAmount, loanTransactionDTO.getPenaltyPayments());
+                        loanProductId, loanId, transactionId, transactionDate, penaltiesAmountSansTax,
+                        loanTransactionDTO.getPenaltyPayments());
             } else {
                 this.helper.createJournalEntriesForLoanCharges(office, currencyCode, AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(),
                         AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(), loanProductId, loanId, transactionId, transactionDate,
-                        penaltiesAmount, loanTransactionDTO.getPenaltyPayments());
+                        penaltiesAmountSansTax, loanTransactionDTO.getPenaltyPayments());
+            }
+        }
+
+        // create journal entries for tax amounts during accruals
+        // Note: Tax liability is recognized separately from charge accruals
+        if (loanTransactionDTO.getTaxPayments() != null && !loanTransactionDTO.getTaxPayments().isEmpty()) {
+            // For accruals: Tax liability is recognized (Debit Tax Expense/Receivable, Credit Tax Payable)
+            // For accrual adjustment: Reverse (Credit Tax Expense/Receivable, Debit Tax Payable)
+            if (transactionType.isAccrualAdjustment()) {
+                // Reverse accrual: Credit Receivables for tax portion
+                if (MathUtil.isGreaterThanZero(taxResult.feesTaxAmount)) {
+                    this.helper.createCreditJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(),
+                            loanProductId, paymentTypeId, loanId, transactionId, transactionDate, taxResult.feesTaxAmount);
+                }
+                if (MathUtil.isGreaterThanZero(taxResult.penaltiesTaxAmount)) {
+                    this.helper.createCreditJournalEntryForLoan(office, currencyCode,
+                            AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
+                            transactionDate, taxResult.penaltiesTaxAmount);
+                }
+                // Debit tax payable (reverse) - create individual debit entries for each tax component
+                for (TaxPaymentDTO taxPayment : loanTransactionDTO.getTaxPayments()) {
+                    if (taxPayment.getAmount() != null && taxPayment.getAmount().compareTo(BigDecimal.ZERO) > 0
+                            && taxPayment.getCreditAccountId() != null) {
+                        final GLAccount taxAccount = this.helper.getGLAccountById(taxPayment.getCreditAccountId());
+                        this.helper.createDebitJournalEntryForLoan(office, currencyCode, loanId, transactionId, transactionDate,
+                                taxPayment.getAmount(), taxAccount);
+                    }
+                }
+            } else {
+                // Normal accrual: Debit Receivables for tax portion, Credit Tax Payable
+                if (MathUtil.isGreaterThanZero(taxResult.feesTaxAmount)) {
+                    this.helper.createDebitJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(),
+                            loanProductId, paymentTypeId, loanId, transactionId, transactionDate, taxResult.feesTaxAmount);
+                }
+                if (MathUtil.isGreaterThanZero(taxResult.penaltiesTaxAmount)) {
+                    this.helper.createDebitJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(),
+                            loanProductId, paymentTypeId, loanId, transactionId, transactionDate, taxResult.penaltiesTaxAmount);
+                }
+                // Credit tax payable
+                this.helper.createTaxCreditJournalEntries(office, currencyCode, loanId, transactionId, transactionDate,
+                        loanTransactionDTO.getTaxPayments());
             }
         }
     }
@@ -2153,7 +2289,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                         chargePaymentDTO.getLoanChargeId()));
             }
             this.helper.createDebitJournalEntryForLoanCharges(office, currencyCode, AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(),
-                    loanProductId, loanId, transactionId, transactionDate, feesAmount, chargePaymentDTOs);
+                    loanProductId, loanId, transactionId, transactionDate, feesAmount, chargePaymentDTOs,
+                    loanTransactionDTO.getTaxPayments());
         }
 
         if (MathUtil.isGreaterThanZero(penaltiesAmount)) {
@@ -2167,7 +2304,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                         chargePaymentDTO.getLoanChargeId()));
             }
             this.helper.createDebitJournalEntryForLoanCharges(office, currencyCode, AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(),
-                    loanProductId, loanId, transactionId, transactionDate, penaltiesAmount, chargePaymentDTOs);
+                    loanProductId, loanId, transactionId, transactionDate, penaltiesAmount, chargePaymentDTOs,
+                    loanTransactionDTO.getTaxPayments());
         }
 
         if (MathUtil.isGreaterThanZero(overPaymentAmount)) {
