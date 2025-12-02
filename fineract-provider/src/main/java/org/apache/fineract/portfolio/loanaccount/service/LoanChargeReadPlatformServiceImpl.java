@@ -24,6 +24,7 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -302,7 +303,58 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
             args.add(installmentNumber);
         }
 
-        return this.jdbcTemplate.query(sb.toString(), rm, args.toArray());
+        List<LoanChargePaidByData> chargePaidByList = this.jdbcTemplate.query(sb.toString(), rm, args.toArray());
+
+        // Fetch tax details for all charge paid by records
+        if (!chargePaidByList.isEmpty()) {
+            List<Long> chargePaidByIds = chargePaidByList.stream().map(LoanChargePaidByData::getId).toList();
+            Map<Long, List<Map<String, Object>>> taxDetailsMap = fetchTaxDetailsForChargePaidBy(chargePaidByIds);
+
+            // Set tax details for each charge paid by
+            for (LoanChargePaidByData chargePaidBy : chargePaidByList) {
+                List<Map<String, Object>> taxDetails = taxDetailsMap.get(chargePaidBy.getId());
+                if (taxDetails != null && !taxDetails.isEmpty()) {
+                    chargePaidBy.setTaxDetails(taxDetails);
+                }
+            }
+        }
+
+        return chargePaidByList;
+    }
+
+    private Map<Long, List<Map<String, Object>>> fetchTaxDetailsForChargePaidBy(List<Long> chargePaidByIds) {
+        if (chargePaidByIds.isEmpty()) {
+            return new HashMap<>();
+        }
+
+        Map<Long, List<Map<String, Object>>> taxDetailsMap = new HashMap<>();
+
+        String placeholders = String.join(",", Collections.nCopies(chargePaidByIds.size(), "?"));
+        String sql = "SELECT lctdpb.loan_charge_paid_by_id, lctdpb.amount, lctdpb.tax_component_id, "
+                + "tc.debit_account_id, tc.credit_account_id " + "FROM m_loan_charge_tax_details_paid_by lctdpb "
+                + "LEFT JOIN m_tax_component tc ON tc.id = lctdpb.tax_component_id " + "WHERE lctdpb.loan_charge_paid_by_id IN ("
+                + placeholders + ")";
+
+        this.jdbcTemplate.query(sql, (rs) -> {
+            Long chargePaidById = rs.getLong("loan_charge_paid_by_id");
+            Map<String, Object> taxDetail = new HashMap<>();
+            taxDetail.put("amount", rs.getBigDecimal("amount"));
+            taxDetail.put("taxComponentId", rs.getLong("tax_component_id"));
+
+            long debitAccountId = rs.getLong("debit_account_id");
+            if (!rs.wasNull()) {
+                taxDetail.put("debitAccountId", debitAccountId);
+            }
+
+            long creditAccountId = rs.getLong("credit_account_id");
+            if (!rs.wasNull()) {
+                taxDetail.put("creditAccountId", creditAccountId);
+            }
+
+            taxDetailsMap.computeIfAbsent(chargePaidById, k -> new ArrayList<>()).add(taxDetail);
+        }, chargePaidByIds.toArray());
+
+        return taxDetailsMap;
     }
 
     @Override
