@@ -102,7 +102,13 @@ public class LoanChargePaidBy extends AbstractPersistableCustom<Long> {
     }
 
     public void setAmount(final BigDecimal amount) {
+        boolean amountChanged = this.amount == null || this.amount.compareTo(amount) != 0;
         this.amount = amount;
+        if (amountChanged && this.loanTransaction != null) {
+            // Amount changed, need to recalculate tax details
+            this.loanChargeTaxDetailsPaidBy.clear();
+                createTaxDetailsPaidBy(this.loanTransaction.getTransactionDate());
+        }
     }
 
     public Integer getInstallmentNumber() {
