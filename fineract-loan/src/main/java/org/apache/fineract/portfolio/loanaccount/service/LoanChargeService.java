@@ -87,12 +87,12 @@ public class LoanChargeService {
         BigDecimal chargeAmt;
         BigDecimal totalChargeAmt = BigDecimal.ZERO;
         if (loanCharge.getChargeCalculation().isPercentageBased()) {
-            if (loanCharge.isOverdueInstallmentCharge()) {
-                amount = calculateOverdueAmountPercentageAppliedTo(loan, loanCharge, penaltyWaitPeriod);
-            } else {
-                amount = calculateAmountPercentageAppliedTo(loan, loanCharge);
-            }
-            chargeAmt = loanCharge.getPercentage();
+            final boolean isOverdueCharge = loanCharge.isOverdueInstallmentCharge();
+            amount = isOverdueCharge ? calculateOverdueAmountPercentageAppliedTo(loan, loanCharge, penaltyWaitPeriod)
+                    : calculateAmountPercentageAppliedTo(loan, loanCharge);
+            // For overdue charges, use utility to convert yearly percentage to daily if charge_percentage_type = 2
+            final BigDecimal basePercentage = loanCharge.getPercentage();
+            chargeAmt = isOverdueCharge ? ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge, basePercentage) : basePercentage;
             if (loanCharge.isInstalmentFee()) {
                 totalChargeAmt = calculatePerInstallmentChargeAmount(loan, loanCharge);
             }
@@ -113,12 +113,12 @@ public class LoanChargeService {
         BigDecimal chargeAmt;
         BigDecimal totalChargeAmt = BigDecimal.ZERO;
         if (loanCharge.getChargeCalculation().isPercentageBased()) {
-            if (loanCharge.isOverdueInstallmentCharge()) {
-                amount = calculateOverdueAmountPercentageAppliedTo(loan, loanCharge, penaltyWaitPeriod);
-            } else {
-                amount = calculateAmountPercentageAppliedTo(loan, loanCharge);
-            }
-            chargeAmt = loanCharge.getPercentage();
+            final boolean isOverdueCharge = loanCharge.isOverdueInstallmentCharge();
+            amount = isOverdueCharge ? calculateOverdueAmountPercentageAppliedTo(loan, loanCharge, penaltyWaitPeriod)
+                    : calculateAmountPercentageAppliedTo(loan, loanCharge);
+            // For overdue charges, use utility to convert yearly percentage to daily if charge_percentage_type = 2
+            final BigDecimal basePercentage = loanCharge.getPercentage();
+            chargeAmt = isOverdueCharge ? ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge, basePercentage) : basePercentage;
             if (loanCharge.isInstalmentFee()) {
                 totalChargeAmt = calculatePerInstallmentChargeAmount(loan, loanCharge);
             }
@@ -213,7 +213,11 @@ public class LoanChargeService {
         BigDecimal chargeAmt;
         BigDecimal totalChargeAmt = BigDecimal.ZERO;
         if (loanCharge.getChargeCalculation().isPercentageBased()) {
-            chargeAmt = loanCharge.getPercentage();
+            // For overdue charges, use utility to convert yearly percentage to daily if charge_percentage_type = 2
+            final BigDecimal basePercentage = loanCharge.getPercentage();
+            chargeAmt = loanCharge.isOverdueInstallmentCharge()
+                    ? ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge, basePercentage)
+                    : basePercentage;
             if (loanCharge.isInstalmentFee()) {
                 totalChargeAmt = calculatePerInstallmentChargeAmount(loan, loanCharge);
             } else if (loanCharge.isOverdueInstallmentCharge()) {
@@ -427,7 +431,11 @@ public class LoanChargeService {
                 loanCharge.setPercentage(chargeAmount);
                 loanCharge.setAmountPercentageAppliedTo(amountPercentageAppliedTo);
                 if (loanChargeAmount.compareTo(BigDecimal.ZERO) == 0) {
-                    loanChargeAmount = loanCharge.percentageOf(loanCharge.getAmountPercentageAppliedTo());
+                    // For overdue charges, use effective daily percentage if charge_percentage_type = 2 (YEARLY)
+                    final BigDecimal effectivePercentage = loanCharge.isOverdueInstallmentCharge()
+                            ? ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge, chargeAmount)
+                            : chargeAmount;
+                    loanChargeAmount = LoanCharge.percentageOf(loanCharge.getAmountPercentageAppliedTo(), effectivePercentage);
                 }
                 loanCharge.setAmount(loanCharge.minimumAndMaximumCap(loanChargeAmount));
                 loanCharge.setAmountPaid(null);

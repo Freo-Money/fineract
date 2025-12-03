@@ -126,6 +126,12 @@ public class Charge extends AbstractPersistableCustom<Long> {
     @Column(name = "restart_frequency_enum", nullable = true)
     private Integer restartFrequencyEnum;
 
+    @Column(name = "charge_percentage_type", nullable = false)
+    private Integer chargePercentageType = 1;
+
+    @Column(name = "charge_percentage_period_type", nullable = false)
+    private Integer chargePercentagePeriodType = 1;
+
     @Column(name = "is_payment_type", nullable = false)
     private boolean enablePaymentType;
 
@@ -724,6 +730,22 @@ public class Charge extends AbstractPersistableCustom<Long> {
 
     public Integer feeFrequency() {
         return this.feeFrequency;
+    }
+
+    public Integer getChargePercentageType() {
+        return this.chargePercentageType;
+    }
+
+    public void setChargePercentageType(Integer chargePercentageType) {
+        this.chargePercentageType = chargePercentageType;
+    }
+
+    public Integer getChargePercentagePeriodType() {
+        return this.chargePercentagePeriodType;
+    }
+
+    public void setChargePercentagePeriodType(Integer chargePercentagePeriodType) {
+        this.chargePercentagePeriodType = chargePercentagePeriodType;
     }
 
     public GLAccount getAccount() {

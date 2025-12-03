@@ -138,7 +138,12 @@ public class SingleLoanChargeRepaymentScheduleProcessingWrapper {
         } else {
             baseAmount = getBaseAmount(loanCharge, totalPrincipal.getAmount(), totalInterest.getAmount());
         }
-        return Money.of(currency, MathUtil.percentageOf(baseAmount, loanCharge.getPercentage(), MoneyHelper.getMathContext()));
+        // For overdue charges, use utility to convert yearly percentage to daily if charge_percentage_type = 2
+        final BigDecimal effectivePercentage = loanCharge.isOverdueInstallmentCharge()
+                ? org.apache.fineract.portfolio.loanaccount.service.ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge,
+                        loanCharge.getPercentage())
+                : loanCharge.getPercentage();
+        return Money.of(currency, MathUtil.percentageOf(baseAmount, effectivePercentage, MoneyHelper.getMathContext()));
     }
 
     private Money calcChargeWaived(final LocalDate periodStart, final LocalDate periodEnd, final LoanCharge loanCharge,
