@@ -107,7 +107,7 @@ public class LoanChargePaidBy extends AbstractPersistableCustom<Long> {
         if (amountChanged && this.loanTransaction != null) {
             // Amount changed, need to recalculate tax details
             this.loanChargeTaxDetailsPaidBy.clear();
-                createTaxDetailsPaidBy(this.loanTransaction.getTransactionDate());
+            createTaxDetailsPaidBy(this.loanTransaction.getTransactionDate());
         }
     }
 
