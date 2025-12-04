@@ -56,6 +56,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.AuthenticationDetailsSource;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.config.Customizer;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -193,6 +194,7 @@ public class AuthorizationServerConfig {
         CorsConfiguration config = new CorsConfiguration();
         FineractProperties.CorsProperties corsConfiguration = fineractProperties.getSecurity().getCors();
         config.setAllowedOriginPatterns(corsConfiguration.getAllowedOriginPatterns());
+        config.setAllowedOrigins(corsConfiguration.getAllowedOrigins());
         config.setAllowedMethods(corsConfiguration.getAllowedMethods());
         config.setAllowedHeaders(corsConfiguration.getAllowedHeaders());
         config.setExposedHeaders(corsConfiguration.getExposedHeaders());

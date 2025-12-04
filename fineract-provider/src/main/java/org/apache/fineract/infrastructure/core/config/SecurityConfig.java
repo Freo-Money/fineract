@@ -264,6 +264,7 @@ public class SecurityConfig {
         CorsConfiguration config = new CorsConfiguration();
         FineractProperties.CorsProperties corsConfiguration = fineractProperties.getSecurity().getCors();
         config.setAllowedOriginPatterns(corsConfiguration.getAllowedOriginPatterns());
+        config.setAllowedOrigins(corsConfiguration.getAllowedOrigins());
         config.setAllowedMethods(corsConfiguration.getAllowedMethods());
         config.setAllowedHeaders(corsConfiguration.getAllowedHeaders());
         config.setExposedHeaders(corsConfiguration.getExposedHeaders());
