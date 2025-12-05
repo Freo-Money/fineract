@@ -115,7 +115,12 @@ public class LoanRepaymentScheduleProcessingWrapper {
                             amount = amount.add(totalPrincipal.getAmount());
                         }
                     }
-                    BigDecimal loanChargeAmt = amount.multiply(loanCharge.getPercentage()).divide(BigDecimal.valueOf(100));
+                    // For overdue charges, utility converts yearly percentage to daily if charge_percentage_type = 2
+                    final BigDecimal effectivePercentage = loanCharge.isOverdueInstallmentCharge()
+                            ? org.apache.fineract.portfolio.loanaccount.service.ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge,
+                                    loanCharge.getPercentage())
+                            : loanCharge.getPercentage();
+                    final BigDecimal loanChargeAmt = amount.multiply(effectivePercentage).divide(BigDecimal.valueOf(100));
                     cumulative = cumulative.plus(loanChargeAmt);
                 } else if (isDue) {
                     cumulative = cumulative.plus(loanCharge.amount());
@@ -198,7 +203,12 @@ public class LoanRepaymentScheduleProcessingWrapper {
                     } else {
                         amount = amount.add(totalPrincipal.getAmount());
                     }
-                    BigDecimal loanChargeAmt = amount.multiply(loanCharge.getPercentage()).divide(BigDecimal.valueOf(100));
+                    // For overdue charges, utility converts yearly percentage to daily if charge_percentage_type = 2
+                    final BigDecimal effectivePercentage = loanCharge.isOverdueInstallmentCharge()
+                            ? org.apache.fineract.portfolio.loanaccount.service.ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge,
+                                    loanCharge.getPercentage())
+                            : loanCharge.getPercentage();
+                    final BigDecimal loanChargeAmt = amount.multiply(effectivePercentage).divide(BigDecimal.valueOf(100));
                     cumulative = cumulative.plus(loanChargeAmt);
                 } else if (isDue) {
                     cumulative = cumulative.plus(loanCharge.amount());
@@ -211,9 +221,13 @@ public class LoanRepaymentScheduleProcessingWrapper {
 
     private BigDecimal getInstallmentFee(MonetaryCurrency currency, LoanRepaymentScheduleInstallment period, LoanCharge loanCharge) {
         if (loanCharge.getChargeCalculation().isPercentageBased()) {
-            BigDecimal amount = BigDecimal.ZERO;
-            amount = getBaseAmount(currency, period, loanCharge, amount);
-            return amount.multiply(loanCharge.getPercentage()).divide(BigDecimal.valueOf(100));
+            final BigDecimal amount = getBaseAmount(currency, period, loanCharge, BigDecimal.ZERO);
+            // For overdue charges, utility converts yearly percentage to daily if charge_percentage_type = 2
+            final BigDecimal effectivePercentage = loanCharge.isOverdueInstallmentCharge()
+                    ? org.apache.fineract.portfolio.loanaccount.service.ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge,
+                            loanCharge.getPercentage())
+                    : loanCharge.getPercentage();
+            return amount.multiply(effectivePercentage).divide(BigDecimal.valueOf(100));
         } else {
             return loanCharge.amountOrPercentage();
         }
