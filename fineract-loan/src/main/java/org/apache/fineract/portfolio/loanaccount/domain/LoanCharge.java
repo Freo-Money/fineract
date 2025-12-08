@@ -44,6 +44,7 @@ import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableWithUTCDateTimeCustom;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.core.service.MathUtil;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
@@ -165,6 +166,19 @@ public class LoanCharge extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         this.amountPaid = this.amount;
         this.amountOutstanding = BigDecimal.ZERO;
         this.paid = true;
+        updateTaxDetailsAmountPaidWhenFullyPaid();
+    }
+
+    private void updateTaxDetailsAmountPaidWhenFullyPaid() {
+        if (this.loanChargeTaxDetails == null || this.loanChargeTaxDetails.isEmpty()) {
+            return;
+        }
+
+        for (LoanChargeTaxDetails taxDetail : this.loanChargeTaxDetails) {
+            if (taxDetail.getAmount() != null && taxDetail.getAmount().compareTo(BigDecimal.ZERO) > 0) {
+                taxDetail.setAmountPaid(taxDetail.getAmount());
+            }
+        }
     }
 
     public boolean isFullyPaid() {
@@ -189,6 +203,17 @@ public class LoanCharge extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         this.paid = false;
         for (final LoanInstallmentCharge installmentCharge : this.loanInstallmentCharge) {
             installmentCharge.resetPaidAmount(currency);
+        }
+        resetTaxDetailsAmountPaid();
+    }
+
+    private void resetTaxDetailsAmountPaid() {
+        if (this.loanChargeTaxDetails == null || this.loanChargeTaxDetails.isEmpty()) {
+            return;
+        }
+
+        for (LoanChargeTaxDetails taxDetail : this.loanChargeTaxDetails) {
+            taxDetail.setAmountPaid(BigDecimal.ZERO);
         }
     }
 
@@ -466,6 +491,9 @@ public class LoanCharge extends AbstractAuditableWithUTCDateTimeCustom<Long> {
             this.amountPaid = amountPaidToDate.getAmount();
             this.amountOutstanding = calculateAmountOutstanding(incrementBy.getCurrency());
         }
+
+        updateTaxDetailsAmountPaid(amountPaidOnThisCharge, processAmount.getCurrency());
+
         return amountPaidOnThisCharge;
     }
 
@@ -665,6 +693,9 @@ public class LoanCharge extends AbstractAuditableWithUTCDateTimeCustom<Long> {
             this.amountPaid = amountPaidToDate.getAmount();
             this.amountOutstanding = calculateAmountOutstanding(incrementBy.getCurrency());
         }
+
+        updateTaxDetailsAmountPaidOnUndo(amountDeductedOnThisCharge, processAmount.getCurrency());
+
         return amountDeductedOnThisCharge;
     }
 
@@ -763,6 +794,40 @@ public class LoanCharge extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     public void updateLoanChargeTaxDetails(LocalDate transactionDate, BigDecimal amount) {
         LoanChargeTaxUtils.calculateAndSetTaxDetails(this, transactionDate, amount);
+    }
+
+    private void updateTaxDetailsAmountPaid(final Money amountPaidOnThisCharge, final MonetaryCurrency currency) {
+        updateTaxDetailsAmountPaid(amountPaidOnThisCharge, currency, true);
+    }
+
+    private void updateTaxDetailsAmountPaidOnUndo(final Money amountDeductedOnThisCharge, final MonetaryCurrency currency) {
+        updateTaxDetailsAmountPaid(amountDeductedOnThisCharge, currency, false);
+    }
+
+    private void updateTaxDetailsAmountPaid(final Money chargeAmount, final MonetaryCurrency currency, final boolean isAdd) {
+        if (this.loanChargeTaxDetails == null || this.loanChargeTaxDetails.isEmpty() || chargeAmount.isZero()) {
+            return;
+        }
+
+        final Money totalChargeAmount = Money.of(currency, this.amount);
+        if (totalChargeAmount.isZero()) {
+            return;
+        }
+
+        final BigDecimal chargeAmountValue = chargeAmount.getAmount();
+        final BigDecimal totalChargeAmountValue = totalChargeAmount.getAmount();
+        final MathContext mathContext = MoneyHelper.getMathContext();
+        final BigDecimal proportion = chargeAmountValue.divide(totalChargeAmountValue, mathContext);
+
+        for (LoanChargeTaxDetails taxDetail : this.loanChargeTaxDetails) {
+            if (taxDetail.getAmount() != null && taxDetail.getAmount().compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal taxAmountPaid = taxDetail.getAmountPaid() != null ? taxDetail.getAmountPaid() : BigDecimal.ZERO;
+                BigDecimal taxAmountToAdjust = taxDetail.getAmount().multiply(proportion, mathContext);
+                BigDecimal newAmountPaid = isAdd ? taxAmountPaid.add(taxAmountToAdjust)
+                        : MathUtil.negativeToZero(taxAmountPaid.subtract(taxAmountToAdjust));
+                taxDetail.setAmountPaid(newAmountPaid);
+            }
+        }
     }
 
 }

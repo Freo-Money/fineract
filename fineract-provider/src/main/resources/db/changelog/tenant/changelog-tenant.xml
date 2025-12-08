@@ -235,5 +235,6 @@
     <include file="parts/0207_add_arrears_based_on_configuration.xml" relativeToChangelogFile="true" />
     <include file="parts/0208_add_loan_charge_tax_support.xml" relativeToChangelogFile="true" />
     <include file="parts/0209_add_charge_percentage_type_columns.xml" relativeToChangelogFile="true" />
+    <include file="parts/0210_add_amount_paid_to_loan_charge_tax_details.xml" relativeToChangelogFile="true" />
     <include file="parts/1035_add_adjust_interest_for_rounding_to_product_loan.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>
