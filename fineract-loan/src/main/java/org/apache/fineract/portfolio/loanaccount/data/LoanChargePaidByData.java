@@ -21,12 +21,13 @@ package org.apache.fineract.portfolio.loanaccount.data;
 import java.io.Serial;
 import java.io.Serializable;
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import lombok.Data;
-import lombok.Getter;
-import org.springframework.integration.annotation.Default;
+import lombok.NoArgsConstructor;
 
 @Data
-@Getter
+@NoArgsConstructor
 public class LoanChargePaidByData implements Serializable {
 
     @Serial
@@ -38,8 +39,8 @@ public class LoanChargePaidByData implements Serializable {
     private Long chargeId;
     private Long transactionId;
     private String name;
+    private List<Map<String, Object>> taxDetails;
 
-    @Default
     public LoanChargePaidByData(Long id, BigDecimal amount, Integer installmentNumber, Long chargeId, Long transactionId, String name) {
         this.id = id;
         this.amount = amount;
@@ -56,7 +57,6 @@ public class LoanChargePaidByData implements Serializable {
         this.installmentNumber = installmentNumber;
         this.chargeId = chargeId;
         this.transactionId = transactionId;
-        this.name = null;
     }
 
 }

@@ -24,6 +24,7 @@ import java.sql.SQLException;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,6 +71,7 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
                     + "lc.due_for_collection_as_of_date as dueAsOfDate, lc.charge_calculation_enum as chargeCalculation, " //
                     + "lc.charge_payment_mode_enum as chargePaymentMode, lc.is_paid_derived as paid, lc.waived as waived, " //
                     + "lc.min_cap as minCap, lc.max_cap as maxCap, lc.charge_amount_or_percentage as amountOrPercentage, " //
+                    + "lc.tax_group_id as taxGroupId, lc.amount_sans_tax as amountSansTax, lc.tax_amount as taxAmount, " //
                     + "lc.loan_id as loanId, c.currency_code as currencyCode, oc.name as currencyName, " //
                     + "date(coalesce(dd.disbursedon_date,dd.expected_disburse_date)) as disbursementDate, " //
                     + "oc.decimal_places as currencyDecimalPlaces, oc.currency_multiplesof as inMultiplesOf, oc.display_symbol as currencyDisplaySymbol, " //
@@ -131,9 +133,17 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
             final String externalLoanIdStr = rs.getString("externalLoanId");
             final ExternalId externalLoanId = ExternalIdFactory.produce(externalLoanIdStr);
 
+            Long taxGroupId = rs.getLong("taxGroupId");
+            if (taxGroupId == 0 && rs.wasNull()) {
+                taxGroupId = null;
+            }
+            final BigDecimal amountSansTax = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "amountSansTax");
+            final BigDecimal taxAmount = JdbcSupport.getBigDecimalDefaultToNullIfZero(rs, "taxAmount");
+
             return new LoanChargeData(id, chargeId, name, currency, amount, amountPaid, amountWaived, amountWrittenOff, amountOutstanding,
                     chargeTimeType, submittedOnDate, dueAsOfDate, chargeCalculationType, percentageOf, amountPercentageAppliedTo, penalty,
-                    paymentMode, paid, waived, loanId, externalLoanId, minCap, maxCap, amountOrPercentage, null, externalId);
+                    paymentMode, paid, waived, loanId, externalLoanId, minCap, maxCap, amountOrPercentage, null, externalId, taxGroupId,
+                    amountSansTax, taxAmount, null);
         }
     }
 
@@ -219,7 +229,7 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
             final ExternalId externalLoanId = ExternalIdFactory.produce(externalLoanIdStr);
 
             return new LoanChargeData(id, dueAsOfDate, submittedOnDate, amountOutstanding, chargeTimeType, loanId, externalLoanId, null,
-                    externalId);
+                    externalId, null, null, null, null);
         }
     }
 
@@ -293,7 +303,58 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
             args.add(installmentNumber);
         }
 
-        return this.jdbcTemplate.query(sb.toString(), rm, args.toArray());
+        List<LoanChargePaidByData> chargePaidByList = this.jdbcTemplate.query(sb.toString(), rm, args.toArray());
+
+        // Fetch tax details for all charge paid by records
+        if (!chargePaidByList.isEmpty()) {
+            List<Long> chargePaidByIds = chargePaidByList.stream().map(LoanChargePaidByData::getId).toList();
+            Map<Long, List<Map<String, Object>>> taxDetailsMap = fetchTaxDetailsForChargePaidBy(chargePaidByIds);
+
+            // Set tax details for each charge paid by
+            for (LoanChargePaidByData chargePaidBy : chargePaidByList) {
+                List<Map<String, Object>> taxDetails = taxDetailsMap.get(chargePaidBy.getId());
+                if (taxDetails != null && !taxDetails.isEmpty()) {
+                    chargePaidBy.setTaxDetails(taxDetails);
+                }
+            }
+        }
+
+        return chargePaidByList;
+    }
+
+    private Map<Long, List<Map<String, Object>>> fetchTaxDetailsForChargePaidBy(List<Long> chargePaidByIds) {
+        if (chargePaidByIds.isEmpty()) {
+            return new HashMap<>();
+        }
+
+        Map<Long, List<Map<String, Object>>> taxDetailsMap = new HashMap<>();
+
+        String placeholders = String.join(",", Collections.nCopies(chargePaidByIds.size(), "?"));
+        String sql = "SELECT lctdpb.loan_charge_paid_by_id, lctdpb.amount, lctdpb.tax_component_id, "
+                + "tc.debit_account_id, tc.credit_account_id " + "FROM m_loan_charge_tax_details_paid_by lctdpb "
+                + "LEFT JOIN m_tax_component tc ON tc.id = lctdpb.tax_component_id " + "WHERE lctdpb.loan_charge_paid_by_id IN ("
+                + placeholders + ")";
+
+        this.jdbcTemplate.query(sql, (rs) -> {
+            Long chargePaidById = rs.getLong("loan_charge_paid_by_id");
+            Map<String, Object> taxDetail = new HashMap<>();
+            taxDetail.put("amount", rs.getBigDecimal("amount"));
+            taxDetail.put("taxComponentId", rs.getLong("tax_component_id"));
+
+            long debitAccountId = rs.getLong("debit_account_id");
+            if (!rs.wasNull()) {
+                taxDetail.put("debitAccountId", debitAccountId);
+            }
+
+            long creditAccountId = rs.getLong("credit_account_id");
+            if (!rs.wasNull()) {
+                taxDetail.put("creditAccountId", creditAccountId);
+            }
+
+            taxDetailsMap.computeIfAbsent(chargePaidById, k -> new ArrayList<>()).add(taxDetail);
+        }, chargePaidByIds.toArray());
+
+        return taxDetailsMap;
     }
 
     @Override
@@ -373,7 +434,7 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
             if (existing == null) {
                 LoanChargeData newCharge = new LoanChargeData(null, charge.getChargeId(), charge.getName(), null, null, null, null, null,
                         amount, null, charge.getSubmittedOnDate(), null, null, null, null, charge.isPenalty(), null, false, false, null,
-                        null, null, null, null, null, null);
+                        null, null, null, null, null, null, null, null, null, null);
                 return newCharge;
             } else {
                 existing.setAmountOutstanding(existing.getAmountOutstanding().add(amount));

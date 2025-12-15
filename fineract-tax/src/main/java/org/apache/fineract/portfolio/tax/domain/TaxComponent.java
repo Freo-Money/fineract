@@ -143,6 +143,10 @@ public class TaxComponent extends AbstractAuditableCustom {
 
     }
 
+    public String getName() {
+        return this.name;
+    }
+
     public BigDecimal getPercentage() {
         return this.percentage;
     }
