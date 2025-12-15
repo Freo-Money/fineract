@@ -125,8 +125,8 @@ public class Charge extends AbstractPersistableCustom<Long> {
     @Column(name = "charge_percentage_period_type", nullable = false)
     private Integer chargePercentagePeriodType = 1;
 
-    @Column(name = "charge_percentage_calc_days_in_year_type", nullable = true)
-    private Integer chargePercentageCalcDaysInYearType;
+    @Column(name = "charge_percentage_calc_days_in_year_type", nullable = false)
+    private Integer chargePercentageCalcDaysInYearType = 1;
 
     @Column(name = "is_payment_type", nullable = false)
     private boolean enablePaymentType;

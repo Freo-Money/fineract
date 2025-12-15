@@ -285,8 +285,7 @@ public class LoanDisbursementService {
                 charge.markAsFullyPaid();
                 final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(chargesPayment, charge, charge.amount(), null);
                 chargesPayment.getLoanChargesPaid().add(loanChargePaidBy);
-            } else if (disbursedOn.equals(loan.getActualDisbursementDate())
-                    && loan.isNoneOrCashOrUpfrontAccrualAccountingEnabledOnLoanProduct()) {
+            } else if (disbursedOn.equals(loan.getActualDisbursementDate()) && loan.isUpfrontAccrualAccountingEnabledOnLoanProduct()) {
                 final LoanTransaction applyLoanChargeTransaction = loanChargeService.handleChargeAppliedTransaction(loan, charge,
                         disbursedOn);
                 if (applyLoanChargeTransaction != null) {
