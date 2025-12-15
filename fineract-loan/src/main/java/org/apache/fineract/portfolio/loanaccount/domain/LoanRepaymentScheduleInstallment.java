@@ -81,6 +81,11 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
     @Column(name = "interest_completed_derived", scale = 6, precision = 19)
     private BigDecimal interestPaid;
 
+    @Getter
+    @Setter
+    @Column(name = "adjusted_interest_amount", scale = 6, precision = 19)
+    private BigDecimal adjustedInterestAmount = BigDecimal.ZERO;
+
     @Column(name = "interest_waived_derived", scale = 6, precision = 19)
     private BigDecimal interestWaived;
 

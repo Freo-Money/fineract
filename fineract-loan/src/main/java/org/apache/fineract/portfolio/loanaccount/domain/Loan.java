@@ -395,6 +395,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     @Column(name = "is_fraud", nullable = false)
     private boolean fraud = false;
 
+    @Getter
+    @Setter
+    @Column(name = "adjusted_interest_amount", scale = 6, precision = 19)
+    private BigDecimal adjustedInterestAmount = BigDecimal.ZERO;
+
     @OneToOne(cascade = CascadeType.ALL, mappedBy = "loan", orphanRemoval = true, fetch = FetchType.LAZY)
     private LoanTopupDetails loanTopupDetails;
 
@@ -1900,6 +1905,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     public void setBpiCollectedAtDisbursement(Boolean isBpiCollectedAtDisbursement) {
         this.loanRepaymentScheduleDetail.setBpiCollectedAtDisbursement(isBpiCollectedAtDisbursement);
+    }
+
+    public void updateAdjustedInterestAmount(BigDecimal adjustedInterestAmount) {
+        if (adjustedInterestAmount != null) {
+            this.adjustedInterestAmount = MathUtil.add(this.adjustedInterestAmount, adjustedInterestAmount);
+        }
     }
 
 }

@@ -237,4 +237,5 @@
     <include file="parts/0209_add_charge_percentage_type_columns.xml" relativeToChangelogFile="true" />
     <include file="parts/0210_add_amount_paid_to_loan_charge_tax_details.xml" relativeToChangelogFile="true" />
     <include file="parts/1035_add_adjust_interest_for_rounding_to_product_loan.xml" relativeToChangelogFile="true" />
+    <include file="parts/1036_add_adjusted_interest_amount_column.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

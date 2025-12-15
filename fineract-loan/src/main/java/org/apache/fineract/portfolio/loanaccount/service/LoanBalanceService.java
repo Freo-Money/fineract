@@ -224,12 +224,88 @@ public class LoanBalanceService {
             foreclosureChargeHelper.updateForeclosureCharges(loan, mergedChargePercentages, closureDate);
             refreshSummaryAndBalancesForDisbursedLoan(loan);
         }
+        final MonetaryCurrency currency = loan.getCurrency();
         Money[] receivables = retrieveIncomeOutstandingTillDate(loan, closureDate);
-        Money totalPrincipal = Money.of(loan.getCurrency(), loan.getSummary().getTotalPrincipalOutstanding()).minus(receivables[3]);
+        Money totalPrincipal = Money.of(currency, loan.getSummary().getTotalPrincipalOutstanding()).minus(receivables[3]);
         final LocalDate currentDate = DateUtils.getBusinessLocalDate();
 
-        return new LoanRepaymentScheduleInstallment(null, 0, currentDate, currentDate, totalPrincipal.getAmount(),
-                receivables[0].getAmount(), receivables[1].getAmount(), receivables[2].getAmount(), false, null);
+        final LoanRepaymentScheduleInstallment foreclosureDetail = new LoanRepaymentScheduleInstallment(null, 0, currentDate, currentDate,
+                totalPrincipal.getAmount(), receivables[0].getAmount(), receivables[1].getAmount(), receivables[2].getAmount(), false, null);
+
+        return foreclosureDetail;
+    }
+
+    public void applyForeclosureRounding(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail, final Money extraFees,
+            final boolean updateCharges) {
+        final MonetaryCurrency currency = loan.getCurrency();
+        final Integer installmentAmountInMultiplesOf = loan.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf();
+        if (installmentAmountInMultiplesOf == null) {
+            return;
+        }
+
+        final Money outstandingAmount = foreclosureDetail.getPrincipalOutstanding(currency)
+                .plus(foreclosureDetail.getInterestOutstanding(currency)).plus(foreclosureDetail.getFeeChargesOutstanding(currency))
+                .plus(foreclosureDetail.getPenaltyChargesOutstanding(currency)).plus(extraFees == null ? Money.zero(currency) : extraFees);
+
+        final Money roundedOutstandingAmount = Money.roundToMultiplesOf(outstandingAmount, installmentAmountInMultiplesOf);
+        final BigDecimal adjustedInterestAmount = roundedOutstandingAmount.getAmount().subtract(outstandingAmount.getAmount());
+
+        foreclosureDetail
+                .setInterestCharged(foreclosureDetail.getInterestCharged(currency).plus(Money.of(currency, adjustedInterestAmount)).getAmount());
+        foreclosureDetail.setAdjustedInterestAmount(adjustedInterestAmount);
+    }
+
+    public void applyForeclosureRoundingToLoan(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail) {
+        final MonetaryCurrency currency = loan.getCurrency();
+        Integer installmentAmountInMultiplesOf = loan.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf();
+        if (installmentAmountInMultiplesOf == null || installmentAmountInMultiplesOf <= 0) {
+            if (!loan.getLoanProduct().isAdjustInterestForRounding()) {
+                return;
+            }
+            final Integer currencyMultiplesOf = currency.getCurrencyData().getInMultiplesOf();
+            if (currencyMultiplesOf != null && currencyMultiplesOf > 0) {
+                installmentAmountInMultiplesOf = currencyMultiplesOf;
+            } else {
+                installmentAmountInMultiplesOf = 1;
+            }
+        }
+        applyForeclosureRoundingWithMultiples(loan, foreclosureDetail, currency, installmentAmountInMultiplesOf);
+    }
+
+    private void applyForeclosureRoundingWithMultiples(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail,
+            final MonetaryCurrency currency, final Integer multiplesOf) {
+
+        final LoanRepaymentScheduleInstallment earliestUnpaidInstallment = loan.getRepaymentScheduleInstallments().stream()
+                .filter(LoanRepaymentScheduleInstallment::isNotFullyPaidOff)
+                .min((i1, i2) -> i1.getDueDate().compareTo(i2.getDueDate())).orElse(null);
+
+        final Money totalOutstanding = loan.getSummary().getTotalOutstanding(currency);
+        final Money roundedTotalOutstanding = Money.roundToMultiplesOf(totalOutstanding, multiplesOf);
+        final BigDecimal adjustedInterestAmount = roundedTotalOutstanding.getAmount().subtract(totalOutstanding.getAmount());
+
+        if (adjustedInterestAmount.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
+
+        loan.setAdjustedInterestAmount(adjustedInterestAmount);
+
+        if (earliestUnpaidInstallment != null) {
+            final BigDecimal currentInterestCharged = earliestUnpaidInstallment.getInterestCharged(currency).getAmount();
+            earliestUnpaidInstallment.setInterestCharged(currentInterestCharged.add(adjustedInterestAmount));
+            earliestUnpaidInstallment.setAdjustedInterestAmount(adjustedInterestAmount);
+        }
+
+        if (foreclosureDetail != null) {
+            final BigDecimal currentForeclosureInterestCharged = foreclosureDetail.getInterestCharged(currency).getAmount();
+            foreclosureDetail.setInterestCharged(currentForeclosureInterestCharged.add(adjustedInterestAmount));
+            foreclosureDetail.setAdjustedInterestAmount(adjustedInterestAmount);
+        }
+
+        refreshSummaryAndBalancesForDisbursedLoan(loan);
+        
+        final Money finalTotalOutstanding = loan.getSummary().getTotalOutstanding(currency);
+        final Money finalRoundedTotalOutstanding = Money.roundToMultiplesOf(finalTotalOutstanding, multiplesOf);
+        loan.getSummary().updateTotalOutstanding(finalRoundedTotalOutstanding.getAmount());
     }
 
     public Money[] retrieveIncomeForOverlappingPeriod(final Loan loan, final LocalDate paymentDate) {

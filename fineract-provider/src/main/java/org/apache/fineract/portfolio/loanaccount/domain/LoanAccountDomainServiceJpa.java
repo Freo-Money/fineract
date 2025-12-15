@@ -730,10 +730,18 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             persistLoanTransactions(loan, newTransactions, null, transactionsToJournal);
             newTransactions.clear();
         }
-        Money payPrincipal = foreCloseDetail.getPrincipal(currency);
+        
         updateInstallmentsPostDate(loan, foreClosureDate);
+        loanBalanceService.updateLoanSummaryDerivedFields(loan);
+        loanBalanceService.applyForeclosureRoundingToLoan(loan, foreCloseDetail);
+        
+        Money payPrincipal = foreCloseDetail.getPrincipal(currency);
         LoanTransaction payment = foreclosureChargeHelper.createForeclosurePaymentTransaction(loan, foreCloseDetail, foreClosureDate,
                 externalId);
+        
+        if (payment != null && foreclosureFee.isGreaterThanZero()) {
+            foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
+        }
 
         if (payment != null) {
             loanForeclosureValidator.validateForForeclosure(loan, payment.getTransactionDate());
@@ -762,10 +770,6 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal);
             newTransactions.clear();
         }
-        if (payment != null && foreclosureFee.isGreaterThanZero()) {
-            foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
-        }
-        loanBalanceService.updateLoanSummaryDerivedFields(loan);
         loanLifecycleStateMachine.determineAndTransition(loan, foreClosureDate);
         changes.put("transactions", transactionIds);
         changes.put("eventAmount", payPrincipal.getAmount().negate());
