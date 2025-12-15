@@ -209,7 +209,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         if (!accrualTransactions.isEmpty()) {
             if (loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
                 reprocessPeriodicAccruals(loan, accrualTransactions, addEvent);
-            } else if (loan.isNoneOrCashOrUpfrontAccrualAccountingEnabledOnLoanProduct()) {
+            } else if (loan.isUpfrontAccrualAccountingEnabledOnLoanProduct()) {
                 reprocessNonPeriodicAccruals(loan, accrualTransactions, addEvent);
             }
         }
@@ -304,16 +304,19 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         // TODO implement progressive accrual case
         if (loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()
                 && (loan.getAccruedTill() == null || !DateUtils.isEqual(foreClosureDate, loan.getAccruedTill()))) {
-            final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
-                    mergedChargePercentages, false);
             MonetaryCurrency currency = loan.getCurrency();
             reverseTransactionsAfter(loan, ACCRUAL_TYPES, foreClosureDate, false);
 
             final Map<String, Money> incomeDetails = determineReceivableIncomeForeClosure(loan, foreClosureDate);
 
-            final Money interestPortion = foreCloseDetail.getInterestCharged(currency).minus(incomeDetails.get(Loan.INTEREST));
-            Money feePortion = foreCloseDetail.getFeeChargesCharged(currency).minus(incomeDetails.get(Loan.FEE));
-            final Money penaltyPortion = foreCloseDetail.getPenaltyChargesCharged(currency).minus(incomeDetails.get(Loan.PENALTIES));
+            final Money totalInterestOutstanding = Money.of(currency, loan.getSummary().getTotalInterestOutstanding());
+            final Money interestPortion = totalInterestOutstanding.minus(incomeDetails.get(Loan.INTEREST));
+            
+            final Money totalFeeChargesOutstanding = Money.of(currency, loan.getSummary().getTotalFeeChargesOutstanding());
+            Money feePortion = totalFeeChargesOutstanding.minus(incomeDetails.get(Loan.FEE));
+            
+            final Money totalPenaltyChargesOutstanding = Money.of(currency, loan.getSummary().getTotalPenaltyChargesOutstanding());
+            final Money penaltyPortion = totalPenaltyChargesOutstanding.minus(incomeDetails.get(Loan.PENALTIES));
 
             Money foreclosureFee = foreclosureChargeHelper.calculateForeclosureFee(loan, mergedChargePercentages, currency);
             if (foreclosureFee.isGreaterThanZero()) {
