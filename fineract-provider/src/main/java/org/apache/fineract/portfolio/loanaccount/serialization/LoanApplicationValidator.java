@@ -281,7 +281,7 @@ public final class LoanApplicationValidator {
                 baseDataValidator.reset().parameter(LoanApiConstants.loanTypeParameterName).value(loanType.getValue()).inMinMaxRange(1, 4);
 
                 if (loanType.isIndividualAccount()) {
-                    baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(clientId).notNull()
+                    baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(clientId).ignoreIfNull()
                             .longGreaterThanZero();
                     baseDataValidator.reset().parameter(LoanApiConstants.groupIdParameterName).value(groupId)
                             .mustBeBlankWhenParameterProvided(LoanApiConstants.clientIdParameterName, clientId);
@@ -1499,7 +1499,7 @@ public final class LoanApplicationValidator {
     private void validateClientOrGroup(Client client, Group group, Long productId) {
         Validator.validateOrThrow("loan", baseDataValidator -> {
             if (client == null && group == null) {
-                baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(client).notNull();
+                //baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(client).notNull();
             } else {
                 if (client != null) {
                     officeSpecificLoanProductValidation(productId, client.getOffice().getId());
