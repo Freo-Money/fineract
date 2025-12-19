@@ -104,6 +104,9 @@ public class Charge extends AbstractPersistableCustom<Long> {
     @Column(name = "max_cap", scale = 6, precision = 19, nullable = true)
     private BigDecimal maxCap;
 
+    @Column(name = "max_cumulative_penalty_cap", scale = 6, precision = 19, nullable = true)
+    private BigDecimal maxCumulativePenaltyCap;
+
     @Column(name = "fee_frequency", nullable = true)
     private Integer feeFrequency;
 
@@ -164,6 +167,7 @@ public class Charge extends AbstractPersistableCustom<Long> {
         final Integer feeInterval = command.integerValueOfParameterNamed("feeInterval");
         final BigDecimal minCap = command.bigDecimalValueOfParameterNamed("minCap");
         final BigDecimal maxCap = command.bigDecimalValueOfParameterNamed("maxCap");
+        final BigDecimal maxCumulativePenaltyCap = command.bigDecimalValueOfParameterNamed("maxCumulativePenaltyCap");
         final Integer feeFrequency = command.integerValueOfParameterNamed("feeFrequency");
 
         boolean enableFreeWithdrawalCharge = false;
@@ -184,8 +188,8 @@ public class Charge extends AbstractPersistableCustom<Long> {
         }
 
         return new Charge(name, amount, currencyCode, chargeAppliesTo, chargeTimeType, chargeCalculationType, penalty, active, paymentMode,
-                feeOnMonthDay, feeInterval, minCap, maxCap, feeFrequency, enableFreeWithdrawalCharge, freeWithdrawalFrequency,
-                restartCountFrequency, countFrequencyType, account, taxGroup, enablePaymentType, paymentType);
+                feeOnMonthDay, feeInterval, minCap, maxCap, maxCumulativePenaltyCap, feeFrequency, enableFreeWithdrawalCharge,
+                freeWithdrawalFrequency, restartCountFrequency, countFrequencyType, account, taxGroup, enablePaymentType, paymentType);
     }
 
     protected Charge() {}
@@ -193,9 +197,10 @@ public class Charge extends AbstractPersistableCustom<Long> {
     private Charge(final String name, final BigDecimal amount, final String currencyCode, final ChargeAppliesTo chargeAppliesTo,
             final ChargeTimeType chargeTime, final ChargeCalculationType chargeCalculationType, final boolean penalty, final boolean active,
             final ChargePaymentMode paymentMode, final MonthDay feeOnMonthDay, final Integer feeInterval, final BigDecimal minCap,
-            final BigDecimal maxCap, final Integer feeFrequency, final boolean enableFreeWithdrawalCharge,
-            final Integer freeWithdrawalFrequency, final Integer restartFrequency, final PeriodFrequencyType restartFrequencyEnum,
-            final GLAccount account, final TaxGroup taxGroup, final boolean enablePaymentType, final PaymentType paymentType) {
+            final BigDecimal maxCap, final BigDecimal maxCumulativePenaltyCap, final Integer feeFrequency,
+            final boolean enableFreeWithdrawalCharge, final Integer freeWithdrawalFrequency, final Integer restartFrequency,
+            final PeriodFrequencyType restartFrequencyEnum, final GLAccount account, final TaxGroup taxGroup,
+            final boolean enablePaymentType, final PaymentType paymentType) {
         this.name = name;
         this.amount = amount;
         this.currencyCode = currencyCode;
@@ -217,6 +222,7 @@ public class Charge extends AbstractPersistableCustom<Long> {
         }
         this.feeInterval = feeInterval;
         this.feeFrequency = feeFrequency;
+        this.maxCumulativePenaltyCap = maxCumulativePenaltyCap;
 
         if (isSavingsCharge()) {
             // TODO vishwas, this validation seems unnecessary as identical
@@ -359,6 +365,10 @@ public class Charge extends AbstractPersistableCustom<Long> {
 
     public BigDecimal getMaxCap() {
         return this.maxCap;
+    }
+
+    public BigDecimal getMaxCumulativePenaltyCap() {
+        return this.maxCumulativePenaltyCap;
     }
 
     public boolean isEnableFreeWithdrawal() {
@@ -631,6 +641,14 @@ public class Charge extends AbstractPersistableCustom<Long> {
                 this.maxCap = newValue;
             }
 
+        }
+
+        final String maxCumulativePenaltyCapParamName = "maxCumulativePenaltyCap";
+        if (command.isChangeInBigDecimalParameterNamed(maxCumulativePenaltyCapParamName, this.maxCumulativePenaltyCap)) {
+            final BigDecimal newValue = command.bigDecimalValueOfParameterNamed(maxCumulativePenaltyCapParamName);
+            actualChanges.put(maxCumulativePenaltyCapParamName, newValue);
+            actualChanges.put("locale", locale.getLanguage());
+            this.maxCumulativePenaltyCap = newValue;
         }
 
         if (this.penalty && ChargeTimeType.fromInt(this.chargeTimeType).isTimeOfDisbursement()) {

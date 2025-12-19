@@ -732,15 +732,15 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             persistLoanTransactions(loan, newTransactions, null, transactionsToJournal);
             newTransactions.clear();
         }
-        
+
         updateInstallmentsPostDate(loan, foreClosureDate);
         loanBalanceService.updateLoanSummaryDerivedFields(loan);
         loanBalanceService.applyForeclosureRoundingToLoan(loan, foreCloseDetail);
-        
+
         Money payPrincipal = foreCloseDetail.getPrincipal(currency);
         LoanTransaction payment = foreclosureChargeHelper.createForeclosurePaymentTransaction(loan, foreCloseDetail, foreClosureDate,
                 externalId);
-        
+
         if (payment != null && foreclosureFee.isGreaterThanZero()) {
             foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
         }

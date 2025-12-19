@@ -130,6 +130,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeBal
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeCalculationType;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeStrategy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeType;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeOffBehaviour;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
@@ -1468,9 +1469,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " ls.fee_charges_amount as feeChargesDue, ls.fee_charges_completed_derived as feeChargesPaid, ls.fee_charges_waived_derived as feeChargesWaived, ls.fee_charges_writtenoff_derived as feeChargesWrittenOff, "
                     + " ls.penalty_charges_amount as penaltyChargesDue, ls.penalty_charges_completed_derived as penaltyChargesPaid, ls.penalty_charges_waived_derived as penaltyChargesWaived, ls.penalty_charges_writtenoff_derived as penaltyChargesWrittenOff, "
                     + " ls.total_paid_in_advance_derived as totalPaidInAdvanceForPeriod, ls.total_paid_late_derived as totalPaidLateForPeriod, "
-                    + " mc.amount,mc.id as chargeId  from m_loan_repayment_schedule ls " + " inner join m_loan ml on ml.id = ls.loan_id "
+                    + " mc.amount,mc.id as chargeId, COALESCE(penalty_summary.existing_penalty_amount, 0) as existingPenaltyAmount, mc.max_cumulative_penalty_cap as maxCumulativePenaltyCap "
+                    + " from m_loan_repayment_schedule ls " + " inner join m_loan ml on ml.id = ls.loan_id "
                     + " join m_product_loan_charge plc on plc.product_loan_id = ml.product_id "
-                    + " join m_charge mc on mc.id = plc.charge_id ";
+                    + " join m_charge mc on mc.id = plc.charge_id "
+                    + " LEFT JOIN (SELECT lc.loan_id, lc.charge_id, SUM(lc.amount) as existing_penalty_amount "
+                    + "           FROM m_loan_charge lc " + "           WHERE lc.is_penalty = true AND lc.is_active = true "
+                    + "           GROUP BY lc.loan_id, lc.charge_id) penalty_summary "
+                    + " ON penalty_summary.loan_id = ml.id AND penalty_summary.charge_id = mc.id ";
 
         }
 
@@ -2134,7 +2140,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                 .append(" where " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day") + " > ls.duedate ")
                 .append(" and ls.completed_derived <> true and mc.charge_applies_to_enum =1 ")
                 .append(" and ls.recalculated_interest_component <> true ")
-                .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 ");
+                .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 ")
+                .append(" and (mc.max_cumulative_penalty_cap IS NULL OR ")
+                .append("      COALESCE(penalty_summary.existing_penalty_amount, 0) < mc.max_cumulative_penalty_cap) ");
 
         if (backdatePenalties) {
             return this.jdbcTemplate.query(sqlBuilder.toString(), rm, penaltyWaitPeriod);
@@ -2161,6 +2169,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             return list;
         }
         final Charge penaltyCharge = optPenaltyCharge.get();
+
+        // Check if cumulative penalty cap has been reached
+        final BigDecimal maxCumulativePenaltyCap = penaltyCharge.getMaxCumulativePenaltyCap();
+        if (maxCumulativePenaltyCap != null) {
+            BigDecimal existingPenaltyAmount = loan.getCharges().stream().filter(LoanCharge::isPenaltyCharge).filter(LoanCharge::isActive)
+                    .filter(c -> c.getCharge().getId().equals(penaltyCharge.getId())).map(LoanCharge::amount).filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            if (existingPenaltyAmount.compareTo(maxCumulativePenaltyCap) >= 0) {
+                return list; // Cap already reached, no need to process
+            }
+        }
 
         final Long penaltyWaitPeriod = configurationDomainService.retrievePenaltyWaitPeriod();
         final boolean backdatePenalties = configurationDomainService.isBackdatePenaltiesEnabled();

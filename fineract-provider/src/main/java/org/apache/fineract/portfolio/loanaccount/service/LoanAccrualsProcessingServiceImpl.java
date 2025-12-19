@@ -311,10 +311,10 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
             final Money totalInterestOutstanding = Money.of(currency, loan.getSummary().getTotalInterestOutstanding());
             final Money interestPortion = totalInterestOutstanding.minus(incomeDetails.get(Loan.INTEREST));
-            
+
             final Money totalFeeChargesOutstanding = Money.of(currency, loan.getSummary().getTotalFeeChargesOutstanding());
             Money feePortion = totalFeeChargesOutstanding.minus(incomeDetails.get(Loan.FEE));
-            
+
             final Money totalPenaltyChargesOutstanding = Money.of(currency, loan.getSummary().getTotalPenaltyChargesOutstanding());
             final Money penaltyPortion = totalPenaltyChargesOutstanding.minus(incomeDetails.get(Loan.PENALTIES));
 

@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanproduct.data;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 
@@ -27,13 +28,20 @@ public class LoanOverdueDTO {
     private final boolean runInterestRecalculation;
     private final LocalDate recalculateFrom;
     private final LocalDate lastChargeAppliedDate;
+    private final BigDecimal remainingCumulativePenaltyCap;
 
     public LoanOverdueDTO(final Loan loan, final boolean runInterestRecalculation, final LocalDate recalculateFrom,
             final LocalDate lastChargeAppliedDate) {
+        this(loan, runInterestRecalculation, recalculateFrom, lastChargeAppliedDate, null);
+    }
+
+    public LoanOverdueDTO(final Loan loan, final boolean runInterestRecalculation, final LocalDate recalculateFrom,
+            final LocalDate lastChargeAppliedDate, final BigDecimal remainingCumulativePenaltyCap) {
         this.loan = loan;
         this.runInterestRecalculation = runInterestRecalculation;
         this.recalculateFrom = recalculateFrom;
         this.lastChargeAppliedDate = lastChargeAppliedDate;
+        this.remainingCumulativePenaltyCap = remainingCumulativePenaltyCap;
     }
 
     public boolean isRunInterestRecalculation() {
@@ -50,5 +58,9 @@ public class LoanOverdueDTO {
 
     public LocalDate getLastChargeAppliedDate() {
         return this.lastChargeAppliedDate;
+    }
+
+    public BigDecimal getRemainingCumulativePenaltyCap() {
+        return this.remainingCumulativePenaltyCap;
     }
 }
