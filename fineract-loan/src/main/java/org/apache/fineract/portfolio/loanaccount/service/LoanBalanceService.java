@@ -229,7 +229,8 @@ public class LoanBalanceService {
         final LocalDate currentDate = DateUtils.getBusinessLocalDate();
 
         final LoanRepaymentScheduleInstallment foreclosureDetail = new LoanRepaymentScheduleInstallment(null, 0, currentDate, currentDate,
-                totalPrincipal.getAmount(), receivables[0].getAmount(), receivables[1].getAmount(), receivables[2].getAmount(), false, null);
+                totalPrincipal.getAmount(), receivables[0].getAmount(), receivables[1].getAmount(), receivables[2].getAmount(), false,
+                null);
 
         return foreclosureDetail;
     }
@@ -249,8 +250,8 @@ public class LoanBalanceService {
         final Money roundedOutstandingAmount = Money.roundToMultiplesOf(outstandingAmount, installmentAmountInMultiplesOf);
         final BigDecimal adjustedInterestAmount = roundedOutstandingAmount.getAmount().subtract(outstandingAmount.getAmount());
 
-        foreclosureDetail
-                .setInterestCharged(foreclosureDetail.getInterestCharged(currency).plus(Money.of(currency, adjustedInterestAmount)).getAmount());
+        foreclosureDetail.setInterestCharged(
+                foreclosureDetail.getInterestCharged(currency).plus(Money.of(currency, adjustedInterestAmount)).getAmount());
         foreclosureDetail.setAdjustedInterestAmount(adjustedInterestAmount);
     }
 
@@ -275,8 +276,8 @@ public class LoanBalanceService {
             final MonetaryCurrency currency, final Integer multiplesOf) {
 
         final LoanRepaymentScheduleInstallment earliestUnpaidInstallment = loan.getRepaymentScheduleInstallments().stream()
-                .filter(LoanRepaymentScheduleInstallment::isNotFullyPaidOff)
-                .min((i1, i2) -> i1.getDueDate().compareTo(i2.getDueDate())).orElse(null);
+                .filter(LoanRepaymentScheduleInstallment::isNotFullyPaidOff).min((i1, i2) -> i1.getDueDate().compareTo(i2.getDueDate()))
+                .orElse(null);
 
         final Money totalOutstanding = loan.getSummary().getTotalOutstanding(currency);
         final Money roundedTotalOutstanding = Money.roundToMultiplesOf(totalOutstanding, multiplesOf);
@@ -301,7 +302,7 @@ public class LoanBalanceService {
         }
 
         refreshSummaryAndBalancesForDisbursedLoan(loan);
-        
+
         final Money finalTotalOutstanding = loan.getSummary().getTotalOutstanding(currency);
         final Money finalRoundedTotalOutstanding = Money.roundToMultiplesOf(finalTotalOutstanding, multiplesOf);
         loan.getSummary().updateTotalOutstanding(finalRoundedTotalOutstanding.getAmount());

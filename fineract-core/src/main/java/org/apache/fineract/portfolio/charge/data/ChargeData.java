@@ -68,6 +68,7 @@ public final class ChargeData implements Comparable<ChargeData>, Serializable {
     private final Integer feeInterval;
     private final BigDecimal minCap;
     private final BigDecimal maxCap;
+    private final BigDecimal maxCumulativePenaltyCap;
     private final EnumOptionData feeFrequency;
     private final GLAccountData incomeOrLiabilityAccount;
     private final TaxGroupData taxGroup;

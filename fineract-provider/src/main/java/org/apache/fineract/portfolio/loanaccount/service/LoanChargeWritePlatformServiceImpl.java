@@ -841,6 +841,16 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         if (optPenaltyCharge.isEmpty()) {
             return;
         }
+        final Charge penaltyCharge = optPenaltyCharge.get();
+        final BigDecimal maxCumulativePenaltyCap = penaltyCharge.getMaxCumulativePenaltyCap();
+        BigDecimal remainingCumulativePenaltyCap = null;
+        if (maxCumulativePenaltyCap != null) {
+            BigDecimal alreadyApplied = calculateExistingPenaltyAmountForCharge(loan, penaltyCharge);
+            remainingCumulativePenaltyCap = maxCumulativePenaltyCap.subtract(alreadyApplied);
+            if (remainingCumulativePenaltyCap.compareTo(BigDecimal.ZERO) <= 0) {
+                return;
+            }
+        }
         boolean runInterestRecalculation = false;
         LocalDate recalculateFrom = DateUtils.getBusinessLocalDate();
         LocalDate lastChargeDate = null;
@@ -851,15 +861,19 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                     null, null, null, loanId, null, null, null, null, null, null, null, null);
 
             LoanOverdueDTO overdueDTO = applyChargeToOverdueLoanInstallment(loan, overdueInstallment.getChargeId(),
-                    overdueInstallment.getPeriodNumber(), command);
+                    overdueInstallment.getPeriodNumber(), command, remainingCumulativePenaltyCap);
 
             loan = overdueDTO.getLoan();
+            remainingCumulativePenaltyCap = overdueDTO.getRemainingCumulativePenaltyCap();
             runInterestRecalculation = runInterestRecalculation || overdueDTO.isRunInterestRecalculation();
             if (DateUtils.isAfter(recalculateFrom, overdueDTO.getRecalculateFrom())) {
                 recalculateFrom = overdueDTO.getRecalculateFrom();
             }
             if (lastChargeDate == null || DateUtils.isAfter(overdueDTO.getLastChargeAppliedDate(), lastChargeDate)) {
                 lastChargeDate = overdueDTO.getLastChargeAppliedDate();
+            }
+            if (remainingCumulativePenaltyCap != null && remainingCumulativePenaltyCap.compareTo(BigDecimal.ZERO) <= 0) {
+                break;
             }
         }
         if (loan != null) {
@@ -1115,7 +1129,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     }
 
     private LoanOverdueDTO applyChargeToOverdueLoanInstallment(final Loan loan, final Long loanChargeId, final Integer periodNumber,
-            final JsonCommand command) {
+            final JsonCommand command, BigDecimal remainingCumulativePenaltyCap) {
         boolean runInterestRecalculation = false;
         final Charge chargeDefinition = this.chargeRepository.findOneWithNotFoundDetection(loanChargeId);
 
@@ -1128,6 +1142,10 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         final Long penaltyWaitPeriodValue = this.configurationDomainService.retrievePenaltyWaitPeriod();
         final Long penaltyPostingWaitPeriodValue = this.configurationDomainService.retrieveGraceOnPenaltyPostingPeriod();
         final LocalDate dueDate = command.localDateValueOfParameterNamed("dueDate");
+        if (remainingCumulativePenaltyCap != null && remainingCumulativePenaltyCap.compareTo(BigDecimal.ZERO) <= 0) {
+            return new LoanOverdueDTO(loan, runInterestRecalculation, DateUtils.getBusinessLocalDate(), dueDate,
+                    remainingCumulativePenaltyCap);
+        }
         long diff = penaltyWaitPeriodValue + 1 - penaltyPostingWaitPeriodValue;
         if (diff < 1) {
             diff = 1L;
@@ -1157,13 +1175,31 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             lastChargeAppliedDate = installment.getDueDate();
             businessEventNotifierService.notifyPreBusinessEvent(new LoanApplyOverdueChargeBusinessEvent(loan));
 
-            for (Map.Entry<Integer, LocalDate> entry : scheduleDates.entrySet()) {
+            List<Map.Entry<Integer, LocalDate>> sortedScheduleDates = scheduleDates.entrySet().stream().sorted(Map.Entry.comparingByValue())
+                    .collect(Collectors.toList());
 
+            for (Map.Entry<Integer, LocalDate> entry : sortedScheduleDates) {
                 final LoanCharge loanCharge = loanChargeAssembler.createNewFromJson(loan, chargeDefinition, command, entry.getValue());
 
                 if (BigDecimal.ZERO.compareTo(loanCharge.amount()) == 0) {
                     continue;
                 }
+
+                if (remainingCumulativePenaltyCap != null) {
+                    if (remainingCumulativePenaltyCap.compareTo(BigDecimal.ZERO) <= 0) {
+                        break;
+                    }
+                    BigDecimal cappedAmount = loanCharge.amount().min(remainingCumulativePenaltyCap);
+                    if (cappedAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                        continue;
+                    }
+                    if (cappedAmount.compareTo(loanCharge.amount()) < 0) {
+                        loanCharge.setAmount(cappedAmount);
+                        loanCharge.setAmountOutstanding(loanCharge.calculateOutstanding());
+                    }
+                    remainingCumulativePenaltyCap = remainingCumulativePenaltyCap.subtract(loanCharge.amount());
+                }
+
                 LoanOverdueInstallmentCharge overdueInstallmentCharge = new LoanOverdueInstallmentCharge(loanCharge, installment,
                         entry.getKey());
                 loanCharge.updateOverdueInstallmentCharge(overdueInstallmentCharge);
@@ -1181,7 +1217,13 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         }
 
-        return new LoanOverdueDTO(loan, runInterestRecalculation, recalculateFrom, lastChargeAppliedDate);
+        return new LoanOverdueDTO(loan, runInterestRecalculation, recalculateFrom, lastChargeAppliedDate, remainingCumulativePenaltyCap);
+    }
+
+    private BigDecimal calculateExistingPenaltyAmountForCharge(Loan loan, Charge chargeDefinition) {
+        return loan.getCharges().stream().filter(LoanCharge::isPenaltyCharge).filter(LoanCharge::isActive)
+                .filter(c -> c.getCharge().getId().equals(chargeDefinition.getId())).map(LoanCharge::amount)
+                .filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private void addInstallmentIfPenaltyAppliedAfterLastDueDate(Loan loan, LocalDate lastChargeDate) {
