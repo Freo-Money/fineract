@@ -1519,7 +1519,7 @@ public final class LoanApplicationValidator {
     private void validateClientOrGroup(Client client, Group group, Long productId) {
         Validator.validateOrThrow("loan", baseDataValidator -> {
             if (client == null && group == null) {
-                //baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(client).notNull();
+                // baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(client).notNull();
             } else {
                 if (client != null) {
                     officeSpecificLoanProductValidation(productId, client.getOffice().getId());
