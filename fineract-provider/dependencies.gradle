@@ -39,6 +39,7 @@ dependencies {
     implementation(project(path: ':fineract-progressive-loan'))
     implementation(project(path: ':fineract-report'))
     implementation(project(path: ':fineract-tax'))
+    implementation(project(path: ':fineract-customizations'))
 
     providedRuntime("org.springframework.boot:spring-boot-starter-tomcat")
 
@@ -56,6 +57,7 @@ dependencies {
             'org.springframework.boot:spring-boot-starter-validation',
             'org.springframework.boot:spring-boot-starter-security',
             'org.springframework.boot:spring-boot-starter-cache',
+            'org.springframework.boot:spring-boot-starter-data-redis',
             'org.springframework.boot:spring-boot-starter-oauth2-resource-server',
             'org.springframework.boot:spring-boot-starter-actuator',
             'org.springframework.boot:spring-boot-starter-batch',

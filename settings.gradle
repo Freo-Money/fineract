@@ -89,3 +89,5 @@ file("${rootDir}/custom").eachDir { companyDir ->
         }
     }
 }
+include ':fineract-customizations'
+project(':fineract-customizations').projectDir = file('../fineract-customizations')

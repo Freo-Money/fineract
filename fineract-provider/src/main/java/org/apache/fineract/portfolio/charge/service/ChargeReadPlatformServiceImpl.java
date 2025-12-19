@@ -70,7 +70,7 @@ public class ChargeReadPlatformServiceImpl implements ChargeReadPlatformService 
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
 
     @Override
-    @Cacheable(value = "charges", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('ch')")
+    @Cacheable(value = "charges", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('ch')", cacheManager = "redisCacheManager")
     public List<ChargeData> retrieveAllCharges() {
         final ChargeMapper rm = new ChargeMapper();
 
@@ -96,6 +96,7 @@ public class ChargeReadPlatformServiceImpl implements ChargeReadPlatformService 
     }
 
     @Override
+    @Cacheable(value = "charges", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('ch_').concat(#chargeId)", cacheManager = "redisCacheManager")
     public ChargeData retrieveCharge(final Long chargeId) {
         try {
             final ChargeMapper rm = new ChargeMapper();

@@ -1,4 +1,4 @@
-    /**
+/**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements. See the NOTICE file
  * distributed with this work for additional information
@@ -49,7 +49,8 @@ buildscript {
                 'fineract-e2e-tests-core',
                 'fineract-e2e-tests-runner',
                 'fineract-progressive-loan',
-                'fineract-progressive-loan-embeddable-schedule-generator'
+                'fineract-progressive-loan-embeddable-schedule-generator',
+                'fineract-customizations'
             ].contains(it.name)
         }
         fineractPublishProjects = subprojects.findAll{
@@ -72,7 +73,8 @@ buildscript {
                 'fineract-branch',
                 'fineract-document',
                 'fineract-progressive-loan',
-                'fineract-progressive-loan-embeddable-schedule-generator'
+                'fineract-progressive-loan-embeddable-schedule-generator',
+                'fineract-customizations'
             ].contains(it.name)
         }
         npmRepository = 'https://npm.pkg.github.com'
@@ -477,7 +479,7 @@ configure(project.fineractJavaProjects) {
     dependencies {
         spotbugsPlugins 'jp.skypencil.findbugs.slf4j:bug-pattern:1.5.0@jar'
     }
-
+    
     // Configuration for the spotless plugin
     // https://github.com/diffplug/spotless/tree/main/plugin-gradle
     spotless {
