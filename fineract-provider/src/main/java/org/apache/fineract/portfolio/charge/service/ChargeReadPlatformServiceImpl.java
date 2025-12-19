@@ -279,6 +279,7 @@ public class ChargeReadPlatformServiceImpl implements ChargeReadPlatformService 
                     + "oc.currency_multiplesof as inMultiplesOf, oc.display_symbol as currencyDisplaySymbol, "
                     + "oc.internationalized_name_code as currencyNameCode, c.fee_on_day as feeOnDay, c.fee_on_month as feeOnMonth, "
                     + "c.fee_interval as feeInterval, c.fee_frequency as feeFrequency,c.min_cap as minCap,c.max_cap as maxCap, "
+                    + "c.max_cumulative_penalty_cap as maxCumulativePenaltyCap, "
                     + "c.income_or_liability_account_id as glAccountId , acc.name as glAccountName, acc.gl_code as glCode, "
                     + "tg.id as taxGroupId, c.is_payment_type as isPaymentType, pt.id as paymentTypeId, pt.value as paymentTypeName, tg.name as taxGroupName "
                     + "from m_charge c " + "join m_organisation_currency oc on c.currency_code = oc.code "
@@ -343,6 +344,7 @@ public class ChargeReadPlatformServiceImpl implements ChargeReadPlatformService 
             }
             final BigDecimal minCap = rs.getBigDecimal("minCap");
             final BigDecimal maxCap = rs.getBigDecimal("maxCap");
+            final BigDecimal maxCumulativePenaltyCap = rs.getBigDecimal("maxCumulativePenaltyCap");
 
             // extract GL Account
             final Long glAccountId = JdbcSupport.getLong(rs, "glAccountId");
@@ -379,8 +381,8 @@ public class ChargeReadPlatformServiceImpl implements ChargeReadPlatformService 
                     .feeOnMonthDay(feeOnMonthDay).feeInterval(feeInterval).penalty(penalty).active(active).freeWithdrawal(isFreeWithdrawal)
                     .freeWithdrawalChargeFrequency(freeWithdrawalChargeFrequency).restartFrequency(restartFrequency)
                     .restartFrequencyEnum(restartFrequencyEnum).isPaymentType(isPaymentType).paymentTypeOptions(paymentTypeData)
-                    .minCap(minCap).maxCap(maxCap).feeFrequency(feeFrequencyType).incomeOrLiabilityAccount(glAccountData)
-                    .taxGroup(taxGroupData).build();
+                    .minCap(minCap).maxCap(maxCap).maxCumulativePenaltyCap(maxCumulativePenaltyCap).feeFrequency(feeFrequencyType)
+                    .incomeOrLiabilityAccount(glAccountData).taxGroup(taxGroupData).build();
 
         }
     }
