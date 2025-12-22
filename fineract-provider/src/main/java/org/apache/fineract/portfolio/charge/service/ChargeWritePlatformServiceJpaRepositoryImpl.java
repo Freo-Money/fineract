@@ -70,8 +70,7 @@ public class ChargeWritePlatformServiceJpaRepositoryImpl implements ChargeWriteP
 
     @Transactional
     @Override
-    @CacheEvict(value = "charges", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('ch')")
-    public CommandProcessingResult createCharge(final JsonCommand command) {
+    @CacheEvict(value = "charges", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('ch')", cacheManager = "redisCacheManager")    public CommandProcessingResult createCharge(final JsonCommand command) {
         try {
             this.context.authenticatedUser();
             this.fromApiJsonDeserializer.validateForCreate(command.json());
@@ -121,7 +120,7 @@ public class ChargeWritePlatformServiceJpaRepositoryImpl implements ChargeWriteP
 
     @Transactional
     @Override
-    @CacheEvict(value = "charges", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('ch')")
+    @CacheEvict(value = "charges", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('ch')", cacheManager = "redisCacheManager")
     public CommandProcessingResult updateCharge(final Long chargeId, final JsonCommand command) {
 
         try {
@@ -209,7 +208,7 @@ public class ChargeWritePlatformServiceJpaRepositoryImpl implements ChargeWriteP
 
     @Transactional
     @Override
-    @CacheEvict(value = "charges", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('ch')")
+    @CacheEvict(value = "charges", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('ch')", cacheManager = "redisCacheManager")
     public CommandProcessingResult deleteCharge(final Long chargeId) {
 
         final Charge chargeForDelete = this.chargeRepository.findById(chargeId).orElseThrow(() -> new ChargeNotFoundException(chargeId));

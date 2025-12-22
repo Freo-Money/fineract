@@ -46,6 +46,7 @@ import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuild
 import org.apache.fineract.infrastructure.core.exception.ErrorHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.dao.NonTransientDataAccessException;
@@ -70,6 +71,7 @@ public class GLAccountWritePlatformServiceJpaRepositoryImpl implements GLAccount
 
     @Transactional
     @Override
+    @CacheEvict(value = "gl_accounts", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('gl')", cacheManager = "redisCacheManager")
     public CommandProcessingResult createGLAccount(final JsonCommand command) {
         try {
             final GLAccountCommand accountCommand = this.fromApiJsonDeserializer.commandFromApiJson(command.json());
@@ -109,6 +111,7 @@ public class GLAccountWritePlatformServiceJpaRepositoryImpl implements GLAccount
 
     @Transactional
     @Override
+    @CacheEvict(value = "gl_accounts", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('gl')", cacheManager = "redisCacheManager")
     public CommandProcessingResult updateGLAccount(final Long glAccountId, final JsonCommand command) {
         try {
             final GLAccountCommand accountCommand = this.fromApiJsonDeserializer.commandFromApiJson(command.json());
@@ -182,6 +185,7 @@ public class GLAccountWritePlatformServiceJpaRepositoryImpl implements GLAccount
 
     @Transactional
     @Override
+    @CacheEvict(value = "gl_accounts", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('gl')", cacheManager = "redisCacheManager")
     public CommandProcessingResult deleteGLAccount(final Long glAccountId) {
         final GLAccount glAccount = this.glAccountRepository.findById(glAccountId)
                 .orElseThrow(() -> new GLAccountNotFoundException(glAccountId));

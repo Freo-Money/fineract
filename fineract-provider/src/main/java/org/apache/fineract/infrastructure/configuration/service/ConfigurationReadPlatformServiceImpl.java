@@ -33,6 +33,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.Cacheable;
 
 @Service
 public class ConfigurationReadPlatformServiceImpl implements ConfigurationReadPlatformService {
@@ -73,6 +74,7 @@ public class ConfigurationReadPlatformServiceImpl implements ConfigurationReadPl
     }
 
     @Override
+    @Cacheable(value = "global_config", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('gc_n_').concat(#name)", cacheManager = "redisCacheManager")
     public GlobalConfigurationPropertyData retrieveGlobalConfiguration(final String name) {
 
         this.context.authenticatedUser();

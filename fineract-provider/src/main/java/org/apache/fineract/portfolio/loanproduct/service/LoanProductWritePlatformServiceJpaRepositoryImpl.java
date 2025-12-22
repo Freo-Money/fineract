@@ -71,6 +71,7 @@ import org.apache.fineract.portfolio.loanproduct.exception.LoanProductNotFoundEx
 import org.apache.fineract.portfolio.loanproduct.serialization.LoanProductDataValidator;
 import org.apache.fineract.portfolio.rate.domain.Rate;
 import org.apache.fineract.portfolio.rate.domain.RateRepositoryWrapper;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.transaction.annotation.Transactional;
@@ -186,6 +187,7 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
 
     @Transactional
     @Override
+    @CacheEvict(value = "loan_products", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('lp')", cacheManager = "redisCacheManager")
     public CommandProcessingResult updateLoanProduct(final Long loanProductId, final JsonCommand command) {
 
         try {

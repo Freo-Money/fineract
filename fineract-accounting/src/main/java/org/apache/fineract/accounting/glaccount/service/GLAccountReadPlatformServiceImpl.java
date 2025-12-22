@@ -39,6 +39,7 @@ import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
+import org.springframework.cache.annotation.Cacheable;
 
 @Service
 @RequiredArgsConstructor
@@ -191,6 +192,7 @@ public class GLAccountReadPlatformServiceImpl implements GLAccountReadPlatformSe
     }
 
     @Override
+    @Cacheable(value = "gl_accounts", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('gl_').concat(#glAccountId)", cacheManager = "redisCacheManager")
     public GLAccountData retrieveGLAccountById(final long glAccountId, JournalEntryAssociationParametersData associationParametersData) {
         try {
             final GLAccountMapper rm = new GLAccountMapper(associationParametersData);

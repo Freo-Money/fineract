@@ -37,6 +37,7 @@ import org.apache.fineract.portfolio.tax.data.TaxGroupData;
 import org.apache.fineract.portfolio.tax.data.TaxGroupMappingsData;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.cache.annotation.Cacheable;
 
 @RequiredArgsConstructor
 public class TaxReadPlatformServiceImpl implements TaxReadPlatformService {
@@ -56,6 +57,7 @@ public class TaxReadPlatformServiceImpl implements TaxReadPlatformService {
     }
 
     @Override
+    @Cacheable(value = "tax_components", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('tc_').concat(#id)", cacheManager = "redisCacheManager")
     public TaxComponentData retrieveTaxComponentData(final Long id) {
         String sql = "select " + TAX_COMPONENT_MAPPER.getSchema() + " where tc.id=?";
         return this.jdbcTemplate.queryForObject(sql, TAX_COMPONENT_MAPPER, id); // NOSONAR
@@ -74,6 +76,7 @@ public class TaxReadPlatformServiceImpl implements TaxReadPlatformService {
     }
 
     @Override
+    @Cacheable(value = "tax_groups", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('tg_').concat(#id)", cacheManager = "redisCacheManager")
     public TaxGroupData retrieveTaxGroupData(final Long id) {
         String sql = "select " + TAX_GROUP_MAPPER.getSchema() + " where tg.id=?";
         return this.jdbcTemplate.queryForObject(sql, TAX_GROUP_MAPPER, id); // NOSONAR

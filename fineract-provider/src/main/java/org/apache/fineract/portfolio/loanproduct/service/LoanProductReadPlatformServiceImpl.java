@@ -74,6 +74,7 @@ import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.lang.NonNull;
+import org.springframework.cache.annotation.Cacheable;
 
 @RequiredArgsConstructor
 public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatformService {
@@ -88,6 +89,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
     private final LoanProductRepository loanProductRepository;
 
     @Override
+    @Cacheable(value = "loan_products", key = "T(org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil).getTenant().getTenantIdentifier().concat('lp_').concat(#loanProductId)", cacheManager = "redisCacheManager")
     public LoanProductData retrieveLoanProduct(final Long loanProductId) {
 
         try {
