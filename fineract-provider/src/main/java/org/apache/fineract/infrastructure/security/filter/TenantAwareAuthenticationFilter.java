@@ -26,6 +26,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
+import org.apache.fineract.infrastructure.security.exception.InvalidTenantIdentifierException;
 import org.apache.fineract.infrastructure.security.service.AuthTenantDetailsService;
 import org.springframework.lang.NonNull;
 import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
@@ -34,6 +35,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @RequiredArgsConstructor
 public class TenantAwareAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final String TENANT_ID_REQUEST_HEADER = "Fineract-Platform-TenantId";
     private final BearerTokenResolver resolver;
     private final AuthTenantDetailsService tenantDetailsService;
 
@@ -42,13 +44,32 @@ public class TenantAwareAuthenticationFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain) throws ServletException, IOException {
         try {
             String token = resolver.resolve(request);
-            String tenantId;
+            String tenantId = null;
             if (token != null) {
-                var jwt = JWTParser.parse(token); // not validated here!
-                var claims = jwt.getJWTClaimsSet();
-                tenantId = (String) claims.getClaim("tenant");
-            } else {
+                try {
+                    var jwt = JWTParser.parse(token); // not validated here!
+                    var claims = jwt.getJWTClaimsSet();
+                    tenantId = (String) claims.getClaim("tenant");
+                } catch (Exception e) {
+                    // If JWT parsing fails, continue to find tenant id in header or parameter
+                }
+            }
+
+            if (tenantId == null || tenantId.isEmpty()) {
+                tenantId = request.getHeader(TENANT_ID_REQUEST_HEADER);
+            }
+
+            if (tenantId == null || tenantId.isEmpty()) {
                 tenantId = request.getParameter("tenantId");
+            }
+
+            if (tenantId == null || tenantId.isEmpty()) {
+                tenantId = request.getParameter("tenantIdentifier");
+            }
+
+            if (tenantId == null || tenantId.isEmpty()) {
+                throw new InvalidTenantIdentifierException("No tenant identifier found: Add request header of '" + TENANT_ID_REQUEST_HEADER
+                        + "' or add the parameter 'tenantIdentifier' to query string of request URL.");
             }
             ThreadLocalContextUtil.setTenant(tenantDetailsService.loadTenantById(tenantId, false));
             filterChain.doFilter(request, response);
