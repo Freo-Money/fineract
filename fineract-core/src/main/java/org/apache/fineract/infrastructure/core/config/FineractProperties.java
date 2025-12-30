@@ -520,6 +520,7 @@ public class FineractProperties {
         private FineractSecurityTwoFactorAuth twoFactor;
         private FineractSecurityHsts hsts;
         private FineractSecurityOAuth2Properties oauth2;
+        private CorsProperties cors;
 
         public void set2fa(FineractSecurityTwoFactorAuth twoFactor) {
             this.twoFactor = twoFactor;
@@ -688,5 +689,17 @@ public class FineractProperties {
 
             }
         }
+    }
+
+    @Getter
+    @Setter
+    public static class CorsProperties {
+
+        private boolean enabled;
+        private List<String> allowedOriginPatterns;
+        private List<String> allowedMethods;
+        private List<String> allowedHeaders;
+        private List<String> exposedHeaders;
+        private boolean allowCredentials;
     }
 }
