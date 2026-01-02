@@ -89,7 +89,10 @@ public class UserDetailsApiResource {
         final Collection<String> permissions = new ArrayList<>();
         AuthenticatedOauthUserData authenticatedUserData;
 
-        final Collection<GrantedAuthority> authorities = new ArrayList<>(authentication.getAuthorities());
+        // Use principal's authorities (Fineract permissions) instead of JWT scopes
+        // JWT scopes come with "SCOPE_" prefix which are not the actual permissions
+        // final Collection<GrantedAuthority> authorities = new ArrayList<>(authentication.getAuthorities());
+        final Collection<GrantedAuthority> authorities = new ArrayList<>(principal.getAuthorities());
         for (final GrantedAuthority grantedAuthority : authorities) {
             permissions.add(grantedAuthority.getAuthority());
         }
