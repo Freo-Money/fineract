@@ -35,7 +35,9 @@ import org.apache.fineract.portfolio.tax.data.TaxComponentData;
 import org.apache.fineract.portfolio.tax.data.TaxComponentHistoryData;
 import org.apache.fineract.portfolio.tax.data.TaxGroupData;
 import org.apache.fineract.portfolio.tax.data.TaxGroupMappingsData;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowMapper;
 
 @RequiredArgsConstructor
@@ -52,7 +54,7 @@ public class TaxReadPlatformServiceImpl implements TaxReadPlatformService {
     @Override
     public List<TaxComponentData> retrieveAllTaxComponents() {
         String sql = "select " + TAX_COMPONENT_MAPPER.getSchema();
-        return this.jdbcTemplate.query(sql, TAX_COMPONENT_MAPPER); // NOSONAR
+        return this.jdbcTemplate.query(sql, TAX_COMPONENT_MAPPER.getResultSetExtractor()); // NOSONAR
     }
 
     @Override
@@ -70,7 +72,7 @@ public class TaxReadPlatformServiceImpl implements TaxReadPlatformService {
     @Override
     public List<TaxGroupData> retrieveAllTaxGroups() {
         String sql = "select " + TAX_GROUP_MAPPER.getSchema();
-        return this.jdbcTemplate.query(sql, TAX_GROUP_MAPPER); // NOSONAR
+        return this.jdbcTemplate.query(sql, TAX_GROUP_MAPPER.getResultSetExtractor()); // NOSONAR
     }
 
     @Override
@@ -175,6 +177,91 @@ public class TaxReadPlatformServiceImpl implements TaxReadPlatformService {
             return this.schema;
         }
 
+        public ResultSetExtractor<List<TaxComponentData>> getResultSetExtractor() {
+            return new TaxComponentResultSetExtractor(this.componentHistoryDataMapper);
+        }
+    }
+
+    private static final class TaxComponentResultSetExtractor implements ResultSetExtractor<List<TaxComponentData>> {
+
+        private final TaxComponentHistoryDataMapper componentHistoryDataMapper;
+
+        TaxComponentResultSetExtractor(TaxComponentHistoryDataMapper componentHistoryDataMapper) {
+            this.componentHistoryDataMapper = componentHistoryDataMapper;
+        }
+
+        @Override
+        public List<TaxComponentData> extractData(ResultSet rs) throws SQLException, DataAccessException {
+            List<TaxComponentData> taxComponents = new ArrayList<>();
+            Long currentId = null;
+            String currentName = null;
+            BigDecimal currentPercentage = null;
+            EnumOptionData currentDebitAccountType = null;
+            GLAccountData currentDebitAccountData = null;
+            EnumOptionData currentCreditAccountType = null;
+            GLAccountData currentCreditAccountData = null;
+            LocalDate currentStartDate = null;
+            Collection<TaxComponentHistoryData> historyDatas = null;
+
+            while (rs.next()) {
+                final Long id = rs.getLong("id");
+                if (currentId == null || !currentId.equals(id)) {
+                    // Save previous component if exists
+                    if (currentId != null) {
+                        taxComponents.add(TaxComponentData.instance(currentId, currentName, currentPercentage, currentDebitAccountType,
+                                currentDebitAccountData, currentCreditAccountType, currentCreditAccountData, currentStartDate,
+                                historyDatas));
+                    }
+                    // Start new component
+                    currentId = id;
+                    currentName = rs.getString("name");
+                    currentPercentage = rs.getBigDecimal("percentage");
+                    final Integer debitAccountTypeEnum = JdbcSupport.getIntegerDefaultToNullIfZero(rs, "debitAccountTypeEnum");
+                    currentDebitAccountType = null;
+                    if (debitAccountTypeEnum != null) {
+                        currentDebitAccountType = AccountingEnumerations.gLAccountType(debitAccountTypeEnum);
+                    }
+                    currentDebitAccountData = null;
+                    if (debitAccountTypeEnum != null && debitAccountTypeEnum > 0) {
+                        final Long debitAccountId = rs.getLong("debitAccountId");
+                        final String debitAccountName = rs.getString("debitAccountName");
+                        final String debitAccountGlCode = rs.getString("debitAccountGlCode");
+                        currentDebitAccountData = new GLAccountData().setId(debitAccountId).setName(debitAccountName)
+                                .setGlCode(debitAccountGlCode);
+                    }
+
+                    final Integer creditAccountTypeEnum = JdbcSupport.getIntegerDefaultToNullIfZero(rs, "creditAccountTypeEnum");
+                    currentCreditAccountType = null;
+                    if (creditAccountTypeEnum != null) {
+                        currentCreditAccountType = AccountingEnumerations.gLAccountType(creditAccountTypeEnum);
+                    }
+                    currentCreditAccountData = null;
+                    if (creditAccountTypeEnum != null && creditAccountTypeEnum > 0) {
+                        final Long creditAccountId = rs.getLong("creditAccountId");
+                        final String creditAccountName = rs.getString("creditAccountName");
+                        final String creditAccountGlCode = rs.getString("creditAccountGlCode");
+                        currentCreditAccountData = new GLAccountData().setId(creditAccountId).setName(creditAccountName)
+                                .setGlCode(creditAccountGlCode);
+                    }
+                    currentStartDate = JdbcSupport.getLocalDate(rs, "startDate");
+                    historyDatas = new ArrayList<>();
+                }
+                // Add history data (can be null for components without history)
+                final BigDecimal historyPercentage = rs.getBigDecimal("historyPercentage");
+                if (historyPercentage != null || rs.getDate("historyStartDate") != null) {
+                    if (historyDatas == null) {
+                        historyDatas = new ArrayList<>();
+                    }
+                    historyDatas.add(this.componentHistoryDataMapper.mapRow(rs, 0));
+                }
+            }
+            // Add the last component
+            if (currentId != null) {
+                taxComponents.add(TaxComponentData.instance(currentId, currentName, currentPercentage, currentDebitAccountType,
+                        currentDebitAccountData, currentCreditAccountType, currentCreditAccountData, currentStartDate, historyDatas));
+            }
+            return taxComponents;
+        }
     }
 
     private static final class TaxComponentHistoryDataMapper implements RowMapper<TaxComponentHistoryData> {
@@ -227,6 +314,49 @@ public class TaxReadPlatformServiceImpl implements TaxReadPlatformService {
             return this.schema;
         }
 
+        public ResultSetExtractor<List<TaxGroupData>> getResultSetExtractor() {
+            return new TaxGroupResultSetExtractor(this.taxGroupMappingsDataMapper);
+        }
+    }
+
+    private static final class TaxGroupResultSetExtractor implements ResultSetExtractor<List<TaxGroupData>> {
+
+        private final TaxGroupMappingsDataMapper taxGroupMappingsDataMapper;
+
+        TaxGroupResultSetExtractor(TaxGroupMappingsDataMapper taxGroupMappingsDataMapper) {
+            this.taxGroupMappingsDataMapper = taxGroupMappingsDataMapper;
+        }
+
+        @Override
+        public List<TaxGroupData> extractData(ResultSet rs) throws SQLException, DataAccessException {
+            List<TaxGroupData> taxGroups = new ArrayList<>();
+            Long currentId = null;
+            String currentName = null;
+            Collection<TaxGroupMappingsData> taxAssociations = null;
+
+            while (rs.next()) {
+                final Long id = rs.getLong("id");
+                if (currentId == null || !currentId.equals(id)) {
+                    // Save previous group if exists
+                    if (currentId != null) {
+                        taxGroups.add(new TaxGroupData(currentId, currentName, taxAssociations, null));
+                    }
+                    // Start new group
+                    currentId = id;
+                    currentName = rs.getString("name");
+                    taxAssociations = new ArrayList<>();
+                }
+                if (taxAssociations == null) {
+                    taxAssociations = new ArrayList<>();
+                }
+                taxAssociations.add(this.taxGroupMappingsDataMapper.mapRow(rs, 0));
+            }
+            // Add the last group
+            if (currentId != null) {
+                taxGroups.add(new TaxGroupData(currentId, currentName, taxAssociations, null));
+            }
+            return taxGroups;
+        }
     }
 
     private static final class TaxGroupMappingsDataMapper implements RowMapper<TaxGroupMappingsData> {
