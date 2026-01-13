@@ -77,7 +77,8 @@ public final class LoanScheduleValidator {
             LoanProductConstants.ENABLE_DOWN_PAYMENT, LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT,
             LoanProductConstants.ENABLE_AUTO_REPAYMENT_DOWN_PAYMENT, LoanProductConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE,
             LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR,
-            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanApiConstants.repeatsOnDayOfMonthParameterName));
+            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanApiConstants.repeatsOnDayOfMonthParameterName,
+            LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT));
 
     private final FromJsonHelper fromApiJsonHelper;
 
