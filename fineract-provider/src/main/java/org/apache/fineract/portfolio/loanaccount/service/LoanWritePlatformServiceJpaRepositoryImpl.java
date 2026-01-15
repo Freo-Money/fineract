@@ -1435,6 +1435,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         journalEntryPoster.postJournalEntriesForLoanTransaction(waiveInterestTransaction, false, false);
         loan = saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
+        // For NPA loans with periodic accrual accounting, create ACCRUAL_WRITEOFF transaction for waived interest
+        if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct() && interestComponent != null
+                && interestComponent.isGreaterThanZero()) {
+            createAccrualWriteoffTransaction(loan, transactionDate, interestComponent.getAmount(), interestComponent.getAmount(), null,
+                    null);
+        }
+
         final String noteText = command.stringValueOfParameterNamed("note");
         if (StringUtils.isNotBlank(noteText)) {
             changes.put("note", noteText);
@@ -1524,6 +1531,21 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             this.loanTransactionRepository.saveAndFlush(loanTransaction);
             journalEntryPoster.postJournalEntriesForLoanTransaction(loanTransaction, false, false);
             saveLoanWithDataIntegrityViolationChecks(loan);
+
+            // For NPA loans with periodic accrual accounting, create ACCRUAL_WRITEOFF transaction for outstanding
+            // interest, fees, and penalties
+            if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+                BigDecimal outstandingInterest = loan.getSummary().getTotalInterestOutstanding();
+                BigDecimal outstandingFees = loan.getSummary().getTotalFeeChargesOutstanding();
+                BigDecimal outstandingPenalties = loan.getSummary().getTotalPenaltyChargesOutstanding();
+                BigDecimal totalAccrualWriteoff = MathUtil.add(outstandingInterest, outstandingFees, outstandingPenalties);
+
+                if (MathUtil.isGreaterThanZero(totalAccrualWriteoff)) {
+                    createAccrualWriteoffTransaction(loan, transactionDate, totalAccrualWriteoff, outstandingInterest, outstandingFees,
+                            outstandingPenalties);
+                }
+            }
+
             final String noteText = command.stringValueOfParameterNamed("note");
             if (StringUtils.isNotBlank(noteText)) {
                 changes.put("note", noteText);
@@ -3673,5 +3695,18 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         if (latestRepaymentDate != null) {
             loan.setExpectedMaturityDate(latestRepaymentDate);
         }
+    }
+
+    /**
+     * Creates and posts an ACCRUAL_WRITEOFF transaction for NPA loans with periodic accrual accounting enabled.
+     */
+    private void createAccrualWriteoffTransaction(final Loan loan, final LocalDate transactionDate, final BigDecimal totalAmount,
+            final BigDecimal interestPortion, final BigDecimal feePortion, final BigDecimal penaltyPortion) {
+        LoanTransaction accrualWriteoffTransaction = LoanTransaction.accrualWriteoffTransaction(loan, loan.getOffice(), transactionDate,
+                totalAmount, interestPortion, feePortion, penaltyPortion, externalIdFactory.create());
+        LoanTransaction savedAccrualWriteoffTransaction = this.loanTransactionRepository.save(accrualWriteoffTransaction);
+        this.loanTransactionRepository.flush(); // Flush to ensure ID is available for journal entry posting
+        loan.addLoanTransaction(savedAccrualWriteoffTransaction);
+        journalEntryPoster.postJournalEntriesForLoanTransaction(savedAccrualWriteoffTransaction, false, false);
     }
 }

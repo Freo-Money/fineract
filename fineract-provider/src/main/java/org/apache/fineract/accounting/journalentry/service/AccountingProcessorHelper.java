@@ -1376,13 +1376,7 @@ public class AccountingProcessorHelper {
 
         if (taxPaymentDetails != null && !taxPaymentDetails.isEmpty()) {
             processTaxDetailsForCharges(chargePaymentDTOs, taxPaymentDetails, chargeIdToTaxAmountMap, accumulatedTaxByAccountMap);
-
-            for (final Map.Entry<GLAccount, BigDecimal> taxEntry : accumulatedTaxByAccountMap.entrySet()) {
-                if (MathUtil.isGreaterThanZero(taxEntry.getValue())) {
-                    createCashBasedCreditJournalEntriesAndReversalsForLoans(office, currencyCode, loanId, transactionId, transactionDate,
-                            isCredit, taxEntry.getKey(), taxEntry.getValue());
-                }
-            }
+            createTaxCreditJournalEntries(office, currencyCode, loanId, transactionId, transactionDate, taxPaymentDetails);
         }
 
         BigDecimal totalCreditedAmount = BigDecimal.ZERO;
@@ -1442,19 +1436,11 @@ public class AccountingProcessorHelper {
         }
     }
 
-    private void createCashBasedCreditJournalEntriesAndReversalsForLoans(Office office, String currencyCode, Long loanId,
-            String transactionId, LocalDate transactionDate, Boolean isReversal, GLAccount account, BigDecimal amount) {
-        if (isReversal) {
-            createDebitJournalEntryForLoan(office, currencyCode, account, loanId, transactionId, transactionDate, amount);
-        } else {
-            createCreditJournalEntryForLoan(office, currencyCode, account, loanId, transactionId, transactionDate, amount);
-        }
-    }
-
     /**
      * Calculates tax amounts for fees and penalties by aggregating tax payments and splitting proportionally. Uses the
      * provided tax payments list to calculate total tax and splits it based on fees vs penalties amounts.
      */
+
     public BigDecimal[] calculateTaxAmountsForCharges(final BigDecimal feesAmount, final BigDecimal penaltiesAmount,
             final List<TaxPaymentDTO> taxPayments) {
         BigDecimal feesTaxAmount = BigDecimal.ZERO;
@@ -1502,6 +1488,21 @@ public class AccountingProcessorHelper {
             for (Map.Entry<GLAccount, BigDecimal> taxEntry : taxAccountMap.entrySet()) {
                 if (MathUtil.isGreaterThanZero(taxEntry.getValue())) {
                     createCreditJournalEntryForLoan(office, currencyCode, loanId, transactionId, transactionDate, taxEntry.getValue(),
+                            taxEntry.getKey());
+                }
+            }
+        }
+    }
+
+    public void createTaxDebitJournalEntries(final Office office, final String currencyCode, final Long loanId, final String transactionId,
+            final LocalDate transactionDate, final List<TaxPaymentDTO> taxPayments) {
+        if (taxPayments != null && !taxPayments.isEmpty()) {
+            final Map<GLAccount, BigDecimal> taxAccountMap = new LinkedHashMap<>();
+            addTaxDetailsToGLAccount(taxPayments, taxAccountMap);
+
+            for (Map.Entry<GLAccount, BigDecimal> taxEntry : taxAccountMap.entrySet()) {
+                if (MathUtil.isGreaterThanZero(taxEntry.getValue())) {
+                    createDebitJournalEntryForLoan(office, currencyCode, loanId, transactionId, transactionDate, taxEntry.getValue(),
                             taxEntry.getKey());
                 }
             }

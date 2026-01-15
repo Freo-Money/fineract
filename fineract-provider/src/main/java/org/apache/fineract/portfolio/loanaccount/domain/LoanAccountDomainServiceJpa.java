@@ -272,6 +272,15 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                 newRepaymentTransaction.getTransactionDate());
         makeRepayment(loan, newRepaymentTransaction, scheduleGeneratorDTO);
 
+        // For NPA loans, create ACCRUAL_SUSPENSE_REVERSE transactions for interest/fee/penalty portions paid
+        if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            LoanTransaction suspenseReverseTransaction = createAccrualSuspenseReverseForRepayment(loan, newRepaymentTransaction);
+            if (suspenseReverseTransaction != null) {
+                loanTransactionValidator.validateAccrualSuspenseReverseForRepayment(loan, suspenseReverseTransaction,
+                        newRepaymentTransaction);
+            }
+        }
+
         if (loan.isInterestBearingAndInterestRecalculationEnabled()) {
             loanAccrualsProcessingService.reprocessExistingAccruals(loan, true);
             loanAccrualsProcessingService.processIncomePostingAndAccruals(loan, true);
@@ -437,6 +446,15 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
         loanAccrualsProcessingService.processAccrualsOnInterestRecalculation(loan, loan.isInterestBearingAndInterestRecalculationEnabled(),
                 true);
+
+        // For NPA loans, create ACCRUAL_SUSPENSE_REVERSE transactions for fee/penalty portions paid in charge payment
+        if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            LoanTransaction suspenseReverseTransaction = createAccrualSuspenseReverseForRepayment(loan, newPaymentTransaction);
+            if (suspenseReverseTransaction != null) {
+                loanTransactionValidator.validateAccrualSuspenseReverseForRepayment(loan, suspenseReverseTransaction,
+                        newPaymentTransaction);
+            }
+        }
 
         journalEntryPoster.postJournalEntriesForLoanTransaction(newPaymentTransaction, isAccountTransfer, false);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
@@ -1069,6 +1087,157 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, repaymentTransaction, null, scheduleGeneratorDTO);
     }
 
+    /**
+     * Creates ACCRUAL_SUSPENSE_REVERSE transactions for interest/fee/penalty portions paid in a repayment for NPA loans
+     */
+    private LoanTransaction createAccrualSuspenseReverseForRepayment(final Loan loan, final LoanTransaction repaymentTransaction) {
+        BigDecimal interestPortion = repaymentTransaction.getInterestPortion();
+        BigDecimal feePortion = repaymentTransaction.getFeeChargesPortion();
+        BigDecimal penaltyPortion = repaymentTransaction.getPenaltyChargesPortion();
+
+        // Calculate available ACCRUAL_SUSPENSE balance to ensure we don't reverse more than available
+        BigDecimal availableSuspenseInterest = BigDecimal.ZERO;
+        BigDecimal availableSuspenseFee = BigDecimal.ZERO;
+        BigDecimal availableSuspensePenalty = BigDecimal.ZERO;
+
+        for (LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (transaction.isNotReversed()) {
+                LoanTransactionType type = transaction.getTypeOf();
+                if (type.equals(LoanTransactionType.ACCRUAL_SUSPENSE)) {
+                    availableSuspenseInterest = availableSuspenseInterest.add(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    availableSuspenseFee = availableSuspenseFee.add(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    availableSuspensePenalty = availableSuspensePenalty.add(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                } else if (type.equals(LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE)) {
+                    availableSuspenseInterest = availableSuspenseInterest.subtract(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    availableSuspenseFee = availableSuspenseFee.subtract(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    availableSuspensePenalty = availableSuspensePenalty
+                            .subtract(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                }
+            }
+        }
+
+        // Cap reverse amounts to available suspense balance (for partial payments)
+        interestPortion = capAmountToAvailable(interestPortion, availableSuspenseInterest);
+        feePortion = capAmountToAvailable(feePortion, availableSuspenseFee);
+        penaltyPortion = capAmountToAvailable(penaltyPortion, availableSuspensePenalty);
+
+        // Only create reverse transaction if there are non-zero interest/fee/penalty portions
+        BigDecimal totalAmount = MathUtil.add(interestPortion, feePortion, penaltyPortion);
+        if (MathUtil.isGreaterThanZero(totalAmount)) {
+
+            LoanTransaction suspenseReverseTransaction = LoanTransaction.accrualSuspenseReverseTransaction(loan, loan.getOffice(),
+                    repaymentTransaction.getTransactionDate(), totalAmount, interestPortion, feePortion, penaltyPortion,
+                    externalIdFactory.create());
+
+            // Copy charge payment mappings from repayment transaction for proper journal entry accounting
+            // This ensures charge-specific GL account mappings are used
+            if (repaymentTransaction.getLoanChargesPaid() != null && !repaymentTransaction.getLoanChargesPaid().isEmpty()) {
+                for (LoanChargePaidBy originalChargePaidBy : repaymentTransaction.getLoanChargesPaid()) {
+                    LoanCharge loanCharge = originalChargePaidBy.getLoanCharge();
+                    BigDecimal chargeAmount = originalChargePaidBy.getAmount();
+                    Integer installmentNumber = originalChargePaidBy.getInstallmentNumber();
+
+                    // Only copy charges that match the fee/penalty portions being reversed
+                    boolean isPenaltyCharge = loanCharge.isPenaltyCharge();
+                    boolean hasMatchingPortion = (isPenaltyCharge && MathUtil.isGreaterThanZero(penaltyPortion))
+                            || (!isPenaltyCharge && MathUtil.isGreaterThanZero(feePortion));
+
+                    if (hasMatchingPortion) {
+                        LoanChargePaidBy newChargePaidBy = new LoanChargePaidBy(suspenseReverseTransaction, loanCharge, chargeAmount,
+                                installmentNumber);
+                        suspenseReverseTransaction.getLoanChargesPaid().add(newChargePaidBy);
+                    }
+                }
+            }
+
+            // Create repayment schedule mappings proportional to capped amounts
+            // This ensures mappings reflect only the suspense balance being reversed, not the full repayment
+            if (repaymentTransaction.getLoanTransactionToRepaymentScheduleMappings() != null
+                    && !repaymentTransaction.getLoanTransactionToRepaymentScheduleMappings().isEmpty()) {
+                List<LoanTransactionToRepaymentScheduleMapping> newMappings = new ArrayList<>();
+                MonetaryCurrency currency = loan.getCurrency();
+
+                // Calculate total portions from repayment to distribute capped amounts proportionally
+                BigDecimal totalRepaymentInterest = BigDecimal.ZERO;
+                BigDecimal totalRepaymentFee = BigDecimal.ZERO;
+                BigDecimal totalRepaymentPenalty = BigDecimal.ZERO;
+                for (LoanTransactionToRepaymentScheduleMapping originalMapping : repaymentTransaction
+                        .getLoanTransactionToRepaymentScheduleMappings()) {
+                    totalRepaymentInterest = totalRepaymentInterest.add(MathUtil.nullToZero(originalMapping.getInterestPortion()));
+                    totalRepaymentFee = totalRepaymentFee.add(MathUtil.nullToZero(originalMapping.getFeeChargesPortion()));
+                    totalRepaymentPenalty = totalRepaymentPenalty.add(MathUtil.nullToZero(originalMapping.getPenaltyChargesPortion()));
+                }
+
+                for (LoanTransactionToRepaymentScheduleMapping originalMapping : repaymentTransaction
+                        .getLoanTransactionToRepaymentScheduleMappings()) {
+                    LoanRepaymentScheduleInstallment installment = originalMapping.getLoanRepaymentScheduleInstallment();
+                    Money principalPortion = Money.zero(currency); // No principal in reverse suspense
+
+                    // Calculate proportional amounts based on capped values
+                    Money interestPortionMoney = Money.zero(currency);
+                    Money feeChargesPortion = Money.zero(currency);
+                    Money penaltyChargesPortion = Money.zero(currency);
+
+                    // Proportionally distribute capped interest portion
+                    if (totalRepaymentInterest.compareTo(BigDecimal.ZERO) > 0 && interestPortion != null
+                            && interestPortion.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal originalInterest = MathUtil.nullToZero(originalMapping.getInterestPortion());
+                        if (originalInterest.compareTo(BigDecimal.ZERO) > 0) {
+                            // Calculate proportional share: (originalInterest / totalRepaymentInterest) *
+                            // cappedInterestPortion
+                            BigDecimal proportionalInterest = originalInterest.multiply(interestPortion).divide(totalRepaymentInterest, 6,
+                                    java.math.RoundingMode.HALF_UP);
+                            interestPortionMoney = Money.of(currency, proportionalInterest);
+                        }
+                    }
+
+                    // Proportionally distribute capped fee portion
+                    if (totalRepaymentFee.compareTo(BigDecimal.ZERO) > 0 && feePortion != null
+                            && feePortion.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal originalFee = MathUtil.nullToZero(originalMapping.getFeeChargesPortion());
+                        if (originalFee.compareTo(BigDecimal.ZERO) > 0) {
+                            BigDecimal proportionalFee = originalFee.multiply(feePortion).divide(totalRepaymentFee, 6,
+                                    java.math.RoundingMode.HALF_UP);
+                            feeChargesPortion = Money.of(currency, proportionalFee);
+                        }
+                    }
+
+                    // Proportionally distribute capped penalty portion
+                    if (totalRepaymentPenalty.compareTo(BigDecimal.ZERO) > 0 && penaltyPortion != null
+                            && penaltyPortion.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal originalPenalty = MathUtil.nullToZero(originalMapping.getPenaltyChargesPortion());
+                        if (originalPenalty.compareTo(BigDecimal.ZERO) > 0) {
+                            BigDecimal proportionalPenalty = originalPenalty.multiply(penaltyPortion).divide(totalRepaymentPenalty, 6,
+                                    java.math.RoundingMode.HALF_UP);
+                            penaltyChargesPortion = Money.of(currency, proportionalPenalty);
+                        }
+                    }
+
+                    // Only create mapping if the total amount is non-zero to avoid NOT NULL constraint violation
+                    Money totalMappingAmount = MathUtil.plus(principalPortion, interestPortionMoney, feeChargesPortion,
+                            penaltyChargesPortion);
+                    if (totalMappingAmount != null && totalMappingAmount.isGreaterThanZero()) {
+                        newMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(suspenseReverseTransaction, installment,
+                                principalPortion, interestPortionMoney, feeChargesPortion, penaltyChargesPortion));
+                    }
+                }
+
+                if (!newMappings.isEmpty()) {
+                    suspenseReverseTransaction.addLoanTransactionToRepaymentScheduleMappings(newMappings);
+                }
+            }
+
+            LoanTransaction savedSuspenseReverseTransaction = loanTransactionRepository.save(suspenseReverseTransaction);
+            loanTransactionRepository.flush(); // Flush to ensure ID is available for journal entry posting
+            loan.addLoanTransaction(savedSuspenseReverseTransaction);
+
+            // Post journal entries for ACCRUAL_SUSPENSE_REVERSE transaction
+            journalEntryPoster.postJournalEntriesForLoanTransaction(savedSuspenseReverseTransaction, false, false);
+            return savedSuspenseReverseTransaction;
+        }
+        return null;
+    }
+
     private void handleForeClosureTransactions(final Loan loan, final LoanTransaction repaymentTransaction,
             final ScheduleGeneratorDTO scheduleGeneratorDTO) {
         loan.setLoanSubStatus(LoanSubStatus.FORECLOSED);
@@ -1080,6 +1249,19 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         final LoanRescheduleRequest loanRescheduleRequest = null;
         final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
         this.loanScheduleHistoryWritePlatformService.createAndSaveLoanScheduleArchive(installments, loan, loanRescheduleRequest);
+    }
+
+    /**
+     * Caps an amount to the available balance. Returns zero if amount is null, zero, or available balance is zero.
+     */
+    private BigDecimal capAmountToAvailable(BigDecimal amount, BigDecimal availableBalance) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        if (availableBalance.compareTo(BigDecimal.ZERO) > 0) {
+            return amount.min(availableBalance);
+        }
+        return BigDecimal.ZERO;
     }
 
 }

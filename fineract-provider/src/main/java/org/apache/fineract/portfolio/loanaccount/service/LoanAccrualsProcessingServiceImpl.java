@@ -26,7 +26,11 @@ import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction.a
 import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction.accrueTransaction;
 import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.ACCRUAL;
 import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.ACCRUAL_ADJUSTMENT;
+import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.ACCRUAL_SUSPENSE;
+import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE;
+import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.ACCRUAL_WRITEOFF;
 import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.INCOME_POSTING;
+import static org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -39,6 +43,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Future;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -91,6 +96,7 @@ import org.springframework.lang.NonNull;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionCallbackWithoutResult;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Slf4j
@@ -98,7 +104,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 @RequiredArgsConstructor
 public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessingService {
 
-    private static final Set<LoanTransactionType> ACCRUAL_TYPES = Set.of(ACCRUAL, ACCRUAL_ADJUSTMENT);
+    private static final Set<LoanTransactionType> ACCRUAL_TYPES = Set.of(ACCRUAL, ACCRUAL_ADJUSTMENT, ACCRUAL_SUSPENSE,
+            ACCRUAL_SUSPENSE_REVERSE, ACCRUAL_WRITEOFF);
 
     private static final String ACCRUAL_ON_CHARGE_SUBMITTED_ON_DATE = "submitted-date";
     private final ExternalIdFactory externalIdFactory;
@@ -121,19 +128,19 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
      * method adds accrual for batch job "Add Periodic Accrual Transactions" and add accruals api for Loan
      */
     @Override
-    @Transactional
     public void addPeriodicAccruals(@NonNull LocalDate tillDate) throws JobExecutionException {
         List<Loan> loans = loanRepositoryWrapper.findLoansForPeriodicAccrual(AccountingRuleType.ACCRUAL_PERIODIC, tillDate,
                 !isChargeOnDueDate());
         List<Throwable> errors = new ArrayList<>();
+
+        // Process each loan in its own isolated transaction
+        // This ensures that if one loan fails, others can still be processed
         for (Loan loan : loans) {
-            try {
-                addPeriodicAccruals(tillDate, loan);
-            } catch (Exception e) {
-                log.error("Failed to add accrual for loan {}", loan.getId(), e);
-                errors.add(e);
-            }
+            final Long loanId = loan.getId();
+            executeInIsolatedTransaction(() -> addPeriodicAccruals(tillDate, loan),
+                    e -> log.error("Failed to add accrual for loan {}", loanId, e), errors);
         }
+
         if (!errors.isEmpty()) {
             throw new JobExecutionException(errors);
         }
@@ -224,6 +231,10 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         if (isProgressiveAccrual(loan)) {
             return;
         }
+        // Skip processing if loan is already closed or overpaid
+        if (loan.isClosed() || loan.getStatus().isOverpaid()) {
+            return;
+        }
         LocalDate accruedTill = loan.getAccruedTill();
         if (!isInterestRecalculationEnabled || accruedTill == null) {
             return;
@@ -259,6 +270,10 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         if (isProgressiveAccrual(loan)) {
             return;
         }
+        // Skip processing if loan is already closed or overpaid
+        if (loan.isClosed() || loan.getStatus().isOverpaid()) {
+            return;
+        }
         final LoanInterestRecalculationDetails recalculationDetails = loan.getLoanInterestRecalculationDetails();
         if (recalculationDetails == null || !recalculationDetails.isCompoundingToBePostedAsTransaction()) {
             return;
@@ -285,6 +300,12 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
      */
     @Override
     public void processAccrualsOnLoanClosure(@NonNull final Loan loan, final boolean addJournal) {
+        // For NPA loans with periodic accrual accounting, skip creating new accruals on closure via repayment
+        // because ACCRUAL_SUSPENSE_REVERSE is already handled during repayment processing
+        // For non-NPA loans, we still need to create final accruals on closure
+        if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            return;
+        }
         // check and process accruals for loan WITHOUT interest recalculation details and compounding posted as income
         final boolean chargeOnDueDate = isChargeOnDueDate();
         addAccruals(loan, loan.getLastLoanRepaymentScheduleInstallment().getDueDate(), false, true, addJournal, chargeOnDueDate);
@@ -336,8 +357,18 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
     private void addAccruals(@NonNull final Loan loan, @NonNull LocalDate tillDate, final boolean periodic, final boolean isFinal,
             final boolean addJournal, final boolean chargeOnDueDate) {
-        if ((!isFinal && !loan.isOpen()) || loan.isNpa() || loan.isChargedOff() || !loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()
+        // For non-final accruals: only process if loan is open
+        // For final accruals: skip if loan is already closed/overpaid (prevents duplicate accruals after repayment
+        // closure)
+        // Exception: processIncomeAndAccrualTransactionOnLoanClosure handles non-NPA closed loans separately
+        if ((!isFinal && !loan.isOpen()) || loan.isChargedOff() || !loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()
                 || loan.isContractTermination()) {
+            return;
+        }
+        // Additional check for final accruals: skip if loan is closed/overpaid (to prevent duplicates after repayment)
+        // This prevents creating accruals when processAccrualsOnLoanClosure is called after loan is already closed via
+        // repayment
+        if (isFinal && (loan.isClosed() || loan.getStatus().isOverpaid())) {
             return;
         }
 
@@ -547,18 +578,22 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
     private BigDecimal calcInterestAccruedAmount(@NonNull LoanRepaymentScheduleInstallment installment,
             @NonNull AccrualPeriodsData accrualPeriods, @NonNull LocalDate tillDate) {
         Loan loan = installment.getLoan();
+        BigDecimal accruedFromTransactions;
         if (isProgressiveAccrual(loan)) {
             BigDecimal totalAccrued = loanTransactionRepository.findTotalInterestAccruedAmount(loan);
             BigDecimal prevAccrued = accrualPeriods.getPeriods().stream()
                     .filter(p -> p.getInstallmentNumber() < installment.getInstallmentNumber())
                     .map(p -> MathUtil.toBigDecimal(p.getTransactionAccrued())).reduce(BigDecimal.ZERO, MathUtil::add);
-            BigDecimal accrued = MathUtil.subtractToZero(totalAccrued, prevAccrued);
+            accruedFromTransactions = MathUtil.subtractToZero(totalAccrued, prevAccrued);
             // if this is the current-last period, all the remaining accrued amount is added
-            return isInPeriod(tillDate, installment, false) ? accrued : MathUtil.min(installment.getInterestAccrued(), accrued, false);
+            accruedFromTransactions = isInPeriod(tillDate, installment, false) ? accruedFromTransactions
+                    : MathUtil.min(installment.getInterestAccrued(), accruedFromTransactions, false);
         } else {
-            return isFullPeriod(tillDate, installment) ? installment.getInterestAccrued()
+            accruedFromTransactions = isFullPeriod(tillDate, installment) ? installment.getInterestAccrued()
                     : loanTransactionRepository.findAccrualInterestInPeriod(loan, installment.getFromDate(), installment.getDueDate());
         }
+
+        return accruedFromTransactions;
     }
 
     private void addChargeAccrual(@NonNull final Loan loan, @NonNull final LocalDate tillDate, final boolean chargeOnDueDate,
@@ -614,7 +649,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
                 .toMoney(loanTransactionRepository.findChargeUnrecognizedWaivedAmount(loanCharge, tillDate), currency);
         final Money transactionWaived = MathUtil.minusToZero(waived, unrecognizedWaived);
         // For installment fees, use installment-specific accrual amount
-        final Money transactionAccrued;
+        Money transactionAccrued;
         if (installmentFee && installmentChargeId != null) {
             transactionAccrued = MathUtil.toMoney(
                     loanTransactionRepository.findChargeAccrualAmountByInstallment(loanCharge, dueInstallment.getInstallmentNumber()),
@@ -622,6 +657,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         } else {
             transactionAccrued = MathUtil.toMoney(loanTransactionRepository.findChargeAccrualAmount(loanCharge), currency);
         }
+
         chargeData.setTransactionAccrued(transactionAccrued);
         chargeData.setChargeAccrued(MathUtil.minusToZero(transactionAccrued, transactionWaived));
 
@@ -673,6 +709,8 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         if (!MathUtil.isGreaterThanZero(amount)) {
             return null;
         }
+        // For NPA loans, create both ACCRUAL_SUSPENSE and ACCRUAL transactions
+        final boolean isNpa = loan.isNpa();
         LoanTransaction transaction = adjustment
                 ? accrualAdjustment(loan, loan.getOffice(), transactionDate, amount, interest, fee, penalty, externalIdFactory.create())
                 : accrueTransaction(loan, loan.getOffice(), transactionDate, amount, interest, fee, penalty, externalIdFactory.create());
@@ -681,7 +719,79 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         addTransactionMappings(transaction, accrualPeriod, adjustment);
         LoanTransaction savedTransaction = loanTransactionRepository.save(transaction);
         loan.addLoanTransaction(savedTransaction);
+
+        // For NPA loans with periodic accrual accounting, also create ACCRUAL_SUSPENSE transaction with the same
+        // amounts
+        if (isNpa && !adjustment && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            addAccrualSuspenseTransaction(loan, savedTransaction, accrualPeriod, true);
+        }
+
         return savedTransaction;
+    }
+
+    private LoanTransaction addAccrualSuspenseTransaction(@NonNull Loan loan, @NonNull LoanTransaction sourceTransaction,
+            boolean postJournalEntries) {
+        return addAccrualSuspenseTransaction(loan, sourceTransaction, null, postJournalEntries);
+    }
+
+    private LoanTransaction addAccrualSuspenseTransaction(@NonNull Loan loan, @NonNull LoanTransaction sourceTransaction,
+            AccrualPeriodData accrualPeriod, boolean postJournalEntries) {
+        // Create ACCRUAL_SUSPENSE transaction with same amounts as source
+        LoanTransaction suspenseTransaction = LoanTransaction.accrueSuspenseTransaction(loan, loan.getOffice(),
+                sourceTransaction.getTransactionDate(), sourceTransaction.getAmount(), sourceTransaction.getInterestPortion(),
+                sourceTransaction.getFeeChargesPortion(), sourceTransaction.getPenaltyChargesPortion(), externalIdFactory.create());
+
+        // Copy repayment schedule mappings from the source ACCRUAL transaction
+        if (sourceTransaction.getLoanTransactionToRepaymentScheduleMappings() != null
+                && !sourceTransaction.getLoanTransactionToRepaymentScheduleMappings().isEmpty()) {
+            List<LoanTransactionToRepaymentScheduleMapping> newMappings = new ArrayList<>();
+            MonetaryCurrency currency = loan.getCurrency();
+            for (LoanTransactionToRepaymentScheduleMapping originalMapping : sourceTransaction
+                    .getLoanTransactionToRepaymentScheduleMappings()) {
+                LoanRepaymentScheduleInstallment installment = originalMapping.getLoanRepaymentScheduleInstallment();
+                Money principalPortion = originalMapping.getPrincipalPortion() != null
+                        ? Money.of(currency, originalMapping.getPrincipalPortion())
+                        : Money.zero(currency);
+                Money interestPortion = originalMapping.getInterestPortion() != null
+                        ? Money.of(currency, originalMapping.getInterestPortion())
+                        : Money.zero(currency);
+                Money feeChargesPortion = originalMapping.getFeeChargesPortion() != null
+                        ? Money.of(currency, originalMapping.getFeeChargesPortion())
+                        : Money.zero(currency);
+                Money penaltyChargesPortion = originalMapping.getPenaltyChargesPortion() != null
+                        ? Money.of(currency, originalMapping.getPenaltyChargesPortion())
+                        : Money.zero(currency);
+                newMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(suspenseTransaction, installment, principalPortion,
+                        interestPortion, feeChargesPortion, penaltyChargesPortion));
+            }
+            suspenseTransaction.addLoanTransactionToRepaymentScheduleMappings(newMappings);
+        }
+
+        // Use addTransactionMappings if AccrualPeriodData is available, otherwise copy charges manually
+        if (accrualPeriod != null) {
+            addTransactionMappings(suspenseTransaction, accrualPeriod, false);
+        } else if (sourceTransaction.getLoanChargesPaid() != null && !sourceTransaction.getLoanChargesPaid().isEmpty()) {
+            // Fallback: manually copy charge mappings when AccrualPeriodData is not available
+            List<LoanChargePaidBy> newChargePaidByList = new ArrayList<>();
+            for (LoanChargePaidBy originalChargePaidBy : sourceTransaction.getLoanChargesPaid()) {
+                LoanChargePaidBy newChargePaidBy = new LoanChargePaidBy(suspenseTransaction, originalChargePaidBy.getLoanCharge(),
+                        originalChargePaidBy.getAmount(), originalChargePaidBy.getInstallmentNumber());
+                newChargePaidByList.add(newChargePaidBy);
+                originalChargePaidBy.getLoanCharge().getLoanChargePaidBySet().add(newChargePaidBy);
+            }
+            suspenseTransaction.updateLoanChargePaidMappings(newChargePaidByList);
+        }
+
+        LoanTransaction savedSuspenseTransaction = loanTransactionRepository.save(suspenseTransaction);
+        loanTransactionRepository.flush(); // Flush to ensure ID is available for journal entry posting
+        loan.addLoanTransaction(savedSuspenseTransaction);
+
+        if (postJournalEntries) {
+            journalEntryPoster.postJournalEntriesForLoanTransaction(savedSuspenseTransaction, false, false);
+            businessEventNotifierService.notifyPostBusinessEvent(new LoanAccrualTransactionCreatedBusinessEvent(savedSuspenseTransaction));
+        }
+
+        return savedSuspenseTransaction;
     }
 
     private void mergeAccrualTransaction(@NonNull final LoanTransaction transaction, final AccrualPeriodData accrualPeriod,
@@ -759,7 +869,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
                         accrualBalances.setPenaltyPortion(MathUtil.add(accrualBalances.getPenaltyPortion(), lt.getPenaltyChargesPortion()));
                         accrualBalances.setInterestPortion(MathUtil.add(accrualBalances.getInterestPortion(), lt.getInterestPortion()));
                     }
-                    case ACCRUAL_ADJUSTMENT -> {
+                    case ACCRUAL_ADJUSTMENT, ACCRUAL_WRITEOFF -> {
                         accrualBalances.setFeePortion(MathUtil.subtract(accrualBalances.getFeePortion(), lt.getFeeChargesPortion()));
                         accrualBalances
                                 .setPenaltyPortion(MathUtil.subtract(accrualBalances.getPenaltyPortion(), lt.getPenaltyChargesPortion()));
@@ -1000,7 +1110,8 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
         if (loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
             final Optional<LoanTransaction> accrualTransaction = loanTransactionRepository.findNonReversedByLoanAndTypesAndDate(loan,
-                    Set.of(LoanTransactionType.ACCRUAL, LoanTransactionType.ACCRUAL_ADJUSTMENT), compoundingDetail.getEffectiveDate());
+                    Set.of(LoanTransactionType.ACCRUAL, LoanTransactionType.ACCRUAL_ADJUSTMENT, LoanTransactionType.ACCRUAL_SUSPENSE),
+                    compoundingDetail.getEffectiveDate());
 
             if (accrualTransaction.isEmpty() || !MathUtil.isEqualTo(accrualTransaction.get().getAmount(), compoundingDetail.getAmount())) {
                 accrualTransaction.ifPresent(accrualTrans -> {
@@ -1011,6 +1122,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
                         businessEventNotifierService.notifyPostBusinessEvent(businessEvent);
                     }
                 });
+                // Always create ACCRUAL transaction first
                 LoanTransaction accrual = LoanTransaction.accrueTransaction(loan, loan.getOffice(), compoundingDetail.getEffectiveDate(),
                         compoundingDetail.getAmount(), interest, fee, penalties, externalId);
                 updateLoanChargesPaidBy(loan, accrual, feeDetails, null);
@@ -1020,6 +1132,12 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
                     journalEntryPoster.postJournalEntriesForLoanTransaction(savedAccrual, false, false);
                     final LoanTransactionBusinessEvent businessEvent = new LoanAccrualTransactionCreatedBusinessEvent(savedAccrual);
                     businessEventNotifierService.notifyPostBusinessEvent(businessEvent);
+                }
+
+                // For NPA loans with periodic accrual accounting, also create ACCRUAL_SUSPENSE transaction with the
+                // same amounts
+                if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+                    addAccrualSuspenseTransaction(loan, savedAccrual, addEvent);
                 }
             }
         }
@@ -1314,5 +1432,256 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(accrualTransaction, loanCharge, outstanding.getAmount(), null);
         accrualCharges.add(loanChargePaidBy);
         loanCharge.getLoanChargePaidBySet().add(loanChargePaidBy);
+    }
+
+    @Override
+    public void convertAccrualToSuspenseForNpaLoans(@NonNull List<Long> loanIds) {
+        if (loanIds == null || loanIds.isEmpty()) {
+            return;
+        }
+
+        List<Throwable> errors = new ArrayList<>();
+
+        // Process each loan in its own isolated transaction
+        // This ensures that if one loan fails, others can still be processed
+        for (Long loanId : loanIds) {
+            executeInIsolatedTransaction(() -> convertAccrualToSuspenseForNpaLoan(loanId),
+                    e -> log.error("Failed to convert ACCRUAL to ACCRUAL_SUSPENSE for loan {}", loanId, e), errors);
+        }
+
+        if (!errors.isEmpty()) {
+            log.warn("Failed to convert ACCRUAL to ACCRUAL_SUSPENSE for {} loans out of {}", errors.size(), loanIds.size());
+        }
+    }
+
+    @Transactional
+    private void convertAccrualToSuspenseForNpaLoan(@NonNull Long loanId) {
+        try {
+            Loan loan = loanRepositoryWrapper.findOneWithNotFoundDetection(loanId);
+
+            // Set NPA flag to true and save the loan
+            loan.setNpa(true);
+            loanRepositoryWrapper.saveAndFlush(loan);
+
+            // Check if ACCRUAL_SUSPENSE already exists for this loan (to avoid duplicates)
+            List<LoanTransaction> existingSuspenseTransactions = loanTransactionRepository.findNonReversedByLoanAndTypes(loan,
+                    Set.of(LoanTransactionType.ACCRUAL_SUSPENSE));
+            if (!existingSuspenseTransactions.isEmpty()) {
+                log.debug("ACCRUAL_SUSPENSE transactions already exist for loan {}, skipping", loanId);
+                return;
+            }
+
+            // Find all non-reversed ACCRUAL transactions
+            List<LoanTransaction> accrualTransactions = loanTransactionRepository.findNonReversedByLoanAndTypes(loan,
+                    Set.of(LoanTransactionType.ACCRUAL));
+
+            if (accrualTransactions.isEmpty()) {
+                log.debug("No ACCRUAL transactions found for loan {}, skipping ACCRUAL_SUSPENSE creation", loanId);
+                return;
+            }
+
+            log.debug("Processing loan {} with {} ACCRUAL transactions", loanId, accrualTransactions.size());
+
+            // Calculate total accrued amounts from all ACCRUAL transactions
+            BigDecimal totalAccruedInterest = accrualTransactions.stream().map(t -> MathUtil.nullToZero(t.getInterestPortion()))
+                    .reduce(BigDecimal.ZERO, MathUtil::add);
+            BigDecimal totalAccruedFee = accrualTransactions.stream().map(t -> MathUtil.nullToZero(t.getFeeChargesPortion()))
+                    .reduce(BigDecimal.ZERO, MathUtil::add);
+            BigDecimal totalAccruedPenalty = accrualTransactions.stream().map(t -> MathUtil.nullToZero(t.getPenaltyChargesPortion()))
+                    .reduce(BigDecimal.ZERO, MathUtil::add);
+
+            // Collect installment numbers that have accrual transactions
+            Set<Integer> installmentsWithAccruals = accrualTransactions.stream()
+                    .filter(t -> t.getLoanTransactionToRepaymentScheduleMappings() != null
+                            && !t.getLoanTransactionToRepaymentScheduleMappings().isEmpty())
+                    .flatMap(t -> t.getLoanTransactionToRepaymentScheduleMappings().stream())
+                    .map(mapping -> mapping.getLoanRepaymentScheduleInstallment().getInstallmentNumber()).collect(Collectors.toSet());
+
+            // Calculate amounts reduced by various transaction types (repayments, waivers, charge payments)
+            BigDecimal interestReduced = BigDecimal.ZERO;
+            BigDecimal feeReduced = BigDecimal.ZERO;
+            BigDecimal penaltyReduced = BigDecimal.ZERO;
+
+            // 1. Calculate amounts paid in repayments (via repayment schedule mappings)
+            // If we can identify installments with accruals, only subtract repayments for those installments
+            // Otherwise, subtract all repayments (fallback to original behavior)
+            boolean filterByInstallments = !installmentsWithAccruals.isEmpty();
+            for (LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
+                // Only consider installments that have accrual transactions (if we can identify them)
+                if (filterByInstallments && !installmentsWithAccruals.contains(installment.getInstallmentNumber())) {
+                    continue;
+                }
+                for (LoanTransactionToRepaymentScheduleMapping mapping : installment.getLoanTransactionToRepaymentScheduleMappings()) {
+                    LoanTransaction transaction = mapping.getLoanTransaction();
+                    if (!transaction.isReversed() && transaction.isRepaymentLikeType()) {
+                        interestReduced = MathUtil.add(interestReduced, MathUtil.nullToZero(mapping.getInterestPortion()));
+                        feeReduced = MathUtil.add(feeReduced, MathUtil.nullToZero(mapping.getFeeChargesPortion()));
+                        penaltyReduced = MathUtil.add(penaltyReduced, MathUtil.nullToZero(mapping.getPenaltyChargesPortion()));
+                    }
+                }
+            }
+
+            // 2. Calculate amounts waived and charge payments from loan transactions
+            for (LoanTransaction transaction : loan.getLoanTransactions()) {
+                if (transaction.isReversed()) {
+                    continue;
+                }
+
+                LoanTransactionType transactionType = transaction.getTypeOf();
+                if (transactionType == LoanTransactionType.WAIVE_INTEREST) {
+                    interestReduced = MathUtil.add(interestReduced, MathUtil.nullToZero(transaction.getInterestPortion()));
+                } else if (transactionType == LoanTransactionType.WAIVE_CHARGES || transactionType == LoanTransactionType.CHARGE_PAYMENT) {
+                    feeReduced = MathUtil.add(feeReduced, MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    penaltyReduced = MathUtil.add(penaltyReduced, MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                } else if (transactionType == LoanTransactionType.WRITEOFF) {
+                    interestReduced = MathUtil.add(interestReduced, MathUtil.nullToZero(transaction.getInterestPortion()));
+                    feeReduced = MathUtil.add(feeReduced, MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    penaltyReduced = MathUtil.add(penaltyReduced, MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                }
+            }
+
+            // Calculate net outstanding amounts (total accrued - all reductions)
+            BigDecimal netOutstandingInterest = MathUtil.subtractToZero(totalAccruedInterest, interestReduced);
+            BigDecimal netOutstandingFee = MathUtil.subtractToZero(totalAccruedFee, feeReduced);
+            BigDecimal netOutstandingPenalty = MathUtil.subtractToZero(totalAccruedPenalty, penaltyReduced);
+            BigDecimal netOutstandingAmount = MathUtil.add(netOutstandingInterest, netOutstandingFee, netOutstandingPenalty);
+
+            // Only create ACCRUAL_SUSPENSE if there's a net outstanding amount
+            if (!MathUtil.isGreaterThanZero(netOutstandingAmount)) {
+                log.debug(
+                        "No net outstanding accrual amount for loan {} (totalAccruedInterest={}, interestReduced={}, totalAccruedFee={}, feeReduced={}, totalAccruedPenalty={}, penaltyReduced={}), skipping ACCRUAL_SUSPENSE creation",
+                        loanId, totalAccruedInterest, interestReduced, totalAccruedFee, feeReduced, totalAccruedPenalty, penaltyReduced);
+                return;
+            }
+
+            // Use the latest accrual transaction date for the ACCRUAL_SUSPENSE transaction
+            LocalDate suspenseTransactionDate = accrualTransactions.stream().map(LoanTransaction::getTransactionDate)
+                    .max(LocalDate::compareTo).orElse(DateUtils.getBusinessLocalDate());
+
+            log.debug(
+                    "Creating single ACCRUAL_SUSPENSE transaction for loan {} with net outstanding amounts: Interest={}, Fee={}, Penalty={}",
+                    loanId, netOutstandingInterest, netOutstandingFee, netOutstandingPenalty);
+
+            // Create a single ACCRUAL_SUSPENSE transaction with net outstanding amounts
+            LoanTransaction suspenseTransaction = LoanTransaction.accrueSuspenseTransaction(loan, loan.getOffice(), suspenseTransactionDate,
+                    netOutstandingAmount, netOutstandingInterest, netOutstandingFee, netOutstandingPenalty, externalIdFactory.create());
+
+            LoanTransaction savedSuspenseTransaction = loanTransactionRepository.save(suspenseTransaction);
+            loanTransactionRepository.flush();
+            loan.addLoanTransaction(savedSuspenseTransaction);
+
+            // Post journal entries
+            journalEntryPoster.postJournalEntriesForLoanTransaction(savedSuspenseTransaction, false, false);
+            businessEventNotifierService.notifyPostBusinessEvent(new LoanAccrualTransactionCreatedBusinessEvent(savedSuspenseTransaction));
+
+            log.debug("Successfully created single ACCRUAL_SUSPENSE transaction for loan {} with net outstanding amount {}", loanId,
+                    netOutstandingAmount);
+        } catch (Exception e) {
+            log.error("Failed to convert ACCRUAL to ACCRUAL_SUSPENSE for loan {}", loanId, e);
+            throw e; // Re-throw to trigger transaction rollback for this loan only
+        }
+    }
+
+    @Override
+    public void reverseAccrualSuspenseForNonNpaLoans(@NonNull List<Long> loanIds) {
+        if (loanIds == null || loanIds.isEmpty()) {
+            return;
+        }
+
+        log.info("Starting to reverse ACCRUAL_SUSPENSE for {} loans", loanIds.size());
+        List<Throwable> errors = new ArrayList<>();
+
+        // Process each loan in its own isolated transaction
+        // This ensures that if one loan fails, others can still be processed
+        for (Long loanId : loanIds) {
+            executeInIsolatedTransaction(() -> reverseAccrualSuspenseForNonNpaLoan(loanId),
+                    e -> log.error("Failed to reverse ACCRUAL_SUSPENSE for loan {}", loanId, e), errors);
+        }
+
+        if (!errors.isEmpty()) {
+            log.warn("Failed to reverse ACCRUAL_SUSPENSE for {} loans out of {}", errors.size(), loanIds.size());
+        }
+        log.info("Completed reversing ACCRUAL_SUSPENSE for {} loans", loanIds.size());
+    }
+
+    @Transactional
+    private void reverseAccrualSuspenseForNonNpaLoan(@NonNull Long loanId) {
+        Loan loan = loanRepositoryWrapper.findOneWithNotFoundDetection(loanId);
+
+        // Set NPA flag to false and save the loan
+        loan.setNpa(false);
+        loanRepositoryWrapper.saveAndFlush(loan);
+        // Calculate net ACCRUAL_SUSPENSE balance (ACCRUAL_SUSPENSE - ACCRUAL_SUSPENSE_REVERSE)
+        BigDecimal netSuspenseInterest = BigDecimal.ZERO;
+        BigDecimal netSuspenseFee = BigDecimal.ZERO;
+        BigDecimal netSuspensePenalty = BigDecimal.ZERO;
+
+        for (LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (transaction.isNotReversed()) {
+                LoanTransactionType type = transaction.getTypeOf();
+                if (type.equals(ACCRUAL_SUSPENSE)) {
+                    netSuspenseInterest = netSuspenseInterest.add(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    netSuspenseFee = netSuspenseFee.add(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    netSuspensePenalty = netSuspensePenalty.add(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                } else if (type.equals(ACCRUAL_SUSPENSE_REVERSE)) {
+                    netSuspenseInterest = netSuspenseInterest.subtract(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    netSuspenseFee = netSuspenseFee.subtract(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    netSuspensePenalty = netSuspensePenalty.subtract(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                }
+            }
+        }
+
+        // Only create reverse transaction if there's a remaining balance
+        if (MathUtil.isGreaterThanZero(netSuspenseInterest) || MathUtil.isGreaterThanZero(netSuspenseFee)
+                || MathUtil.isGreaterThanZero(netSuspensePenalty)) {
+            BigDecimal totalAmount = MathUtil.add(netSuspenseInterest, netSuspenseFee, netSuspensePenalty);
+            LocalDate transactionDate = DateUtils.getBusinessLocalDate();
+
+            LoanTransaction reverseTransaction = LoanTransaction.accrualSuspenseReverseTransaction(loan, loan.getOffice(), transactionDate,
+                    totalAmount, netSuspenseInterest, netSuspenseFee, netSuspensePenalty, externalIdFactory.create());
+
+            LoanTransaction savedReverseTransaction = loanTransactionRepository.save(reverseTransaction);
+            loanTransactionRepository.flush();
+            loan.addLoanTransaction(savedReverseTransaction);
+
+            journalEntryPoster.postJournalEntriesForLoanTransaction(savedReverseTransaction, false, false);
+            final LoanTransactionBusinessEvent businessEvent = new LoanAccrualTransactionCreatedBusinessEvent(savedReverseTransaction);
+            businessEventNotifierService.notifyPostBusinessEvent(businessEvent);
+
+            log.debug(
+                    "Created ACCRUAL_SUSPENSE_REVERSE transaction for remaining suspense balance (interest={}, fee={}, penalty={}) for loan {}",
+                    netSuspenseInterest, netSuspenseFee, netSuspensePenalty, loanId);
+        } else {
+            log.debug("No remaining ACCRUAL_SUSPENSE balance to reverse for loan {}", loanId);
+        }
+    }
+
+    /**
+     * Executes a task in an isolated transaction with REQUIRES_NEW propagation. This ensures that if the task fails, it
+     * doesn't affect other transactions.
+     *
+     * @param task
+     *            The task to execute
+     * @param errorLogger
+     *            A consumer that logs the error (receives the exception)
+     * @param errors
+     *            List to collect errors
+     */
+    private void executeInIsolatedTransaction(@NonNull Runnable task, @NonNull Consumer<Exception> errorLogger,
+            @NonNull List<Throwable> errors) {
+        try {
+            TransactionTemplate isolatedTransactionTemplate = new TransactionTemplate(transactionTemplate.getTransactionManager());
+            isolatedTransactionTemplate.setPropagationBehavior(PROPAGATION_REQUIRES_NEW);
+            isolatedTransactionTemplate.execute(new TransactionCallbackWithoutResult() {
+
+                @Override
+                protected void doInTransactionWithoutResult(@NonNull org.springframework.transaction.TransactionStatus status) {
+                    task.run();
+                }
+            });
+        } catch (Exception e) {
+            errorLogger.accept(e);
+            errors.add(e);
+        }
     }
 }
