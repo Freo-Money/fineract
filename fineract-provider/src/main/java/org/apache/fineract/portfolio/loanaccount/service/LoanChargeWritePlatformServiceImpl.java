@@ -48,6 +48,7 @@ import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidati
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
+import org.apache.fineract.infrastructure.core.service.MathUtil;
 import org.apache.fineract.infrastructure.event.business.domain.loan.LoanApplyOverdueChargeBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.domain.loan.LoanBalanceChangedBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.domain.loan.charge.LoanAddChargeBusinessEvent;
@@ -564,6 +565,9 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         this.loanRepositoryWrapper.save(loan);
 
         loanJournalEntryPoster.postJournalEntriesForLoanTransaction(waiveTransaction, false, false);
+
+        // For NPA loans with periodic accrual accounting, create ACCRUAL_WRITEOFF transaction for waived charges
+        createAccrualWriteoffForWaivedCharges(loan, waiveTransaction);
 
         this.loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
         businessEventNotifierService.notifyPostBusinessEvent(new LoanWaiveChargeBusinessEvent(loanCharge));
@@ -1827,6 +1831,12 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                 this.loanJournalEntryPoster.postJournalEntriesForLoanTransaction(transaction, false, false);
             }
 
+            // For NPA loans with periodic accrual accounting, create ACCRUAL_WRITEOFF transactions for waived charges
+            // Note: createAccrualWriteoffForWaivedCharges already checks NPA and periodic accrual accounting
+            for (LoanTransaction waiveTransaction : waiveTransactions) {
+                createAccrualWriteoffForWaivedCharges(loan, waiveTransaction);
+            }
+
             // Handle interest recalculation if needed (ONCE after all waivers)
             if (loan.isInterestBearingAndInterestRecalculationEnabled() && recalculateFrom != null
                     && DateUtils.isBefore(recalculateFrom, DateUtils.getBusinessLocalDate())) {
@@ -1848,5 +1858,28 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
 
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withOfficeId(loan.getOfficeId())
                 .withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId).with(changes).build();
+    }
+
+    /**
+     * Creates ACCRUAL_WRITEOFF transaction for waived charges on NPA loans with periodic accrual accounting.
+     */
+    private void createAccrualWriteoffForWaivedCharges(final Loan loan, final LoanTransaction waiveTransaction) {
+        if (!loan.isNpa() || !loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            return;
+        }
+
+        BigDecimal waivedFee = MathUtil.nullToZero(waiveTransaction.getFeeChargesPortion());
+        BigDecimal waivedPenalty = MathUtil.nullToZero(waiveTransaction.getPenaltyChargesPortion());
+        BigDecimal totalAccrualWriteoff = MathUtil.add(waivedFee, waivedPenalty);
+
+        if (MathUtil.isGreaterThanZero(totalAccrualWriteoff)) {
+            LoanTransaction accrualWriteoffTransaction = LoanTransaction.accrualWriteoffTransaction(loan, loan.getOffice(),
+                    waiveTransaction.getTransactionDate(), totalAccrualWriteoff, null, waivedFee, waivedPenalty,
+                    externalIdFactory.create());
+            LoanTransaction savedAccrualWriteoffTransaction = this.loanTransactionRepository.save(accrualWriteoffTransaction);
+            this.loanTransactionRepository.flush(); // Flush to ensure ID is available for journal entry posting
+            loan.addLoanTransaction(savedAccrualWriteoffTransaction);
+            loanJournalEntryPoster.postJournalEntriesForLoanTransaction(savedAccrualWriteoffTransaction, false, false);
+        }
     }
 }

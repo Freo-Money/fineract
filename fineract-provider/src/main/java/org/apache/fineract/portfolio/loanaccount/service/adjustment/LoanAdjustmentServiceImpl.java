@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -314,6 +315,37 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
         transactionForAdjustment.reverse(reversalExternalId);
         transactionForAdjustment.manuallyAdjustedOrReversed();
 
+        // For NPA loans, when CHARGE_PAYMENT is reversed, create ACCRUAL_SUSPENSE to restore suspense balance
+        // (since ACCRUAL_SUSPENSE_REVERSE was created when payment was made)
+        if (transactionForAdjustment.getTypeOf().equals(LoanTransactionType.CHARGE_PAYMENT) && loan.isNpa()
+                && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            LoanTransaction suspenseReverseTransaction = findMatchingSuspenseReverseTransaction(loan, transactionForAdjustment);
+
+            if (suspenseReverseTransaction != null) {
+                // Reverse the ACCRUAL_SUSPENSE_REVERSE transaction
+                suspenseReverseTransaction.reverse(reversalExternalId);
+                suspenseReverseTransaction.manuallyAdjustedOrReversed();
+                loanTransactionRepository.saveAndFlush(suspenseReverseTransaction);
+                journalEntryPoster.postJournalEntriesForLoanTransaction(suspenseReverseTransaction, false, false);
+
+                // Create ACCRUAL_SUSPENSE to restore the suspense balance
+                BigDecimal interestPortion = suspenseReverseTransaction.getInterestPortion();
+                BigDecimal feePortion = suspenseReverseTransaction.getFeeChargesPortion();
+                BigDecimal penaltyPortion = suspenseReverseTransaction.getPenaltyChargesPortion();
+                BigDecimal totalAmount = MathUtil.add(interestPortion, feePortion, penaltyPortion);
+
+                if (MathUtil.isGreaterThanZero(totalAmount)) {
+                    LoanTransaction accrualSuspenseTransaction = LoanTransaction.accrueSuspenseTransaction(loan, loan.getOffice(),
+                            transactionForAdjustment.getTransactionDate(), totalAmount, interestPortion, feePortion, penaltyPortion,
+                            reversalExternalId);
+                    LoanTransaction savedSuspenseTransaction = loanTransactionRepository.save(accrualSuspenseTransaction);
+                    loanTransactionRepository.flush(); // Flush to ensure ID is available for journal entry posting
+                    loan.addLoanTransaction(savedSuspenseTransaction);
+                    journalEntryPoster.postJournalEntriesForLoanTransaction(savedSuspenseTransaction, false, false);
+                }
+            }
+        }
+
         if (transactionForAdjustment.getTypeOf().equals(LoanTransactionType.MERCHANT_ISSUED_REFUND)
                 || transactionForAdjustment.getTypeOf().equals(LoanTransactionType.PAYOUT_REFUND)) {
             loan.getLoanTransactions().stream() //
@@ -374,5 +406,61 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
             }
             throw e;
         }
+    }
+
+    /**
+     * Finds the ACCRUAL_SUSPENSE_REVERSE transaction that matches a specific charge payment transaction.
+     *
+     * Note: ACCRUAL_SUSPENSE_REVERSE amounts are capped to available suspense balance, so they may be <= charge payment
+     * amounts. Matching criteria: 1. Same transaction date 2. Reverse amounts are <= charge payment amounts (capped) 3.
+     * At least one portion matches exactly (to handle cases where capping occurred) 4. If multiple matches, prefer the
+     * one with the highest total amount (most specific match)
+     */
+    private LoanTransaction findMatchingSuspenseReverseTransaction(final Loan loan, final LoanTransaction chargePaymentTransaction) {
+        BigDecimal paymentInterest = MathUtil.nullToZero(chargePaymentTransaction.getInterestPortion());
+        BigDecimal paymentFee = MathUtil.nullToZero(chargePaymentTransaction.getFeeChargesPortion());
+        BigDecimal paymentPenalty = MathUtil.nullToZero(chargePaymentTransaction.getPenaltyChargesPortion());
+
+        // Early return if charge payment has no interest/fee/penalty portions
+        if (paymentInterest.compareTo(BigDecimal.ZERO) == 0 && paymentFee.compareTo(BigDecimal.ZERO) == 0
+                && paymentPenalty.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
+        }
+
+        LocalDate transactionDate = chargePaymentTransaction.getTransactionDate();
+
+        return loan.getLoanTransactions().stream().filter(t -> t.getTypeOf().equals(LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE))
+                .filter(t -> t.getTransactionDate().equals(transactionDate)).filter(LoanTransaction::isNotReversed)
+                .filter(t -> matchesChargePayment(t, paymentInterest, paymentFee, paymentPenalty))
+                .max(Comparator.comparing(this::calculateTotalTransactionAmount)).orElse(null);
+    }
+
+    /**
+     * Checks if an ACCRUAL_SUSPENSE_REVERSE transaction matches a charge payment by amounts.
+     */
+    private boolean matchesChargePayment(final LoanTransaction reverseTransaction, final BigDecimal paymentInterest,
+            final BigDecimal paymentFee, final BigDecimal paymentPenalty) {
+        BigDecimal reverseInterest = MathUtil.nullToZero(reverseTransaction.getInterestPortion());
+        BigDecimal reverseFee = MathUtil.nullToZero(reverseTransaction.getFeeChargesPortion());
+        BigDecimal reversePenalty = MathUtil.nullToZero(reverseTransaction.getPenaltyChargesPortion());
+
+        // Reverse amounts must be <= charge payment amounts (due to capping)
+        if (reverseInterest.compareTo(paymentInterest) > 0 || reverseFee.compareTo(paymentFee) > 0
+                || reversePenalty.compareTo(paymentPenalty) > 0) {
+            return false;
+        }
+
+        // At least one portion must match exactly (ensures we're matching the correct transaction)
+        return (paymentInterest.compareTo(BigDecimal.ZERO) > 0 && reverseInterest.compareTo(paymentInterest) == 0)
+                || (paymentFee.compareTo(BigDecimal.ZERO) > 0 && reverseFee.compareTo(paymentFee) == 0)
+                || (paymentPenalty.compareTo(BigDecimal.ZERO) > 0 && reversePenalty.compareTo(paymentPenalty) == 0);
+    }
+
+    /**
+     * Calculates the total amount of a transaction (interest + fee + penalty).
+     */
+    private BigDecimal calculateTotalTransactionAmount(final LoanTransaction transaction) {
+        return MathUtil.add(MathUtil.nullToZero(transaction.getInterestPortion()), MathUtil.nullToZero(transaction.getFeeChargesPortion()),
+                MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
     }
 }

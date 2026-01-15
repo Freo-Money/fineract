@@ -102,4 +102,7 @@ public interface LoanTransactionValidator {
     void validateManualInterestRefundTransaction(String json);
 
     void validateClassificationCodeValue(String codeName, Long transactionClassificationId, DataValidatorBuilder baseDataValidator);
+
+    void validateAccrualSuspenseReverseForRepayment(Loan loan, LoanTransaction suspenseReverseTransaction,
+            LoanTransaction repaymentTransaction);
 }

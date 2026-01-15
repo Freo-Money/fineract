@@ -19,10 +19,10 @@
 package org.apache.fineract.infrastructure.jobs.service.updatenpa;
 
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
-import org.apache.fineract.infrastructure.core.service.database.DatabaseTypeResolver;
 import org.apache.fineract.infrastructure.core.service.database.RoutingDataSourceServiceFactory;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.portfolio.loanaccount.service.LoanAccrualsProcessingService;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.job.builder.JobBuilder;
@@ -44,12 +44,13 @@ public class UpdateNpaConfig {
     @Autowired
     private RoutingDataSourceServiceFactory dataSourceServiceFactory;
     @Autowired
-    private DatabaseTypeResolver databaseTypeResolver;
-    @Autowired
     private DatabaseSpecificSQLGenerator sqlGenerator;
 
     @Autowired
     private PlatformSecurityContext platformSecurityContext;
+
+    @Autowired
+    private LoanAccrualsProcessingService loanAccrualsProcessingService;
 
     @Bean
     protected Step updateNpaStep() {
@@ -63,6 +64,6 @@ public class UpdateNpaConfig {
 
     @Bean
     public UpdateNpaTasklet updateNpaTasklet() {
-        return new UpdateNpaTasklet(dataSourceServiceFactory, databaseTypeResolver, sqlGenerator, platformSecurityContext);
+        return new UpdateNpaTasklet(dataSourceServiceFactory, sqlGenerator, platformSecurityContext, loanAccrualsProcessingService);
     }
 }

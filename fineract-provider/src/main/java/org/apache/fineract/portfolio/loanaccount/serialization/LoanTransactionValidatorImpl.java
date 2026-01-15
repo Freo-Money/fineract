@@ -46,6 +46,7 @@ import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidati
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.core.service.MathUtil;
 import org.apache.fineract.infrastructure.dataqueries.data.EntityTables;
 import org.apache.fineract.infrastructure.dataqueries.data.StatusEnum;
 import org.apache.fineract.infrastructure.dataqueries.service.EntityDatatableChecksWritePlatformService;
@@ -85,6 +86,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleIns
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.exception.DateMismatchException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
@@ -118,6 +120,7 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
     private final CodeValueRepository codeValueRepository;
     private final ChargeRepositoryWrapper chargeRepositoryWrapper;
     private final ChargeReadPlatformService chargeReadPlatformService;
+    private final LoanTransactionRepository loanTransactionRepository;
 
     private void throwExceptionIfValidationWarningsExist(final List<ApiParameterError> dataValidationErrors) {
         if (!dataValidationErrors.isEmpty()) {
@@ -1216,6 +1219,68 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
                 baseDataValidator.reset().parameter(LoanTransactionApiConstants.TRANSACTION_CLASSIFICATIONID_PARAMNAME)
                         .failWithCode("code.value.classification.not.exists", "Code value does not exists in the code " + codeName);
             }
+        }
+    }
+
+    @Override
+    public void validateAccrualSuspenseReverseForRepayment(final Loan loan, final LoanTransaction suspenseReverseTransaction,
+            final LoanTransaction repaymentTransaction) {
+
+        BigDecimal repaymentInterest = MathUtil.nullToZero(repaymentTransaction.getInterestPortion());
+        BigDecimal repaymentFee = MathUtil.nullToZero(repaymentTransaction.getFeeChargesPortion());
+        BigDecimal repaymentPenalty = MathUtil.nullToZero(repaymentTransaction.getPenaltyChargesPortion());
+
+        // If repayment has no interest/fee/penalty portions, no reverse suspense should be created
+        if (repaymentInterest.compareTo(BigDecimal.ZERO) == 0 && repaymentFee.compareTo(BigDecimal.ZERO) == 0
+                && repaymentPenalty.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
+
+        // Find ACCRUAL_SUSPENSE_REVERSE transaction created on the same date as repayment
+        LoanTransaction reverseTransaction = suspenseReverseTransaction;
+        BigDecimal reverseInterest = MathUtil.nullToZero(reverseTransaction.getInterestPortion());
+        BigDecimal reverseFee = MathUtil.nullToZero(reverseTransaction.getFeeChargesPortion());
+        BigDecimal reversePenalty = MathUtil.nullToZero(reverseTransaction.getPenaltyChargesPortion());
+
+        // Calculate total ACCRUAL_SUSPENSE balance in a single pass
+        // Exclude the reverse transaction being validated to avoid double-counting
+        BigDecimal totalSuspenseInterest = BigDecimal.ZERO;
+        BigDecimal totalSuspenseFee = BigDecimal.ZERO;
+        BigDecimal totalSuspensePenalty = BigDecimal.ZERO;
+
+        for (LoanTransaction transaction : loan.getLoanTransactions()) {
+            // Skip the reverse transaction being validated to avoid including it in balance calculation
+            if (transaction.getId() != null && transaction.getId().equals(reverseTransaction.getId())) {
+                continue;
+            }
+            if (transaction.isNotReversed()) {
+                LoanTransactionType type = transaction.getTypeOf();
+                if (type.equals(LoanTransactionType.ACCRUAL_SUSPENSE)) {
+                    totalSuspenseInterest = totalSuspenseInterest.add(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    totalSuspenseFee = totalSuspenseFee.add(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    totalSuspensePenalty = totalSuspensePenalty.add(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                } else if (type.equals(LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE)) {
+                    totalSuspenseInterest = totalSuspenseInterest.subtract(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    totalSuspenseFee = totalSuspenseFee.subtract(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    totalSuspensePenalty = totalSuspensePenalty.subtract(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                }
+            }
+        }
+
+        // Validate that reverse amounts do not exceed suspense balance
+        validateSuspenseBalance("interest", reverseInterest, totalSuspenseInterest, loan.getId(),
+                repaymentTransaction.getTransactionDate());
+        validateSuspenseBalance("fee", reverseFee, totalSuspenseFee, loan.getId(), repaymentTransaction.getTransactionDate());
+        validateSuspenseBalance("penalty", reversePenalty, totalSuspensePenalty, loan.getId(), repaymentTransaction.getTransactionDate());
+    }
+
+    private void validateSuspenseBalance(String component, BigDecimal reverseAmount, BigDecimal suspenseBalance, Long loanId,
+            LocalDate transactionDate) {
+        if (reverseAmount.compareTo(suspenseBalance) > 0) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.accrual.suspense.reverse.exceeds.balance", String.format(
+                    "ACCRUAL_SUSPENSE_REVERSE %s portion (%s) exceeds available ACCRUAL_SUSPENSE balance (%s) for NPA loan %d on %s",
+                    component, reverseAmount, suspenseBalance, loanId, transactionDate), loanId, transactionDate, reverseAmount,
+                    suspenseBalance);
         }
     }
 }
