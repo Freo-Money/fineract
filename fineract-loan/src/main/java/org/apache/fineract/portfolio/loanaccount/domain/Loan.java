@@ -1412,6 +1412,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         return this.isNpa;
     }
 
+    public void setNpa(boolean npa) {
+        this.isNpa = npa;
+    }
+
     public Integer getLoanRepaymentScheduleInstallmentsSize() {
         return this.repaymentScheduleInstallments.size();
     }

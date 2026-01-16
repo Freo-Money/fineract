@@ -116,7 +116,9 @@ public final class AccountingConstants {
         DEFERRED_INCOME_LIABILITY(23), //
         BUY_DOWN_EXPENSE(24), //
         INCOME_FROM_BUY_DOWN(25), //
-        ;
+        NPA_INTEREST_SUSPENSE(52), //
+        NPA_FEES_SUSPENSE(53), //
+        NPA_PENALTIES_SUSPENSE(54);
 
         private final Integer value;
 
@@ -192,7 +194,9 @@ public final class AccountingConstants {
         CAPITALIZED_INCOME_CLASSIFICATION_TO_INCOME_ACCOUNT_MAPPINGS("capitalizedIncomeClassificationToIncomeAccountMappings"), //
         BUYDOWN_FEE_CLASSIFICATION_TO_INCOME_ACCOUNT_MAPPINGS("buydownfeeClassificationToIncomeAccountMappings"), //
         CLASSIFICATION_CODE_VALUE_ID("classificationCodeValueId"), //
-        ;
+        NPA_INTEREST_SUSPENSE("npaInterestSuspenseAccountId"), //
+        NPA_FEES_SUSPENSE("npaFeesSuspenseAccountId"), //
+        NPA_PENALTIES_SUSPENSE("npaPenaltiesSuspenseAccountId");
 
         private final String value;
 
@@ -239,6 +243,9 @@ public final class AccountingConstants {
         INCOME_FROM_CAPITALIZATION("incomeFromCapitalizationAccount"), //
         BUY_DOWN_EXPENSE("buyDownExpenseAccount"), //
         INCOME_FROM_BUY_DOWN("incomeFromBuyDownAccount"), //
+        NPA_INTEREST_SUSPENSE("npaInterestSuspenseAccount"), //
+        NPA_FEES_SUSPENSE("npaFeesSuspenseAccount"), //
+        NPA_PENALTIES_SUSPENSE("npaPenaltiesSuspenseAccount"), //
         ;
 
         private final String value;

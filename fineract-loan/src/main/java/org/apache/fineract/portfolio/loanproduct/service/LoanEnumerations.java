@@ -348,6 +348,13 @@ public final class LoanEnumerations {
             case BUY_DOWN_FEE_AMORTIZATION_ADJUSTMENT ->
                 new LoanTransactionEnumData(LoanTransactionType.BUY_DOWN_FEE_AMORTIZATION_ADJUSTMENT.getValue().longValue(),
                         LoanTransactionType.BUY_DOWN_FEE_AMORTIZATION_ADJUSTMENT.getCode(), "Buy Down Fee Amortization Adjustment");
+            case ACCRUAL_SUSPENSE -> new LoanTransactionEnumData(LoanTransactionType.ACCRUAL_SUSPENSE.getValue().longValue(),
+                    LoanTransactionType.ACCRUAL_SUSPENSE.getCode(), "Accrual Suspense");
+            case ACCRUAL_WRITEOFF -> new LoanTransactionEnumData(LoanTransactionType.ACCRUAL_WRITEOFF.getValue().longValue(),
+                    LoanTransactionType.ACCRUAL_WRITEOFF.getCode(), "Accrual Writeoff");
+            case ACCRUAL_SUSPENSE_REVERSE ->
+                new LoanTransactionEnumData(LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE.getValue().longValue(),
+                        LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE.getCode(), "Accrual Suspense Reverse");
         };
     }
 

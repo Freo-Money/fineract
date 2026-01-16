@@ -76,7 +76,9 @@ public enum LoanTransactionType {
     BUY_DOWN_FEE_ADJUSTMENT(41, "loanTransactionType.buyDownFeeAdjustment"), //
     BUY_DOWN_FEE_AMORTIZATION(42, "loanTransactionType.buyDownFeeAmortization"), //
     BUY_DOWN_FEE_AMORTIZATION_ADJUSTMENT(43, "loanTransactionType.buyDownFeeAmortizationAdjustment"), //
-    ;
+    ACCRUAL_SUSPENSE(53, "loanTransactionType.accrualSuspense"), //
+    ACCRUAL_WRITEOFF(54, "loanTransactionType.accrualWriteoff"), //
+    ACCRUAL_SUSPENSE_REVERSE(55, "loanTransactionType.accrualSuspenseReverse");
 
     private final Integer value;
     private final String code;
@@ -135,6 +137,9 @@ public enum LoanTransactionType {
             case 41 -> LoanTransactionType.BUY_DOWN_FEE_ADJUSTMENT;
             case 42 -> LoanTransactionType.BUY_DOWN_FEE_AMORTIZATION;
             case 43 -> LoanTransactionType.BUY_DOWN_FEE_AMORTIZATION_ADJUSTMENT;
+            case 53 -> LoanTransactionType.ACCRUAL_SUSPENSE;
+            case 54 -> LoanTransactionType.ACCRUAL_WRITEOFF;
+            case 55 -> LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE;
             default -> LoanTransactionType.INVALID;
         };
     }
@@ -270,5 +275,17 @@ public enum LoanTransactionType {
 
     public boolean isBuyDownFeeAdjustment() {
         return this == LoanTransactionType.BUY_DOWN_FEE_ADJUSTMENT;
+    }
+
+    public boolean isAccrualSuspense() {
+        return this == LoanTransactionType.ACCRUAL_SUSPENSE;
+    }
+
+    public boolean isAccrualWriteoff() {
+        return this == LoanTransactionType.ACCRUAL_WRITEOFF;
+    }
+
+    public boolean isAccrualSuspenseReverse() {
+        return this == LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE;
     }
 }

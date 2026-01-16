@@ -47,4 +47,8 @@ public interface LoanAccrualsProcessingService {
 
     void processAccrualsOnLoanForeClosure(@NonNull Loan loan, @NonNull LocalDate foreClosureDate,
             @NonNull List<LoanTransaction> newAccrualTransactions, @NonNull Map<Long, BigDecimal> mergedChargePercentages);
+
+    void convertAccrualToSuspenseForNpaLoans(@NonNull List<Long> loanIds);
+
+    void reverseAccrualSuspenseForNonNpaLoans(@NonNull List<Long> loanIds);
 }

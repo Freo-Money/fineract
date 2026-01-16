@@ -277,10 +277,31 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
                 penaltyChargesPortion, null, false, null, externalId);
     }
 
+    public static LoanTransaction accrueSuspenseTransaction(final Loan loan, final Office office, final LocalDate dateOf,
+            final BigDecimal amount, final BigDecimal interestPortion, final BigDecimal feeChargesPortion,
+            final BigDecimal penaltyChargesPortion, final ExternalId externalId) {
+        return new LoanTransaction(loan, office, LoanTransactionType.ACCRUAL_SUSPENSE, dateOf, amount, null, interestPortion,
+                feeChargesPortion, penaltyChargesPortion, null, false, null, externalId);
+    }
+
+    public static LoanTransaction accrualSuspenseReverseTransaction(final Loan loan, final Office office, final LocalDate dateOf,
+            final BigDecimal amount, final BigDecimal interestPortion, final BigDecimal feeChargesPortion,
+            final BigDecimal penaltyChargesPortion, final ExternalId externalId) {
+        return new LoanTransaction(loan, office, LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE, dateOf, amount, null, interestPortion,
+                feeChargesPortion, penaltyChargesPortion, null, false, null, externalId);
+    }
+
     public static LoanTransaction accrualAdjustment(final Loan loan, final Office office, final LocalDate dateOf, final BigDecimal amount,
             final BigDecimal interestPortion, final BigDecimal feePortion, final BigDecimal penaltyPortion, final ExternalId externalId) {
         return new LoanTransaction(loan, office, LoanTransactionType.ACCRUAL_ADJUSTMENT, dateOf, amount, null, interestPortion, feePortion,
                 penaltyPortion, null, false, null, externalId);
+    }
+
+    public static LoanTransaction accrualWriteoffTransaction(final Loan loan, final Office office, final LocalDate dateOf,
+            final BigDecimal amount, final BigDecimal interestPortion, final BigDecimal feeChargesPortion,
+            final BigDecimal penaltyChargesPortion, final ExternalId externalId) {
+        return new LoanTransaction(loan, office, LoanTransactionType.ACCRUAL_WRITEOFF, dateOf, amount, null, interestPortion,
+                feeChargesPortion, penaltyChargesPortion, null, false, null, externalId);
     }
 
     public static LoanTransaction initiateTransfer(final Office office, final Loan loan, final LocalDate transferDate,
