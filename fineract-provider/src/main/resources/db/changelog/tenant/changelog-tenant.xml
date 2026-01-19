@@ -235,4 +235,5 @@
     <include file="parts/1036_add_adjusted_interest_amount_column.xml" relativeToChangelogFile="true" />
     <include file="parts/1037_add_max_cumulative_penalty_cap_to_charge.xml" relativeToChangelogFile="true" />
     <include file="parts/1038_add_overdue_due_principal_interest_overdue_due_penalties_fees_order_strategy.xml" relativeToChangelogFile="true" />
+    <include file="parts/1039_add_overdue_due_interest_principal_overdue_due_penalties_fees_order_strategy.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>
