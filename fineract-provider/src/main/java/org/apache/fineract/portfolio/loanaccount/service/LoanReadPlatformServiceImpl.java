@@ -1545,7 +1545,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " ls.penalty_charges_amount as penaltyChargesDue, ls.penalty_charges_completed_derived as penaltyChargesPaid, ls.penalty_charges_waived_derived as penaltyChargesWaived, "
                     + " ls.penalty_charges_writtenoff_derived as penaltyChargesWrittenOff, ls.total_paid_in_advance_derived as totalPaidInAdvanceForPeriod, "
                     + " ls.total_paid_late_derived as totalPaidLateForPeriod, ls.credits_amount as principalCredits, ls.credited_fee as feeCredits, ls.credited_penalty as penaltyCredits, ls.is_down_payment isDownPayment, "
-                    + " ls.accrual_interest_derived as accrualInterest " + " from m_loan_repayment_schedule ls ";
+                    + " ls.accrual_interest_derived as accrualInterest, ls.emi_cleared_on as emiClearedOn " + " from m_loan_repayment_schedule ls ";
         }
 
         @Override
@@ -1704,6 +1704,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                 this.outstandingLoanPrincipalBalance = this.outstandingLoanPrincipalBalance.subtract(principalDue);
 
                 final boolean isDownPayment = rs.getBoolean("isDownPayment");
+                final LocalDate emiClearedOn = JdbcSupport.getLocalDate(rs, "emiClearedOn");
 
                 LoanSchedulePeriodData periodData;
 
@@ -1713,7 +1714,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                         feeChargesPaid, feeChargesWaived, feeChargesWrittenOff, feeChargesOutstanding, penaltyChargesExpectedDue,
                         penaltyChargesPaid, penaltyChargesWaived, penaltyChargesWrittenOff, penaltyChargesOutstanding, totalPaidForPeriod,
                         totalPaidInAdvanceForPeriod, totalPaidLateForPeriod, totalWaivedForPeriod, totalWrittenOffForPeriod, credits,
-                        isDownPayment, accrualInterest);
+                        isDownPayment, accrualInterest, emiClearedOn);
 
                 periods.add(periodData);
             }
