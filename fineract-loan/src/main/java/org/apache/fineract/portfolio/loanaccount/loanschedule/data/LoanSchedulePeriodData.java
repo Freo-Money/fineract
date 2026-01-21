@@ -78,6 +78,7 @@ public final class LoanSchedulePeriodData {
     private final BigDecimal totalCredits;
     private final BigDecimal totalAccruedInterest;
     private final boolean downPaymentPeriod;
+    private final LocalDate emiClearedOn;
 
     public static LoanSchedulePeriodData disbursementOnlyPeriod(final LocalDate disbursementDate, final BigDecimal principalDisbursed,
             final BigDecimal feeChargesDueAtTimeOfDisbursement, final boolean isDisbursed) {
@@ -156,7 +157,8 @@ public final class LoanSchedulePeriodData {
             final BigDecimal penaltyChargesPaid, final BigDecimal penaltyChargesWaived, final BigDecimal penaltyChargesWrittenOff,
             final BigDecimal penaltyChargesOutstanding, final BigDecimal totalPaid, final BigDecimal totalPaidInAdvanceForPeriod,
             final BigDecimal totalPaidLateForPeriod, final BigDecimal totalWaived, final BigDecimal totalWrittenOff,
-            final BigDecimal totalCredits, final boolean isDownPayment, final BigDecimal totalAccruedInterest) {
+            final BigDecimal totalCredits, final boolean isDownPayment, final BigDecimal totalAccruedInterest,
+            final LocalDate emiClearedOn) {
 
         final MathContext mc = MoneyHelper.getMathContext();
 
@@ -208,6 +210,7 @@ public final class LoanSchedulePeriodData {
                 .totalCredits(totalCredits) //
                 .downPaymentPeriod(isDownPayment) //
                 .totalAccruedInterest(totalAccruedInterest) //
+                .emiClearedOn(emiClearedOn) //
                 .build();
     }
 
@@ -259,6 +262,7 @@ public final class LoanSchedulePeriodData {
                 .totalCredits(loanSchedulePeriodData.totalCredits) //
                 .downPaymentPeriod(loanSchedulePeriodData.isDownPaymentPeriod()) //
                 .totalAccruedInterest(loanSchedulePeriodData.totalAccruedInterest) //
+                .emiClearedOn(loanSchedulePeriodData.emiClearedOn) //
                 .build();
     }
 
