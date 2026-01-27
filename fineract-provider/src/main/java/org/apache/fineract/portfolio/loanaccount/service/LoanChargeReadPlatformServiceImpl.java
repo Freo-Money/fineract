@@ -274,9 +274,12 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
 
         List<Integer> frequencyNumbers = new ArrayList<>();
         for (LoanCharge loanCharge : loan.getLoanCharges()) {
-            if (loanCharge.isOverdueInstallmentCharge() && charge.equals(loanCharge.getCharge()) && loanCharge.isActive()
-                    && periodNumber.equals(loanCharge.getOverdueInstallmentCharge().getInstallment().getInstallmentNumber())) {
-                frequencyNumbers.add(loanCharge.getOverdueInstallmentCharge().getFrequencyNumber());
+            if (loanCharge.isOverdueInstallmentCharge() && charge.equals(loanCharge.getCharge()) && loanCharge.isActive()) {
+                // Handle migrated loans that may not have m_loan_overdue_installment_charge entries
+                if (loanCharge.getOverdueInstallmentCharge() != null
+                        && periodNumber.equals(loanCharge.getOverdueInstallmentCharge().getInstallment().getInstallmentNumber())) {
+                    frequencyNumbers.add(loanCharge.getOverdueInstallmentCharge().getFrequencyNumber());
+                }
             }
         }
 
