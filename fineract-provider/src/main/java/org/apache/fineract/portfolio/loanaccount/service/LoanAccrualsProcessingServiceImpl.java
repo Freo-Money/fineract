@@ -457,6 +457,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
         if (!isFinal || progressiveAccrual) {
             loan.setAccruedTill(isFinal ? accrualDate : tillDate);
+            this.loanRepositoryWrapper.save(loan);
         }
 
         accrualTransactions = loanTransactionRepository.saveAll(accrualTransactions);

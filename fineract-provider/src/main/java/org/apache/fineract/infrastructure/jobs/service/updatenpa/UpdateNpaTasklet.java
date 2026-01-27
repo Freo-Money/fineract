@@ -52,23 +52,27 @@ public class UpdateNpaTasklet implements Tasklet {
 
         // Query loans that should move out of NPA
         int accrualPeriodicType = AccountingRuleType.ACCRUAL_PERIODIC.getValue();
-        String baseMoveOutSql = "SELECT loan2.id FROM m_loan loan2 " + "left join m_loan_arrears_aging laa on laa.loan_id = loan2.id "
-                + "inner join m_product_loan mpl on mpl.id = loan2.product_id and mpl.overdue_days_for_npa is not null "
-                + "WHERE loan2.loan_status_id = 300 and loan2.is_npa = true and mpl.accounting_type ";
-        String moveOutCondition = " and (mpl.account_moves_out_of_npa_only_on_arrears_completion = false"
-                + " or (mpl.account_moves_out_of_npa_only_on_arrears_completion = true" + " and laa.overdue_since_date_derived is null))";
+        // Optimized: Move product filter to JOIN, remove COALESCE (already filtered by NOT NULL)
+        String baseMoveOutSql = "SELECT loan2.id FROM m_loan loan2 " + "INNER JOIN m_product_loan mpl ON mpl.id = loan2.product_id "
+                + "  AND mpl.overdue_days_for_npa IS NOT NULL " + "LEFT JOIN m_loan_arrears_aging laa ON laa.loan_id = loan2.id "
+                + "WHERE loan2.loan_status_id = 300 " + "  AND loan2.is_npa = true " + "  AND mpl.accounting_type ";
+        String moveOutCondition = " AND (" + "  (mpl.account_moves_out_of_npa_only_on_arrears_completion = false "
+                + "   AND (laa.overdue_since_date_derived IS NULL OR laa.overdue_since_date_derived > "
+                + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "mpl.overdue_days_for_npa", "day") + ")) "
+                + "  OR (mpl.account_moves_out_of_npa_only_on_arrears_completion = true "
+                + "      AND laa.overdue_since_date_derived IS NULL)" + ")";
         List<Long> loansToMoveOutBulk = jdbcTemplate.queryForList(baseMoveOutSql + "!= " + accrualPeriodicType + moveOutCondition,
                 Long.class);
         List<Long> loansToMoveOutAccrual = jdbcTemplate.queryForList(baseMoveOutSql + "= " + accrualPeriodicType + moveOutCondition,
                 Long.class);
 
         // Query loans that should move to NPA
-        String baseMoveToSql = "SELECT loan.id FROM m_loan_arrears_aging laa " + "INNER JOIN m_loan loan on laa.loan_id = loan.id "
-                + "INNER JOIN m_product_loan mpl on mpl.id = loan.product_id AND mpl.overdue_days_for_npa is not null "
-                + "WHERE loan.loan_status_id = 300 and loan.is_npa = false and mpl.accounting_type ";
-        String moveToCondition = " and laa.overdue_since_date_derived < "
-                + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "COALESCE(mpl.overdue_days_for_npa, 0)", "day")
-                + " group by loan.id";
+        // Optimized: Move product filter to JOIN, remove COALESCE (already filtered by NOT NULL)
+        String baseMoveToSql = "SELECT loan.id FROM m_loan loan " + "INNER JOIN m_loan_arrears_aging laa ON laa.loan_id = loan.id "
+                + "INNER JOIN m_product_loan mpl ON mpl.id = loan.product_id " + "  AND mpl.overdue_days_for_npa IS NOT NULL "
+                + "WHERE loan.loan_status_id = 300 " + "  AND loan.is_npa = false " + "  AND mpl.accounting_type ";
+        String moveToCondition = " AND laa.overdue_since_date_derived < "
+                + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "mpl.overdue_days_for_npa", "day") + " GROUP BY loan.id";
         List<Long> loansToMoveToBulk = jdbcTemplate.queryForList(baseMoveToSql + "!= " + accrualPeriodicType + moveToCondition, Long.class);
         List<Long> loansToMoveToAccrual = jdbcTemplate.queryForList(baseMoveToSql + "= " + accrualPeriodicType + moveToCondition,
                 Long.class);
@@ -108,9 +112,10 @@ public class UpdateNpaTasklet implements Tasklet {
                 ? "UPDATE m_loan SET is_npa = true, last_modified_by = ?, last_modified_on_utc = ? WHERE id IN (" + inClause + ")"
                 : "UPDATE m_loan SET is_npa = false, last_modified_by = ?, last_modified_on_utc = ? WHERE id IN (" + inClause + ")";
 
-        List<Object> params = new ArrayList<>(loanIds);
+        List<Object> params = new ArrayList<>();
         params.add(user.getId());
         params.add(DateUtils.getAuditOffsetDateTime());
+        params.addAll(loanIds);
 
         jdbcTemplate.update(sql, params.toArray());
     }
