@@ -559,4 +559,26 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
         }
         return arrearsBasedOnValue;
     }
+
+    @Override
+    public LocalDate retrieveMigrationCutoffDate() {
+        try {
+            final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(
+                    GlobalConfigurationConstants.FINERACT_MIGRATION_CUTOFF_DATE);
+            return property.getDateValue();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @Override
+    public Long retrieveMigrationLastImportedLoanId() {
+        try {
+            final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(
+                    GlobalConfigurationConstants.FINERACT_MIGRATION_LAST_IMPORTED_LOAN_ID);
+            return property.getValue();
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }

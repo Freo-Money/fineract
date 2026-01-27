@@ -135,6 +135,7 @@ import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidat
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.service.adjustment.LoanAdjustmentParameter;
 import org.apache.fineract.portfolio.loanaccount.service.adjustment.LoanAdjustmentService;
+import org.apache.fineract.portfolio.loanaccount.service.strategy.OverdueChargeCutoffDateResolver;
 import org.apache.fineract.portfolio.loanproduct.data.LoanOverdueDTO;
 import org.apache.fineract.portfolio.loanproduct.exception.LinkedAccountRequiredException;
 import org.apache.fineract.portfolio.note.domain.Note;
@@ -180,6 +181,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     private final LoanAdjustmentService loanAdjustmentService;
     private final LoanChargeService loanChargeService;
     private final LoanJournalEntryPoster loanJournalEntryPoster;
+    private final OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver;
 
     private static boolean isPartOfThisInstallment(LoanCharge loanCharge, LoanRepaymentScheduleInstallment e) {
         return DateUtils.isAfter(loanCharge.getDueDate(), e.getFromDate()) && !DateUtils.isAfter(loanCharge.getDueDate(), e.getDueDate());
@@ -1170,6 +1172,11 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         for (Integer frequency : frequencyNumbers) {
             scheduleDates.remove(frequency);
         }
+
+        // Filter out charge dates that are before the cutoff date
+        // This ensures charges are only applied from the cutoff date forward
+        final LocalDate cutoffDate = overdueChargeCutoffDateResolver.getCutoffDate(loan);
+        scheduleDates.entrySet().removeIf(entry -> DateUtils.isBefore(entry.getValue(), cutoffDate));
 
         LoanRepaymentScheduleInstallment installment = null;
         LocalDate lastChargeAppliedDate = dueDate;

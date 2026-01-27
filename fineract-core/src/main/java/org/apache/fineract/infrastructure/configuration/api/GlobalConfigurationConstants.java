@@ -79,6 +79,8 @@ public final class GlobalConfigurationConstants {
     public static final String ASSET_OWNER_TRANSFER_OUTSTANDING_INTEREST_CALCULATION_STRATEGY = "outstanding-interest-calculation-strategy-for-external-asset-transfer";
     public static final String ALLOWED_LOAN_STATUSES_FOR_EXTERNAL_ASSET_TRANSFER = "allowed-loan-statuses-for-external-asset-transfer";
     public static final String ALLOWED_LOAN_STATUSES_OF_DELAYED_SETTLEMENT_FOR_EXTERNAL_ASSET_TRANSFER = "allowed-loan-statuses-of-delayed-settlement-for-external-asset-transfer";
+    public static final String FINERACT_MIGRATION_CUTOFF_DATE = "fineract-migration-cutoff-date";
+    public static final String FINERACT_MIGRATION_LAST_IMPORTED_LOAN_ID = "fineract-migration-last-imported-loan-id";
 
     private GlobalConfigurationConstants() {}
 }
