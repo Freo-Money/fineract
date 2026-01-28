@@ -153,4 +153,18 @@ public interface ConfigurationDomainService {
     String getAssetOwnerTransferOustandingInterestStrategy();
 
     Integer getArrearsBasedOnValue();
+
+    /**
+     * Retrieves the migration cutoff date configuration value.
+     *
+     * @return the migration cutoff date, or null if not configured
+     */
+    LocalDate retrieveMigrationCutoffDate();
+
+    /**
+     * Retrieves the last imported loan ID configuration value.
+     *
+     * @return the last imported loan ID, or null if not configured
+     */
+    Long retrieveMigrationLastImportedLoanId();
 }
