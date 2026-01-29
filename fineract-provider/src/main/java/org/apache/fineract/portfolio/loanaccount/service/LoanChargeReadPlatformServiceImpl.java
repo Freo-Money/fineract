@@ -36,6 +36,7 @@ import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.portfolio.charge.data.ChargeData;
 import org.apache.fineract.portfolio.charge.domain.Charge;
+import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.charge.exception.LoanChargeNotFoundException;
 import org.apache.fineract.portfolio.charge.service.ChargeDropdownReadPlatformService;
 import org.apache.fineract.portfolio.charge.service.ChargeEnumerations;
@@ -73,7 +74,7 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
                     + "lc.min_cap as minCap, lc.max_cap as maxCap, lc.charge_amount_or_percentage as amountOrPercentage, " //
                     + "lc.tax_group_id as taxGroupId, lc.amount_sans_tax as amountSansTax, lc.tax_amount as taxAmount, " //
                     + "lc.loan_id as loanId, c.currency_code as currencyCode, oc.name as currencyName, " //
-                    + "date(coalesce(dd.disbursedon_date,dd.expected_disburse_date)) as disbursementDate, " //
+                    + "date(coalesce(dd.disbursedon_date,dd.expected_disburse_date,l.disbursedon_date,l.expected_disbursedon_date)) as disbursementDate, " //
                     + "oc.decimal_places as currencyDecimalPlaces, oc.currency_multiplesof as inMultiplesOf, oc.display_symbol as currencyDisplaySymbol, " //
                     + "oc.internationalized_name_code as currencyNameCode, l.external_id as externalLoanId from m_charge c " //
                     + "join m_organisation_currency oc on c.currency_code = oc.code join m_loan_charge lc on lc.charge_id = c.id " //
@@ -125,7 +126,10 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
             final LocalDate disbursementDate = JdbcSupport.getLocalDate(rs, "disbursementDate");
             final LocalDate submittedOnDate = JdbcSupport.getLocalDate(rs, "submittedOnDate");
 
-            if (disbursementDate != null) {
+            // For disbursement-related charges, expose the effective disbursement date as dueDate.
+            final ChargeTimeType chargeTimeEnum = ChargeTimeType.fromInt(chargeTime);
+            if (disbursementDate != null
+                    && (chargeTimeEnum == ChargeTimeType.DISBURSEMENT || chargeTimeEnum == ChargeTimeType.TRANCHE_DISBURSEMENT)) {
                 dueAsOfDate = disbursementDate;
             }
             final String externalIdStr = rs.getString("externalId");
