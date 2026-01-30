@@ -828,6 +828,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder applyOverdueChargesForLoan(final Long loanId) {
+        this.actionName = "APPLYOVERDUE";
+        this.entityName = "LOANCHARGE";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/charges/apply-overdue";
+        return this;
+    }
+
     public CommandWrapperBuilder deleteLoanCharge(final Long loanId, final Long loanChargeId) {
         this.actionName = "DELETE";
         this.entityName = "LOANCHARGE";

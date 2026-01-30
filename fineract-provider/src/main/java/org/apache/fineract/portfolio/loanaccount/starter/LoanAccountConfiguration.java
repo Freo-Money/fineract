@@ -326,7 +326,8 @@ public class LoanAccountConfiguration {
             LoanDownPaymentTransactionValidator loanDownPaymentTransactionValidator, LoanChargeValidator loanChargeValidator,
             LoanScheduleService loanScheduleService, ReprocessLoanTransactionsService reprocessLoanTransactionsService,
             LoanAccountService loanAccountService, LoanAdjustmentService loanAdjustmentService, LoanChargeService loanChargeService,
-            LoanJournalEntryPoster loanJournalEntryPoster, OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver) {
+            LoanJournalEntryPoster loanJournalEntryPoster, OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver,
+            LoanReadPlatformService loanReadPlatformService) {
         return new LoanChargeWritePlatformServiceImpl(loanChargeApiJsonValidator, loanAssembler, chargeRepository,
                 businessEventNotifierService, loanTransactionRepository, accountTransfersWritePlatformService, loanRepositoryWrapper,
                 loanAccountDomainService, loanChargeRepository, loanWritePlatformService, loanUtilService, loanChargeReadPlatformService,
@@ -334,7 +335,7 @@ public class LoanAccountConfiguration {
                 loanRepaymentScheduleTransactionProcessorFactory, externalIdFactory, accountTransferDetailRepository, loanChargeAssembler,
                 paymentDetailWritePlatformService, noteRepository, loanAccrualsProcessingService, loanDownPaymentTransactionValidator,
                 loanChargeValidator, loanScheduleService, reprocessLoanTransactionsService, loanAccountService, loanAdjustmentService,
-                loanChargeService, loanJournalEntryPoster, overdueChargeCutoffDateResolver);
+                loanChargeService, loanJournalEntryPoster, overdueChargeCutoffDateResolver, loanReadPlatformService);
     }
 
     @Bean
