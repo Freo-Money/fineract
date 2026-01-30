@@ -179,6 +179,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     private final LoanChargeService loanChargeService;
     private final LoanJournalEntryPoster loanJournalEntryPoster;
     private final OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver;
+    private final LoanReadPlatformService loanReadPlatformService;
 
     private static boolean isPartOfThisInstallment(LoanCharge loanCharge, LoanRepaymentScheduleInstallment e) {
         return DateUtils.isAfter(loanCharge.getDueDate(), e.getFromDate()) && !DateUtils.isAfter(loanCharge.getDueDate(), e.getDueDate());
@@ -903,6 +904,21 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             }
             this.loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
         }
+    }
+
+    @Transactional
+    @Override
+    public CommandProcessingResult applyOverdueChargesForLoanByLoanId(final Long loanId) {
+        Loan loan = this.loanAssembler.assembleFrom(loanId);
+        final Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList = loanReadPlatformService
+                .retrieveAllOverdueInstallmentsForLoan(loan);
+        if (overdueLoanScheduleDataList.isEmpty()) {
+            log.debug("No overdue installments to apply penalty charges for loan {}", loanId);
+        } else {
+            log.info("Applying overdue penalty charges for loan {}, {} overdue installment(s)", loanId, overdueLoanScheduleDataList.size());
+            applyOverdueChargesForLoan(loanId, overdueLoanScheduleDataList);
+        }
+        return new CommandProcessingResultBuilder().withLoanId(loanId).build();
     }
 
     private LoanTransaction applyChargeAdjustment(final Loan loan, final LoanCharge loanCharge, final BigDecimal transactionAmount,
