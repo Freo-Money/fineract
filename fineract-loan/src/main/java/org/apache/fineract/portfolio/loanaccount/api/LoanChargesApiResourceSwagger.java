@@ -171,6 +171,27 @@ final class LoanChargesApiResourceSwagger {
         public Boolean penalty;
     }
 
+    @Schema(description = "PostLoansLoanIdChargesApplyOverdueRequest")
+    public static final class PostLoansLoanIdChargesApplyOverdueRequest {
+
+        private PostLoansLoanIdChargesApplyOverdueRequest() {}
+    }
+
+    @Schema(description = "PostLoansLoanIdChargesApplyOverdueResponse")
+    public static final class PostLoansLoanIdChargesApplyOverdueResponse {
+
+        private PostLoansLoanIdChargesApplyOverdueResponse() {}
+
+        @Schema(example = "1")
+        public Long officeId;
+        @Schema(example = "1")
+        public Long clientId;
+        @Schema(example = "1")
+        public Long loanId;
+        @Schema(example = "1")
+        public Long resourceId;
+    }
+
     @Schema(description = " PostLoansLoanIdChargesRequest")
     public static final class PostLoansLoanIdChargesRequest {
 
