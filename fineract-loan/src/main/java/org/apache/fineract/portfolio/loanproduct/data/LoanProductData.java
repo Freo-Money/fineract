@@ -415,7 +415,8 @@ public class LoanProductData implements Serializable {
                 enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate,
                 daysInYearTypeCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                 capitalizedIncomeType, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                merchantBuyDownFee, writeOffReasonsToExpenseMappings, writeOffReasonOptions, brokenPeriodConfig, null, bpiCollectedAtDisbursement);
+                merchantBuyDownFee, writeOffReasonsToExpenseMappings, writeOffReasonOptions, brokenPeriodConfig, null,
+                bpiCollectedAtDisbursement);
 
     }
 

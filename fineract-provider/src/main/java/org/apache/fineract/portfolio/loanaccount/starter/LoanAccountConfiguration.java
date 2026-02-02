@@ -360,8 +360,8 @@ public class LoanAccountConfiguration {
             ForeclosureChargeHelper foreclosureChargeHelper, LoanCapitalizedIncomeBalanceRepository loanCapitalizedIncomeBalanceRepository,
             LoanBuyDownFeeBalanceRepository loanBuyDownFeeBalanceRepository,
             @Lazy InterestRefundServiceDelegate interestRefundServiceDelegate, LoanMaximumAmountCalculator loanMaximumAmountCalculator,
-            LoanRepaymentScheduleService loanRepaymentScheduleService,
-            NamedParameterJdbcTemplate namedParameterJdbcTemplate, LoanChargeReadPlatformService loanChargeReadPlatformService) {
+            LoanRepaymentScheduleService loanRepaymentScheduleService, NamedParameterJdbcTemplate namedParameterJdbcTemplate,
+            LoanChargeReadPlatformService loanChargeReadPlatformService) {
         return new LoanReadPlatformServiceImpl(jdbcTemplate, context, loanRepositoryWrapper, applicationCurrencyRepository,
                 loanProductReadPlatformService, clientReadPlatformService, groupReadPlatformService, loanDropdownReadPlatformService,
                 fundReadPlatformService, chargeReadPlatformService, codeValueReadPlatformService, calendarReadPlatformService,
@@ -370,7 +370,8 @@ public class LoanAccountConfiguration {
                 delinquencyReadPlatformService, loanTransactionRepository, loanChargePaidByReadService, loanTransactionRelationReadService,
                 loanForeclosureValidator, loanTransactionMapper, loanTransactionProcessingService, loanBalanceService,
                 foreclosureChargeHelper, loanCapitalizedIncomeBalanceRepository, loanBuyDownFeeBalanceRepository,
-                interestRefundServiceDelegate, loanMaximumAmountCalculator, loanRepaymentScheduleService, namedParameterJdbcTemplate, loanChargeReadPlatformService);
+                interestRefundServiceDelegate, loanMaximumAmountCalculator, loanRepaymentScheduleService, namedParameterJdbcTemplate,
+                loanChargeReadPlatformService);
     }
 
     @Bean
@@ -505,11 +506,10 @@ public class LoanAccountConfiguration {
     @ConditionalOnMissingBean(LoanDisbursementService.class)
     public LoanDisbursementService loanDisbursementService(LoanChargeValidator loanChargeValidator,
             LoanDisbursementValidator loanDisbursementValidator, LoanChargeService loanChargeService, LoanBalanceService loanBalanceService,
-            LoanJournalEntryPoster journalEntryPoster, LoanTransactionRepository loanTransactionRepository, BusinessEventNotifierService businessEventNotifierService,
-            LoanDownPaymentHandlerService loanDownPaymentHandlerService) {
+            LoanJournalEntryPoster journalEntryPoster, LoanTransactionRepository loanTransactionRepository,
+            BusinessEventNotifierService businessEventNotifierService, LoanDownPaymentHandlerService loanDownPaymentHandlerService) {
         return new LoanDisbursementService(loanChargeValidator, loanDisbursementValidator, loanChargeService, loanBalanceService,
-                journalEntryPoster, loanTransactionRepository, businessEventNotifierService,
-                loanDownPaymentHandlerService);
+                journalEntryPoster, loanTransactionRepository, businessEventNotifierService, loanDownPaymentHandlerService);
     }
 
     @Bean

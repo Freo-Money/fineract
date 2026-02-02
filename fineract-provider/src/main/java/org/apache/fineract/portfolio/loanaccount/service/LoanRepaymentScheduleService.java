@@ -250,7 +250,7 @@ public class LoanRepaymentScheduleService {
                     feeChargesWaived, feeChargesWrittenOff, feeChargesOutstanding, penaltyChargesExpectedDue, penaltyChargesPaid,
                     penaltyChargesWaived, penaltyChargesWrittenOff, penaltyChargesOutstanding, totalPaidForPeriod,
                     totalPaidInAdvanceForPeriod, totalPaidLateForPeriod, totalWaivedForPeriod, totalWrittenOffForPeriod, credits,
-                    isDownPayment, accrualInterest);
+                    isDownPayment, accrualInterest, installment.getEmiClearedOn());
 
             periods.add(periodData);
         }

@@ -1873,6 +1873,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     public boolean hasReAgingTransaction() {
         return getLoanTransactions().stream().anyMatch(t -> t.isReAge() && t.isNotReversed());
     }
+
     public BigDecimal getBrokenPeriodInterest() {
         return this.brokenPeriodInterest;
     }

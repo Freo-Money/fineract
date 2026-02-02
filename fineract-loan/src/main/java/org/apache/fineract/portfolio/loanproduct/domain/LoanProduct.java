@@ -295,8 +295,8 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
             final LoanCapitalizedIncomeStrategy capitalizedIncomeStrategy, final LoanCapitalizedIncomeType capitalizedIncomeType,
             final boolean enableBuyDownFee, final LoanBuyDownFeeCalculationType buyDownFeeCalculationType,
             final LoanBuyDownFeeStrategy buyDownFeeStrategy, final LoanBuyDownFeeIncomeType buyDownFeeIncomeType,
-            final boolean merchantBuyDownFee, final boolean allowFullTermForTranche, final LoanProductConfigMapping bpiConfig, final Integer installmentInterestCalculationType,
-            final boolean bpiCollectedAtDisbursement) {
+            final boolean merchantBuyDownFee, final boolean allowFullTermForTranche, final LoanProductConfigMapping bpiConfig,
+            final Integer installmentInterestCalculationType, final boolean bpiCollectedAtDisbursement) {
         this.fund = fund;
         this.transactionProcessingStrategyCode = transactionProcessingStrategyCode;
 

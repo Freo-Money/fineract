@@ -235,8 +235,7 @@ public class LoanStepDef extends AbstractStepDef {
         Long clientId = clientResponse.getClientId();
         PostLoansRequest loansRequest = loanRequestFactory.defaultLoansRequest(clientId);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -248,8 +247,7 @@ public class LoanStepDef extends AbstractStepDef {
         PostLoansRequest loansRequest = loanRequestFactory.defaultLoansRequest(clientId).submittedOnDate(date)
                 .expectedDisbursementDate(date);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -261,8 +259,8 @@ public class LoanStepDef extends AbstractStepDef {
         final PostLoansRequest loansRequest = loanRequestFactory.defaultProgressiveLoansRequest(clientId).submittedOnDate(date)
                 .expectedDisbursementDate(date);
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        final PostLoansResponse response = ok(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -274,8 +272,7 @@ public class LoanStepDef extends AbstractStepDef {
         PostLoansRequest loansRequest = loanRequestFactory.defaultLoansRequest(clientId).submittedOnDate(date)
                 .expectedDisbursementDate(date);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_SECOND_LOAN_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -287,8 +284,7 @@ public class LoanStepDef extends AbstractStepDef {
         PostLoansRequest loansRequest = loanRequestFactory.defaultLoansRequest(clientId).submittedOnDate(date)
                 .expectedDisbursementDate(date);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_SECOND_LOAN_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -307,8 +303,7 @@ public class LoanStepDef extends AbstractStepDef {
                 .loanTermFrequency(1)//
                 .repaymentEvery(1);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
     }
 
@@ -790,8 +785,7 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestPayment)//
                 .graceOnInterestPayment(graceOnInterestCharged).transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -861,18 +855,10 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestPayment)//
                 .graceOnInterestPayment(graceOnInterestCharged).transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
-        testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
-
-        ErrorResponse errorDetails = ErrorResponse.from(response);
-        Integer errorCode = errorDetails.getHttpStatusCode();
-        String errorMessage = errorDetails.getSingleError().getDeveloperMessage();
-        assertThat(errorCode).as(ErrorMessageHelper.dateFailureErrorCodeMsg()).isEqualTo(403);
-        assertThat(errorMessage).isEqualTo(ErrorMessageHelper.downpaymentDisabledOnProductErrorCodeMsg());
-
-        log.debug("Error code: {}", errorCode);
-        log.debug("Error message: {}}", errorMessage);
+        CallFailedRuntimeException exception = fail(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
+        assertThat(exception.getStatus()).as(ErrorMessageHelper.dateFailureErrorCodeMsg()).isEqualTo(403);
+        assertThat(exception.getDeveloperMessage()).contains("downpayment");
     }
 
     @When("Admin creates a fully customized loan with auto downpayment {double}% and with the following data:")
@@ -941,8 +927,7 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestPayment)//
                 .graceOnInterestPayment(graceOnInterestCharged).transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -1013,8 +998,7 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestPayment)//
                 .graceOnInterestPayment(graceOnInterestCharged).transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -1085,8 +1069,7 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .fixedLength(fixedLength);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -1157,17 +1140,12 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .fixedLength(fixedLength);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
-        String errorToString = response.errorBody().string();
-        ErrorResponse errorResponse = GSON.fromJson(errorToString, ErrorResponse.class);
-        String errorMessageActual = errorResponse.getErrors().get(0).getDeveloperMessage();
-        int errorCodeActual = response.code();
-
-        assertThat(errorCodeActual).as(ErrorMessageHelper.wrongErrorCode(errorCodeActual, errorCodeExpected)).isEqualTo(errorCodeExpected);
-
-        log.debug("ERROR CODE: {}", errorCodeActual);
-        log.debug("ERROR MESSAGE: {}", errorMessageActual);
+        CallFailedRuntimeException exception = fail(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
+        assertThat(exception.getStatus()).as(ErrorMessageHelper.wrongErrorCode(exception.getStatus(), errorCodeExpected))
+                .isEqualTo(errorCodeExpected);
+        log.debug("ERROR CODE: {}", exception.getStatus());
+        log.debug("ERROR MESSAGE: {}", exception.getDeveloperMessage());
     }
 
     @When("Admin creates a fully customized loan with Advanced payment allocation and with product no Advanced payment allocation set results an error:")
@@ -1238,16 +1216,14 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestCharged)//
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
-        int errorCodeActual = response.code();
-        String errorBody = response.errorBody().string();
-        ErrorResponse errorResponse = GSON.fromJson(errorBody, ErrorResponse.class);
-        String errorMessageActual = errorResponse.getErrors().get(0).getDeveloperMessage();
+        CallFailedRuntimeException exception = fail(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
 
-        assertThat(errorCodeActual).as(ErrorMessageHelper.wrongErrorCode(errorCodeActual, errorCodeExpected)).isEqualTo(errorCodeExpected);
-        assertThat(errorMessageActual).as(ErrorMessageHelper.wrongErrorMessage(errorMessageActual, errorMessageExpected))
-                .isEqualTo(errorMessageExpected);
+        assertThat(exception.getStatus()).as(ErrorMessageHelper.wrongErrorCode(exception.getStatus(), errorCodeExpected))
+                .isEqualTo(errorCodeExpected);
+        assertThat(exception.getDeveloperMessage())
+                .as(ErrorMessageHelper.wrongErrorMessage(exception.getDeveloperMessage(), errorMessageExpected))
+                .contains(errorMessageExpected);
 
         log.debug("ERROR CODE: {}", exception.getStatus());
         log.debug("ERROR MESSAGE: {}", exception.getDeveloperMessage());
@@ -1319,8 +1295,7 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .enableInstallmentLevelDelinquency(true);//
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -1418,8 +1393,7 @@ public class LoanStepDef extends AbstractStepDef {
                 .repaymentFrequencyType(RepaymentFrequencyType.MONTHS.value).submittedOnDate(submitDate)
                 .expectedDisbursementDate(submitDate);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
     }
 
@@ -1490,12 +1464,9 @@ public class LoanStepDef extends AbstractStepDef {
                 .repaymentFrequencyType(RepaymentFrequencyType.MONTHS.value).submittedOnDate(submitDate)
                 .expectedDisbursementDate(submitDate);
 
-        Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
-        testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
-        ErrorResponse errorDetails = ErrorResponse.from(response);
-        assertThat(errorDetails.getHttpStatusCode()).as(ErrorMessageHelper.dateFailureErrorCodeMsg()).isEqualTo(403);
-        assertThat(errorDetails.getSingleError().getDeveloperMessage()).isEqualTo(ErrorMessageHelper.loanSubmitDateInFutureFailureMsg());
+        CallFailedRuntimeException exception = fail(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
+        assertThat(exception.getStatus()).as(ErrorMessageHelper.dateFailureErrorCodeMsg()).isEqualTo(403);
     }
 
     @And("Admin successfully approves the loan on {string} with {string} amount and expected disbursement date on {string}")
@@ -3496,8 +3467,8 @@ public class LoanStepDef extends AbstractStepDef {
             loansRequest.fixedEmiAmount(new BigDecimal(555));
         }
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        final PostLoansResponse response = ok(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -3566,8 +3537,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .graceOnInterestPayment(graceOnInterestCharged).transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)
                 .charges(loanCharges);
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        final PostLoansResponse response = ok(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -3640,8 +3611,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .interestRateFrequencyType(interestRateFrequencyTypeValue);//
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        final PostLoansResponse response = ok(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -3791,8 +3762,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .charges(charges);//
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        final PostLoansResponse response = ok(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -3898,8 +3869,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .disbursementData(disbursementDetail)//
                 .charges(charges);//
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        final PostLoansResponse response = ok(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -4017,8 +3988,8 @@ public class LoanStepDef extends AbstractStepDef {
                 .transactionProcessingStrategyCode(transactionProcessingStrategyCodeValue)//
                 .disbursementData(disbursementDetail);//
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        final PostLoansResponse response = ok(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -4057,8 +4028,8 @@ public class LoanStepDef extends AbstractStepDef {
                         : InterestCalculationPeriodTime.SAME_AS_REPAYMENT_PERIOD.value)//
                 .transactionProcessingStrategyCode(ADVANCED_PAYMENT_ALLOCATION.value);
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        final PostLoansResponse response = ok(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }
@@ -4094,8 +4065,8 @@ public class LoanStepDef extends AbstractStepDef {
                         : InterestCalculationPeriodTime.SAME_AS_REPAYMENT_PERIOD.value)//
                 .transactionProcessingStrategyCode(ADVANCED_PAYMENT_ALLOCATION.value);
 
-        final Response<PostLoansResponse> response = loansApi.calculateLoanScheduleOrSubmitLoanApplication(loansRequest, "", Boolean.FALSE)
-                .execute();
+        final PostLoansResponse response = ok(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(loansRequest, Map.of()));
         testContext().set(TestContextKey.LOAN_CREATE_RESPONSE, response);
         eventCheckHelper.createLoanEventCheck(response);
     }

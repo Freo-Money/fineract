@@ -177,10 +177,9 @@ public final class LoanApplicationValidator {
             LoanProductConstants.ENABLE_INSTALLMENT_LEVEL_DELINQUENCY, LoanProductConstants.ENABLE_DOWN_PAYMENT,
             LoanProductConstants.ENABLE_AUTO_REPAYMENT_DOWN_PAYMENT, LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT,
             LoanApiConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE, LoanApiConstants.daysInYearCustomStrategyParameterName,
-            LoanApiConstants.ALLOW_FULL_TERM_FOR_TRANCHE,
-            LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR,
-            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanApiConstants.repeatsOnDayOfMonthParameterName,
-            LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT));
+            LoanApiConstants.ALLOW_FULL_TERM_FOR_TRANCHE, LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE,
+            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH,
+            LoanApiConstants.repeatsOnDayOfMonthParameterName, LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT));
     public static final String LOANAPPLICATION_UNDO = "loanapplication.undo";
 
     private final FromJsonHelper fromApiJsonHelper;
@@ -219,8 +218,6 @@ public final class LoanApplicationValidator {
                     expectedFirstRepaymentOnDate);
         }
 
-        validateCumulativeMultiDisburse(loan);
-
         validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
                 loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),
                 loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
@@ -241,8 +238,6 @@ public final class LoanApplicationValidator {
                     "submittedOnDate cannot be after the loans  expectedFirstRepaymentOnDate.", submittedOnDate,
                     expectedFirstRepaymentOnDate);
         }
-
-        validateCumulativeMultiDisburse(loan);
 
         validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
                 loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),

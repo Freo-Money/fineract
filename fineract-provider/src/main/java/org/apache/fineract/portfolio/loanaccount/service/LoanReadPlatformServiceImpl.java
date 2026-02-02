@@ -32,6 +32,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -109,6 +111,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanDueDetailsDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanInterestRecalculationData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanOverdueDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentScheduleInstallmentData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanSchedulePeriodDataWrapper;
 import org.apache.fineract.portfolio.loanaccount.data.LoanStatusEnumData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanSummaryData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
@@ -143,6 +146,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.reamortization.LoanReAmo
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanTransactionNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleData;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanSchedulePeriodData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanScheduleData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleProcessingType;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
@@ -164,6 +168,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.lang.NonNull;
@@ -1504,6 +1509,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         }
     }
 
+    @SuppressWarnings({ "UnusedMethod", "UnusedNestedClass" })
     private static final class LoanScheduleResultSetExtractor implements ResultSetExtractor<LoanScheduleData> {
 
         private final CurrencyData currency;
@@ -1601,6 +1607,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                 final LocalDate dueDate = JdbcSupport.getLocalDate(rs, "dueDate");
                 final LocalDate obligationsMetOnDate = JdbcSupport.getLocalDate(rs, "obligationsMetOnDate");
                 final boolean complete = rs.getBoolean("complete");
+                final LocalDate emiClearedOn = JdbcSupport.getLocalDate(rs, "emiClearedOn");
 
                 List<LoanSchedulePeriodDataWrapper> combinedDataList = new ArrayList<>();
                 combinedDataList.addAll(
@@ -1708,7 +1715,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                         feeChargesPaid, feeChargesWaived, feeChargesWrittenOff, feeChargesOutstanding, penaltyChargesExpectedDue,
                         penaltyChargesPaid, penaltyChargesWaived, penaltyChargesWrittenOff, penaltyChargesOutstanding, totalPaidForPeriod,
                         totalPaidInAdvanceForPeriod, totalPaidLateForPeriod, totalWaivedForPeriod, totalWrittenOffForPeriod, credits,
-                        isDownPayment, accrualInterest);
+                        isDownPayment, accrualInterest, emiClearedOn);
 
                 periods.add(periodData);
             }
@@ -1752,16 +1759,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
                         if (!disbursedTranches.isEmpty()) {
                             for (DisbursementData data : disbursedTranches) {
-                                disbursementDataList.add(new LoanSchedulePeriodDataWrapper(data, data.disbursementDate(), true));
+                                disbursementDataList
+                                        .add(new LoanSchedulePeriodDataWrapper(data, data.disbursementDate(), true, data.isDisbursed()));
                             }
                         } else {
                             for (DisbursementData data : sameDateDisbursements) {
-                                disbursementDataList.add(new LoanSchedulePeriodDataWrapper(data, data.disbursementDate(), true));
+                                disbursementDataList
+                                        .add(new LoanSchedulePeriodDataWrapper(data, data.disbursementDate(), true, data.isDisbursed()));
                             }
                         }
                     } else {
                         DisbursementData data = sameDateDisbursements.get(0);
-                        disbursementDataList.add(new LoanSchedulePeriodDataWrapper(data, data.disbursementDate(), true));
+                        disbursementDataList
+                                .add(new LoanSchedulePeriodDataWrapper(data, data.disbursementDate(), true, data.isDisbursed()));
                     }
                 }
             } else {
@@ -1774,7 +1784,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                             && !disbursementPeriodIds.contains(data.getId());
 
                     if (isEligible) {
-                        disbursementDataList.add(new LoanSchedulePeriodDataWrapper(data, data.disbursementDate(), true));
+                        disbursementDataList
+                                .add(new LoanSchedulePeriodDataWrapper(data, data.disbursementDate(), true, data.isDisbursed()));
                         disbursementPeriodIds.add(data.getId());
                     }
                 }
@@ -1800,7 +1811,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                         && !disbursementPeriodIds.contains(data.getTransactionId());
 
                 if (isEligible) {
-                    capitalizedIncomeDataList.add(new LoanSchedulePeriodDataWrapper(data, data.getDate(), false));
+                    capitalizedIncomeDataList.add(new LoanSchedulePeriodDataWrapper(data, data.getDate(), false, !data.isReversed()));
                     disbursementPeriodIds.add(data.getTransactionId());
                 }
             }

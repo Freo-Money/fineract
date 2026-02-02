@@ -263,7 +263,7 @@ public class LoanBalanceService {
             if (!loan.getLoanProduct().isAdjustInterestForRounding()) {
                 return;
             }
-            final Integer currencyMultiplesOf = currency.getCurrencyData().getInMultiplesOf();
+            final Integer currencyMultiplesOf = currency.getInMultiplesOf();
             if (currencyMultiplesOf != null && currencyMultiplesOf > 0) {
                 installmentAmountInMultiplesOf = currencyMultiplesOf;
             } else {

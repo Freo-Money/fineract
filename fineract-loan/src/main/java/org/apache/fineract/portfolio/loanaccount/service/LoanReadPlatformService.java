@@ -173,6 +173,7 @@ public interface LoanReadPlatformService {
     LoanTransactionData retrieveLoanReAgeTemplate(Long loanId);
 
     LoanTransactionData retrieveLoanReAmortizationTemplate(Long loanId);
+
     LoanDueDetailsDTO getLoanDueDetails(Long loanId, LocalDate asOnLocalDate);
 
     ChargePaymentTemplateData getChargePaymentTemplateDetails(Long loanId, LocalDate asOnLocalDate);
