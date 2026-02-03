@@ -159,6 +159,13 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         addAccruals(loan, tillDate, true, false, true, chargeOnDueDate);
     }
 
+    @Override
+    @Transactional
+    public void addPeriodicAccrualsForLoanId(@NonNull final Long loanId, @NonNull final LocalDate tillDate) {
+        Loan loan = loanRepositoryWrapper.findOneWithNotFoundDetection(loanId);
+        addPeriodicAccruals(tillDate, loan);
+    }
+
     /**
      * method adds accrual for batch job "Add Accrual Transactions"
      */
