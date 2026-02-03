@@ -1316,6 +1316,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder postAccrualsTillDateForLoan(final Long loanId) {
+        this.actionName = "EXECUTE_LOAN";
+        this.entityName = "PERIODICACCRUALACCOUNTING";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/accruals/post-till-date";
+        return this;
+    }
+
     public CommandWrapperBuilder createGLAccount() {
         this.actionName = "CREATE";
         this.entityName = "GLACCOUNT";

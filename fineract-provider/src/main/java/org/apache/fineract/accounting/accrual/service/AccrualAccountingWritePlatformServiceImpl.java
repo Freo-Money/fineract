@@ -57,4 +57,12 @@ public class AccrualAccountingWritePlatformServiceImpl implements AccrualAccount
         }
         return CommandProcessingResult.empty();
     }
+
+    @Override
+    public CommandProcessingResult executeLoanPeriodicAccrual(Long loanId, JsonCommand command) {
+        this.accountingDataValidator.validateLoanPeriodicAccrualData(command.json());
+        LocalDate tillDate = command.localDateValueOfParameterNamed(ACCRUE_TILL_PARAM_NAME);
+        this.loanAccrualsProcessingService.addPeriodicAccrualsForLoanId(loanId, tillDate);
+        return CommandProcessingResult.resourceResult(loanId);
+    }
 }
