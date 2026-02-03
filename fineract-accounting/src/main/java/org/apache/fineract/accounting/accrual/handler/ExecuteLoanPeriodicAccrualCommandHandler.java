@@ -16,24 +16,27 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.accounting.accrual.service;
+package org.apache.fineract.accounting.accrual.handler;
 
+import lombok.RequiredArgsConstructor;
+import org.apache.fineract.accounting.accrual.service.AccrualAccountingWritePlatformService;
+import org.apache.fineract.commands.annotation.CommandType;
+import org.apache.fineract.commands.handler.NewCommandSourceHandler;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-public interface AccrualAccountingWritePlatformService {
+@Service
+@RequiredArgsConstructor
+@CommandType(entity = "PERIODICACCRUALACCOUNTING", action = "EXECUTE_LOAN")
+public class ExecuteLoanPeriodicAccrualCommandHandler implements NewCommandSourceHandler {
 
-    CommandProcessingResult executeLoansPeriodicAccrual(JsonCommand command);
+    private final AccrualAccountingWritePlatformService writePlatformService;
 
-    /**
-     * Posts periodic accruals for a single loan up to the given date. Same logic as runaccruals but for one loan.
-     *
-     * @param loanId
-     *            the loan id
-     * @param command
-     *            JSON containing tillDate (and optionally dateFormat, locale)
-     * @return result with resource id
-     */
-    CommandProcessingResult executeLoanPeriodicAccrual(Long loanId, JsonCommand command);
-
+    @Transactional
+    @Override
+    public CommandProcessingResult processCommand(final JsonCommand command) {
+        return writePlatformService.executeLoanPeriodicAccrual(command.getLoanId(), command);
+    }
 }

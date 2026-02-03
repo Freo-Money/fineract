@@ -33,6 +33,12 @@ public interface LoanAccrualsProcessingService {
 
     void addPeriodicAccruals(@NonNull LocalDate tillDate, @NonNull Loan loan) throws MultiException;
 
+    /**
+     * Posts periodic accruals for a single loan up to the given date (same logic as COB step / batch runaccruals for
+     * that loan). The loan product must have periodic accrual accounting enabled.
+     */
+    void addPeriodicAccrualsForLoanId(@NonNull Long loanId, @NonNull LocalDate tillDate);
+
     void addAccruals(@NonNull LocalDate tillDate) throws MultiException;
 
     void reprocessExistingAccruals(@NonNull Loan loan, boolean addEvent);

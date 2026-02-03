@@ -237,6 +237,7 @@
     <include file="parts/0209_add_charge_percentage_type_columns.xml" relativeToChangelogFile="true" />
     <include file="parts/0210_add_amount_paid_to_loan_charge_tax_details.xml" relativeToChangelogFile="true" />
     <include file="parts/0211_add_apply_overdue_charges_permissions.xml" relativeToChangelogFile="true" />
+    <include file="parts/0212_add_post_accruals_till_date_permissions.xml" relativeToChangelogFile="true" />
     <include file="parts/1035_add_adjust_interest_for_rounding_to_product_loan.xml" relativeToChangelogFile="true" />
     <include file="parts/1036_add_adjusted_interest_amount_column.xml" relativeToChangelogFile="true" />
     <include file="parts/1037_add_max_cumulative_penalty_cap_to_charge.xml" relativeToChangelogFile="true" />
