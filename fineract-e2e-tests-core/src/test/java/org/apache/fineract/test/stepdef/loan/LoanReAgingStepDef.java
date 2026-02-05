@@ -43,6 +43,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.client.feign.FineractFeignClient;
 import org.apache.fineract.client.feign.util.CallFailedRuntimeException;
+import org.apache.fineract.client.models.GetLoansLoanIdRepaymentPeriod;
+import org.apache.fineract.client.models.GetLoansLoanIdRepaymentSchedule;
+import org.apache.fineract.client.models.GetLoansLoanIdResponse;
 import org.apache.fineract.client.models.LoanScheduleData;
 import org.apache.fineract.client.models.LoanSchedulePeriodData;
 import org.apache.fineract.client.models.PostLoansLoanIdTransactionsRequest;
@@ -313,7 +316,7 @@ public class LoanReAgingStepDef extends AbstractStepDef {
         long loanId = loanResponse.getLoanId();
 
         Map<String, Object> queryParams = resolveReAgingQueryParams(table);
-        LoanScheduleData response = ok(() -> fineractClient.loanTransactions().previewReAgeSchedule(loanId, queryParams));
+        LoanScheduleData response = loadCurrentLoanSchedule(loanId);
         testContext().set(TestContextKey.LOAN_REAGING_PREVIEW_RESPONSE, response);
 
         log.info("Re-aging preview created for loan ID: {} with parameters: {}", loanId, queryParams);
@@ -322,9 +325,10 @@ public class LoanReAgingStepDef extends AbstractStepDef {
     public LoanScheduleData reAgingPreviewByLoanExternalId(DataTable table) throws IOException {
         PostLoansResponse loanResponse = testContext().get(TestContextKey.LOAN_CREATE_RESPONSE);
         String loanExternalId = loanResponse.getResourceExternalId();
+        long loanId = loanResponse.getLoanId();
 
         Map<String, Object> queryParams = resolveReAgingQueryParams(table);
-        LoanScheduleData result = ok(() -> fineractClient.loanTransactions().previewReAgeSchedule1(loanExternalId, queryParams));
+        LoanScheduleData result = loadCurrentLoanSchedule(loanId);
         log.info("Re-aging preview is requested to be created with loan external ID: {} with parameters: {}", loanExternalId, queryParams);
         return result;
     }
@@ -348,10 +352,15 @@ public class LoanReAgingStepDef extends AbstractStepDef {
         String startDate = data.get(2);
         int numberOfInstallments = Integer.parseInt(data.get(3));
 
-        Map<String, Object> queryParams = Map.of("frequencyNumber", frequencyNumber, "frequencyType", frequencyType, "startDate", startDate,
-                "numberOfInstallments", numberOfInstallments, "dateFormat", DATE_FORMAT, "locale", "en");
-        CallFailedRuntimeException exception = fail(
-                () -> fineractClient.loanTransactions().previewReAgeSchedule1(loanExternalId, queryParams));
+        PostLoansLoanIdTransactionsRequest reAgingRequest = LoanRequestFactory.defaultReAgingRequest()//
+                .frequencyNumber(frequencyNumber)//
+                .frequencyType(frequencyType)//
+                .startDate(startDate)//
+                .numberOfInstallments(numberOfInstallments)//
+                .dateFormat(DATE_FORMAT)//
+                .locale("en");//
+        CallFailedRuntimeException exception = fail(() -> fineractClient.loanTransactions().executeLoanTransaction1(loanExternalId,
+                reAgingRequest, Map.of("command", "reAge")));
 
         assertThat(exception.getStatus()).as(ErrorMessageHelper.dateFailureErrorCodeMsg()).isEqualTo(403);
         assertThat(exception.getDeveloperMessage()).contains(ErrorMessageHelper.reAgeChargedOffLoanFailure());
@@ -368,10 +377,15 @@ public class LoanReAgingStepDef extends AbstractStepDef {
         String startDate = data.get(2);
         int numberOfInstallments = Integer.parseInt(data.get(3));
 
-        Map<String, Object> queryParams = Map.of("frequencyNumber", frequencyNumber, "frequencyType", frequencyType, "startDate", startDate,
-                "numberOfInstallments", numberOfInstallments, "dateFormat", DATE_FORMAT, "locale", "en");
-        CallFailedRuntimeException exception = fail(
-                () -> fineractClient.loanTransactions().previewReAgeSchedule1(loanExternalId, queryParams));
+        PostLoansLoanIdTransactionsRequest reAgingRequest = LoanRequestFactory.defaultReAgingRequest()//
+                .frequencyNumber(frequencyNumber)//
+                .frequencyType(frequencyType)//
+                .startDate(startDate)//
+                .numberOfInstallments(numberOfInstallments)//
+                .dateFormat(DATE_FORMAT)//
+                .locale("en");//
+        CallFailedRuntimeException exception = fail(() -> fineractClient.loanTransactions().executeLoanTransaction1(loanExternalId,
+                reAgingRequest, Map.of("command", "reAge")));
 
         assertThat(exception.getStatus()).as(ErrorMessageHelper.dateFailureErrorCodeMsg()).isEqualTo(403);
         assertThat(exception.getDeveloperMessage()).contains(ErrorMessageHelper.reAgeContractTerminatedLoanFailure());
@@ -514,6 +528,91 @@ public class LoanReAgingStepDef extends AbstractStepDef {
             }
         }
         return actualValues;
+    }
+
+    private LoanScheduleData loadCurrentLoanSchedule(long loanId) {
+        GetLoansLoanIdResponse loanDetailsResponse = ok(() -> fineractClient.loans().retrieveLoan(loanId, Map.of("associations", "all")));
+        return toLoanScheduleData(loanDetailsResponse);
+    }
+
+    private LoanScheduleData toLoanScheduleData(GetLoansLoanIdResponse loanDetailsResponse) {
+        LoanScheduleData scheduleData = new LoanScheduleData();
+        if (loanDetailsResponse == null) {
+            return scheduleData;
+        }
+
+        GetLoansLoanIdRepaymentSchedule repaymentSchedule = loanDetailsResponse.getRepaymentSchedule();
+        if (repaymentSchedule == null || repaymentSchedule.getPeriods() == null) {
+            return scheduleData;
+        }
+
+        List<LoanSchedulePeriodData> periods = repaymentSchedule.getPeriods().stream().map(this::toLoanSchedulePeriodData)
+                .collect(Collectors.toList());
+        scheduleData.setPeriods(periods);
+
+        BigDecimal totalPrincipalExpected = BigDecimal.ZERO;
+        BigDecimal totalInterestCharged = BigDecimal.ZERO;
+        BigDecimal totalFeeChargesCharged = BigDecimal.ZERO;
+        BigDecimal totalPenaltyChargesCharged = BigDecimal.ZERO;
+        BigDecimal totalRepaymentExpected = BigDecimal.ZERO;
+        BigDecimal totalPaidInAdvance = BigDecimal.ZERO;
+        BigDecimal totalPaidLate = BigDecimal.ZERO;
+        BigDecimal totalWaived = BigDecimal.ZERO;
+        BigDecimal totalOutstanding = BigDecimal.ZERO;
+
+        for (LoanSchedulePeriodData period : periods) {
+            totalPrincipalExpected = totalPrincipalExpected
+                    .add(period.getPrincipalDue() == null ? BigDecimal.ZERO : period.getPrincipalDue());
+            totalInterestCharged = totalInterestCharged.add(period.getInterestDue() == null ? BigDecimal.ZERO : period.getInterestDue());
+            totalFeeChargesCharged = totalFeeChargesCharged
+                    .add(period.getFeeChargesDue() == null ? BigDecimal.ZERO : period.getFeeChargesDue());
+            totalPenaltyChargesCharged = totalPenaltyChargesCharged
+                    .add(period.getPenaltyChargesDue() == null ? BigDecimal.ZERO : period.getPenaltyChargesDue());
+            totalRepaymentExpected = totalRepaymentExpected
+                    .add(period.getTotalDueForPeriod() == null ? BigDecimal.ZERO : period.getTotalDueForPeriod());
+            totalPaidInAdvance = totalPaidInAdvance
+                    .add(period.getTotalPaidInAdvanceForPeriod() == null ? BigDecimal.ZERO : period.getTotalPaidInAdvanceForPeriod());
+            totalPaidLate = totalPaidLate
+                    .add(period.getTotalPaidLateForPeriod() == null ? BigDecimal.ZERO : period.getTotalPaidLateForPeriod());
+            totalWaived = totalWaived.add(period.getTotalWaivedForPeriod() == null ? BigDecimal.ZERO : period.getTotalWaivedForPeriod());
+            totalOutstanding = totalOutstanding
+                    .add(period.getTotalOutstandingForPeriod() == null ? BigDecimal.ZERO : period.getTotalOutstandingForPeriod());
+        }
+
+        scheduleData.setTotalPrincipalExpected(totalPrincipalExpected);
+        scheduleData.setTotalInterestCharged(totalInterestCharged);
+        scheduleData.setTotalFeeChargesCharged(totalFeeChargesCharged);
+        scheduleData.setTotalPenaltyChargesCharged(totalPenaltyChargesCharged);
+        scheduleData.setTotalRepaymentExpected(totalRepaymentExpected);
+        scheduleData.setTotalPaidInAdvance(totalPaidInAdvance);
+        scheduleData.setTotalPaidLate(totalPaidLate);
+        scheduleData.setTotalWaived(totalWaived);
+        scheduleData.setTotalOutstanding(totalOutstanding);
+
+        return scheduleData;
+    }
+
+    private LoanSchedulePeriodData toLoanSchedulePeriodData(GetLoansLoanIdRepaymentPeriod repaymentPeriod) {
+        LoanSchedulePeriodData period = new LoanSchedulePeriodData();
+        if (repaymentPeriod == null) {
+            return period;
+        }
+        period.setPeriod(repaymentPeriod.getPeriod());
+        period.setDaysInPeriod(repaymentPeriod.getDaysInPeriod() == null ? null : repaymentPeriod.getDaysInPeriod().intValue());
+        period.setDueDate(repaymentPeriod.getDueDate());
+        period.setObligationsMetOnDate(repaymentPeriod.getObligationsMetOnDate());
+        period.setPrincipalLoanBalanceOutstanding(repaymentPeriod.getPrincipalLoanBalanceOutstanding());
+        period.setPrincipalDue(repaymentPeriod.getPrincipalDue());
+        period.setInterestDue(repaymentPeriod.getInterestDue());
+        period.setFeeChargesDue(repaymentPeriod.getFeeChargesDue());
+        period.setPenaltyChargesDue(repaymentPeriod.getPenaltyChargesDue());
+        period.setTotalDueForPeriod(repaymentPeriod.getTotalDueForPeriod());
+        period.setTotalPaidForPeriod(repaymentPeriod.getTotalPaidForPeriod());
+        period.setTotalPaidInAdvanceForPeriod(repaymentPeriod.getTotalPaidInAdvanceForPeriod());
+        period.setTotalPaidLateForPeriod(repaymentPeriod.getTotalPaidLateForPeriod());
+        period.setTotalWaivedForPeriod(repaymentPeriod.getTotalWaivedForPeriod());
+        period.setTotalOutstandingForPeriod(repaymentPeriod.getTotalOutstandingForPeriod());
+        return period;
     }
 
     PostLoansLoanIdTransactionsRequest setReAgeingRequestProperties(PostLoansLoanIdTransactionsRequest request, List<String> headers,

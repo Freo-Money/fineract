@@ -63,7 +63,7 @@ public class LoanTransactionMapperTest {
     private PaymentDetail paymentDetail;
 
     @InjectMocks
-    private LoanTransactionMapperImpl mapper;
+    private LoanTransactionMapper mapper;
 
     @BeforeEach
     void setUp() {
