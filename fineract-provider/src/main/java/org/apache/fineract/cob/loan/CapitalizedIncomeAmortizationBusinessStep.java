@@ -19,7 +19,6 @@
 package org.apache.fineract.cob.loan;
 
 import jakarta.transaction.Transactional;
-import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -37,10 +36,10 @@ public class CapitalizedIncomeAmortizationBusinessStep implements LoanCOBBusines
     @Transactional
     @Override
     public Loan execute(Loan loan) {
-        LocalDate businessDate = DateUtils.getBusinessLocalDate();
-
-        loanCapitalizedIncomeAmortizationProcessingService.processCapitalizedIncomeAmortizationTillDate(loan, businessDate, true);
-
+        log.debug("COB CAPITALIZED_INCOME_AMORTIZATION start loanId={}", loan.getId());
+        loanCapitalizedIncomeAmortizationProcessingService.processCapitalizedIncomeAmortizationTillDate(loan,
+                DateUtils.getBusinessLocalDate(), true);
+        log.debug("COB CAPITALIZED_INCOME_AMORTIZATION end loanId={}", loan.getId());
         return loan;
     }
 

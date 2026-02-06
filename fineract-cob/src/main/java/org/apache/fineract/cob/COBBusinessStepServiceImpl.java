@@ -68,13 +68,19 @@ public class COBBusinessStepServiceImpl implements COBBusinessStepService {
             }
 
             for (String businessStep : executionMap.values()) {
+                String stepName = "unknown";
+                Long itemId = null;
                 try {
                     ThreadLocalContextUtil.setActionContext(ActionContext.COB);
                     COBBusinessStep<S> businessStepBean = (COBBusinessStep<S>) applicationContext.getBean(businessStep);
+                    stepName = businessStepBean.getEnumStyledName();
+                    itemId = item != null ? item.getId() : null;
+                    log.debug("COB step start: step={} itemId={}", stepName, itemId);
                     item = reloaderService.reload(item);
                     item = businessStepBean.execute(item);
+                    log.debug("COB step end: step={} itemId={}", stepName, itemId);
                 } catch (Exception e) {
-                    throw new BusinessStepException("Error happened during business step execution", e);
+                    throw new BusinessStepException("COB step failed: step=" + stepName + " itemId=" + itemId, e);
                 } finally {
                     // Fallback to COB action context after each business step
                     ThreadLocalContextUtil.setActionContext(ActionContext.COB);

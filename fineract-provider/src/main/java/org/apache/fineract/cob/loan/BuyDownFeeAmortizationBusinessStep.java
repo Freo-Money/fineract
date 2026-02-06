@@ -19,7 +19,6 @@
 package org.apache.fineract.cob.loan;
 
 import jakarta.transaction.Transactional;
-import java.time.LocalDate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -38,13 +37,12 @@ public class BuyDownFeeAmortizationBusinessStep implements LoanCOBBusinessStep {
     @Override
     public Loan execute(Loan loan) {
         if (!loan.getLoanProductRelatedDetail().isEnableBuyDownFee()) {
+            log.debug("COB BUY_DOWN_FEE_AMORTIZATION skip loanId={} (buyDown disabled)", loan.getId());
             return loan;
         }
-
-        LocalDate businessDate = DateUtils.getBusinessLocalDate();
-
-        loanBuyDownFeeAmortizationProcessingService.processBuyDownFeeAmortizationTillDate(loan, businessDate, true);
-
+        log.debug("COB BUY_DOWN_FEE_AMORTIZATION start loanId={}", loan.getId());
+        loanBuyDownFeeAmortizationProcessingService.processBuyDownFeeAmortizationTillDate(loan, DateUtils.getBusinessLocalDate(), true);
+        log.debug("COB BUY_DOWN_FEE_AMORTIZATION end loanId={}", loan.getId());
         return loan;
     }
 

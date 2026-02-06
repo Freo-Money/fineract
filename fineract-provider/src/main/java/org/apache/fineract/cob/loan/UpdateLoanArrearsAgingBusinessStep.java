@@ -20,10 +20,12 @@ package org.apache.fineract.cob.loan;
 
 import java.util.Arrays;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.jobs.updateloanarrearsageing.LoanArrearsAgeingUpdateHandler;
 import org.springframework.stereotype.Component;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class UpdateLoanArrearsAgingBusinessStep implements LoanCOBBusinessStep {
@@ -32,8 +34,9 @@ public class UpdateLoanArrearsAgingBusinessStep implements LoanCOBBusinessStep {
 
     @Override
     public Loan execute(Loan loan) {
-        Long loanId = loan.getId();
-        loanArrearsAgeingUpdateHandler.updateLoanArrearsAgeingDetails(Arrays.asList(loanId));
+        log.debug("COB UPDATE_LOAN_ARREARS_AGING start loanId={}", loan.getId());
+        loanArrearsAgeingUpdateHandler.updateLoanArrearsAgeingDetails(Arrays.asList(loan.getId()));
+        log.debug("COB UPDATE_LOAN_ARREARS_AGING end loanId={}", loan.getId());
         return loan;
     }
 

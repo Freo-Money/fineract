@@ -34,8 +34,9 @@ public class UpdateNpaBusinessStep implements LoanCOBBusinessStep {
 
     @Override
     public Loan execute(Loan loan) {
-        log.debug("Processing UPDATE_NPA business step for loan id [{}]", loan.getId());
+        log.debug("COB UPDATE_NPA start loanId={}", loan.getId());
         loanNpaUpdateService.updateNpaStatusForLoan(loan, DateUtils.getBusinessLocalDate());
+        log.debug("COB UPDATE_NPA end loanId={}", loan.getId());
         return loan;
     }
 
