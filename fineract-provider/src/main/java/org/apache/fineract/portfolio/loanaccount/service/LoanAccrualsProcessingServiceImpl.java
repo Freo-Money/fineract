@@ -51,6 +51,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.accounting.common.AccountingRuleType;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.config.TaskExecutorConstant;
+import org.apache.fineract.infrastructure.core.domain.ActionContext;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
 import org.apache.fineract.infrastructure.core.domain.FineractContext;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
@@ -1452,9 +1453,20 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
         // Process each loan in its own isolated transaction
         // This ensures that if one loan fails, others can still be processed
+        boolean useIsolatedTransaction = ThreadLocalContextUtil.getActionContext() != ActionContext.COB;
+
         for (Long loanId : loanIds) {
-            executeInIsolatedTransaction(() -> convertAccrualToSuspenseForNpaLoan(loanId),
-                    e -> log.error("Failed to convert ACCRUAL to ACCRUAL_SUSPENSE for loan {}", loanId, e), errors);
+            if (useIsolatedTransaction) {
+                executeInIsolatedTransaction(() -> convertAccrualToSuspenseForNpaLoan(loanId),
+                        e -> log.error("Failed to convert ACCRUAL to ACCRUAL_SUSPENSE for loan {}", loanId, e), errors);
+            } else {
+                try {
+                    convertAccrualToSuspenseForNpaLoan(loanId);
+                } catch (Exception e) {
+                    log.error("Failed to convert ACCRUAL to ACCRUAL_SUSPENSE for loan {}", loanId, e);
+                    errors.add(e);
+                }
+            }
         }
 
         if (!errors.isEmpty()) {
@@ -1601,9 +1613,20 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
         // Process each loan in its own isolated transaction
         // This ensures that if one loan fails, others can still be processed
+        boolean useIsolatedTransaction = ThreadLocalContextUtil.getActionContext() != ActionContext.COB;
+
         for (Long loanId : loanIds) {
-            executeInIsolatedTransaction(() -> reverseAccrualSuspenseForNonNpaLoan(loanId),
-                    e -> log.error("Failed to reverse ACCRUAL_SUSPENSE for loan {}", loanId, e), errors);
+            if (useIsolatedTransaction) {
+                executeInIsolatedTransaction(() -> reverseAccrualSuspenseForNonNpaLoan(loanId),
+                        e -> log.error("Failed to reverse ACCRUAL_SUSPENSE for loan {}", loanId, e), errors);
+            } else {
+                try {
+                    reverseAccrualSuspenseForNonNpaLoan(loanId);
+                } catch (Exception e) {
+                    log.error("Failed to reverse ACCRUAL_SUSPENSE for loan {}", loanId, e);
+                    errors.add(e);
+                }
+            }
         }
 
         if (!errors.isEmpty()) {
