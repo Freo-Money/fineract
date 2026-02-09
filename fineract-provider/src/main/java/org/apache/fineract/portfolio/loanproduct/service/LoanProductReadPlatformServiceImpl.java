@@ -57,11 +57,15 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanSchedul
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
 import org.apache.fineract.portfolio.loanproduct.data.AdvancedPaymentData;
 import org.apache.fineract.portfolio.loanproduct.data.AdvancedPaymentData.PaymentAllocationOrder;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigData;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.data.CreditAllocationData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductBorrowerCycleVariationData;
+import org.apache.fineract.portfolio.loanproduct.data.LoanProductConfigurationWrapper;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductGuaranteeData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductInterestRecalculationData;
+import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigurableAttributes;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductParamType;
@@ -257,7 +261,8 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.allow_multiple_disbursals as multiDisburseLoan, lp.max_disbursals as maxTrancheCount, lp.max_outstanding_loan_balance as outstandingLoanBalance, lp.allow_full_term_for_tranche as allowFullTermForTranche, "
                     + "lp.disallow_expected_disbursements as disallowExpectedDisbursements, lp.allow_approved_disbursed_amounts_over_applied as allowApprovedDisbursedAmountsOverApplied, lp.over_applied_calculation_type as overAppliedCalculationType, over_applied_number as overAppliedNumber, "
                     + "lp.days_in_month_enum as daysInMonth, lp.days_in_year_enum as daysInYear, lp.interest_recalculation_enabled as isInterestRecalculationEnabled, "
-                    + "lp.can_define_fixed_emi_amount as canDefineInstallmentAmount, lp.installment_amount_in_multiples_of as installmentAmountInMultiplesOf, "
+                    + "lp.can_define_fixed_emi_amount as canDefineInstallmentAmount, lp.adjust_interest_for_rounding as adjustInterestForRounding, "
+                    + "lp.installment_amount_in_multiples_of as installmentAmountInMultiplesOf, "
                     + "lp.due_days_for_repayment_event as dueDaysForRepaymentEvent, lp.overdue_days_for_repayment_event as overDueDaysForRepaymentEvent, lp.enable_down_payment as enableDownPayment, lp.disbursed_amount_percentage_for_down_payment as disbursedAmountPercentageForDownPayment, lp.enable_auto_repayment_for_down_payment as enableAutoRepaymentForDownPayment, lp.repayment_start_date_type_enum as repaymentStartDateType, "
                     + "lp.enable_installment_level_delinquency as enableInstallmentLevelDelinquency, "
                     + "lpr.pre_close_interest_calculation_strategy as preCloseInterestCalculationStrategy, "
@@ -301,7 +306,9 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.capitalized_income_strategy as capitalizedIncomeStrategy, " //
                     + "lp.capitalized_income_type as capitalizedIncomeType, lp.is_merchant_buy_down_fee as merchantBuyDownFee, " //
                     + "lp.enable_buy_down_fee as enableBuyDownFee, " + "lp.buy_down_fee_calculation_type as buyDownFeeCalculationType, "
-                    + "lp.buy_down_fee_strategy as buyDownFeeStrategy, " + "lp.buy_down_fee_income_type as buyDownFeeIncomeType "
+                    + "lp.buy_down_fee_strategy as buyDownFeeStrategy, " + "lp.buy_down_fee_income_type as buyDownFeeIncomeType, "
+                    + "lp.installment_interest_calculation_type_enum as installmentInterestCalculationType, "
+                    + "lp.is_bpi_collected_at_disbursement as isBpiCollectedAtDisbursement, " + "lpcm.config_json as bpiConfigJson "
                     + " from m_product_loan lp " + " left join m_fund f on f.id = lp.fund_id "
                     + " left join m_product_loan_recalculation_details lpr on lpr.product_id=lp.id "
                     + " left join m_product_loan_guarantee_details lpg on lpg.loan_product_id=lp.id "
@@ -310,6 +317,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + " left join m_floating_rates as fr on lfr.floating_rates_id = fr.id "
                     + " left join m_product_loan_variable_installment_config as lvi on lvi.loan_product_id = lp.id "
                     + " left join m_delinquency_bucket as dbuc on dbuc.id = lp.delinquency_bucket_id "
+                    + " left join fr_loan_product_config_mapping as lpcm on lpcm.loan_product_id = lp.id "
                     + " join m_currency curr on curr.code = lp.currency_code";
 
         }
@@ -449,6 +457,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
             final EnumOptionData daysInYearType = CommonEnumerations.daysInYearType(daysInYear);
             final Integer installmentAmountInMultiplesOf = JdbcSupport.getInteger(rs, "installmentAmountInMultiplesOf");
             final boolean canDefineInstallmentAmount = rs.getBoolean("canDefineInstallmentAmount");
+            final boolean adjustInterestForRounding = rs.getBoolean("adjustInterestForRounding");
             final boolean isInterestRecalculationEnabled = rs.getBoolean("isInterestRecalculationEnabled");
 
             LoanProductInterestRecalculationData interestRecalculationData = null;
@@ -581,6 +590,25 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
             final StringEnumOptionData buyDownFeeIncomeType = ApiFacingEnum.getStringEnumOptionData(LoanBuyDownFeeIncomeType.class,
                     rs.getString("buyDownFeeIncomeType"));
             final boolean merchantBuyDownFee = rs.getBoolean("merchantBuyDownFee");
+            final Integer installmentInterestCalculationTypeValue = JdbcSupport.getInteger(rs, "installmentInterestCalculationType");
+            final EnumOptionData installmentInterestCalculationType = installmentInterestCalculationTypeValue != null
+                    ? LoanEnumerations
+                            .interestCalculationPeriodType(InterestCalculationPeriodMethod.fromInt(installmentInterestCalculationTypeValue))
+                    : null;
+            final boolean bpiCollectedAtDisbursement = rs.getBoolean("isBpiCollectedAtDisbursement");
+
+            // Extract and parse BPI configuration
+            final String bpiConfigJson = rs.getString("bpiConfigJson");
+            BrokenPeriodConfigData brokenPeriodConfig = null;
+            if (bpiConfigJson != null && !bpiConfigJson.trim().isEmpty()) {
+                try {
+                    final LoanProductConfigurationWrapper configWrapper = LoanProductConfigurationWrapper.fromJson(bpiConfigJson);
+                    final BrokenPeriodInterestConfigDTO bpiDto = configWrapper.getBrokenPeriodConfig();
+                    brokenPeriodConfig = BrokenPeriodConfigData.fromDomainDTO(bpiDto);
+                } catch (Exception e) {
+                    // Failed to parse BPI configuration - skip it
+                }
+            }
 
             return new LoanProductData(id, name, shortName, description, currency, principal, minPrincipal, maxPrincipal, tolerance,
                     numberOfRepayments, minNumberOfRepayments, maxNumberOfRepayments, repaymentEvery, interestRatePerPeriod,
@@ -595,20 +623,20 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     allowFullTermForTranche, graceOnArrearsAgeing, overdueDaysForNPA, daysInMonthType, daysInYearType,
                     isInterestRecalculationEnabled, interestRecalculationData, minimumDaysBetweenDisbursalAndFirstRepayment,
                     holdGuaranteeFunds, loanProductGuaranteeData, principalThresholdForLastInstallment,
-                    accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineInstallmentAmount, installmentAmountInMultiplesOf,
-                    allowAttributeOverrides, isLinkedToFloatingInterestRates, floatingRateId, floatingRateName, interestRateDifferential,
-                    minDifferentialLendingRate, defaultDifferentialLendingRate, maxDifferentialLendingRate,
-                    isFloatingInterestRateCalculationAllowed, isVariableIntallmentsAllowed, minimumGap, maximumGap,
-                    syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, rateOptions, this.rates, isRatesEnabled,
-                    fixedPrincipalPercentagePerInstallment, delinquencyBucketOptions, delinquencyBucket, dueDaysForRepaymentEvent,
-                    overDueDaysForRepaymentEvent, enableDownPayment, disbursedAmountPercentageForDownPayment,
+                    accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineInstallmentAmount, adjustInterestForRounding,
+                    installmentAmountInMultiplesOf, allowAttributeOverrides, isLinkedToFloatingInterestRates, floatingRateId,
+                    floatingRateName, interestRateDifferential, minDifferentialLendingRate, defaultDifferentialLendingRate,
+                    maxDifferentialLendingRate, isFloatingInterestRateCalculationAllowed, isVariableIntallmentsAllowed, minimumGap,
+                    maximumGap, syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, rateOptions, this.rates,
+                    isRatesEnabled, fixedPrincipalPercentagePerInstallment, delinquencyBucketOptions, delinquencyBucket,
+                    dueDaysForRepaymentEvent, overDueDaysForRepaymentEvent, enableDownPayment, disbursedAmountPercentageForDownPayment,
                     enableAutoRepaymentForDownPayment, advancedPaymentData, creditAllocationData, repaymentStartDateType,
                     enableInstallmentLevelDelinquency, loanScheduleType.asEnumOptionData(), loanScheduleProcessingType.asEnumOptionData(),
                     fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes,
                     loanChargeOffBehaviour.getValueAsStringEnumOptionData(), interestRecognitionOnDisbursementDate,
                     daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                     capitalizedIncome, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                    merchantBuyDownFee, null, null);
+                    merchantBuyDownFee, null, null, brokenPeriodConfig, installmentInterestCalculationType, bpiCollectedAtDisbursement);
         }
     }
 

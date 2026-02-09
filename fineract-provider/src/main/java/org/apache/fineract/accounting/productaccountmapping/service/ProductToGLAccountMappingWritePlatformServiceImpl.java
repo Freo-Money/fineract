@@ -233,6 +233,15 @@ public class ProductToGLAccountMappingWritePlatformServiceImpl implements Produc
                 this.loanProductToGLAccountMappingHelper.saveLoanToLiabilityAccountMapping(element,
                         LoanProductAccountingParams.DEFERRED_INCOME_LIABILITY.getValue(), loanProductId,
                         AccrualAccountsForLoan.DEFERRED_INCOME_LIABILITY.getValue());
+                this.loanProductToGLAccountMappingHelper.saveLoanToLiabilityAccountMapping(element,
+                        LoanProductAccountingParams.NPA_INTEREST_SUSPENSE.getValue(), loanProductId,
+                        AccrualAccountsForLoan.NPA_INTEREST_SUSPENSE.getValue());
+                this.loanProductToGLAccountMappingHelper.saveLoanToLiabilityAccountMapping(element,
+                        LoanProductAccountingParams.NPA_FEES_SUSPENSE.getValue(), loanProductId,
+                        AccrualAccountsForLoan.NPA_FEES_SUSPENSE.getValue());
+                this.loanProductToGLAccountMappingHelper.saveLoanToLiabilityAccountMapping(element,
+                        LoanProductAccountingParams.NPA_PENALTIES_SUSPENSE.getValue(), loanProductId,
+                        AccrualAccountsForLoan.NPA_PENALTIES_SUSPENSE.getValue());
 
                 // advanced accounting mappings
                 this.loanProductToGLAccountMappingHelper.savePaymentChannelToFundSourceMappings(command, element, loanProductId, null);

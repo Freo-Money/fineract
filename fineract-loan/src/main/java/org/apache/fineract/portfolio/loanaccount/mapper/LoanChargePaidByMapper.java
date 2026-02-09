@@ -18,10 +18,14 @@
  */
 package org.apache.fineract.portfolio.loanaccount.mapper;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.apache.fineract.infrastructure.core.config.MapstructMapperConfig;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeTaxDetailsPaidBy;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 
@@ -31,8 +35,30 @@ public interface LoanChargePaidByMapper {
     @Mapping(target = "transactionId", source = "source.loanTransaction.id")
     @Mapping(target = "chargeId", source = "source.loanCharge.id")
     @Mapping(target = "name", source = "source.loanCharge.charge.name")
+    @Mapping(target = "taxDetails", expression = "java(mapTaxDetails(source))")
     LoanChargePaidByData map(LoanChargePaidBy source);
 
     List<LoanChargePaidByData> map(List<LoanChargePaidBy> sources);
+
+    default List<Map<String, Object>> mapTaxDetails(LoanChargePaidBy source) {
+        List<LoanChargeTaxDetailsPaidBy> taxDetailsPaidBy = source.getLoanChargeTaxDetailsPaidBy();
+        if (taxDetailsPaidBy == null || taxDetailsPaidBy.isEmpty()) {
+            return null;
+        }
+        List<Map<String, Object>> taxDetails = new ArrayList<>(taxDetailsPaidBy.size());
+        for (LoanChargeTaxDetailsPaidBy taxDetailPaidBy : taxDetailsPaidBy) {
+            Map<String, Object> taxDetail = new LinkedHashMap<>();
+            taxDetail.put("amount", taxDetailPaidBy.getAmount());
+            taxDetail.put("taxComponentId", taxDetailPaidBy.getTaxComponent().getId());
+            if (taxDetailPaidBy.getTaxComponent().getDebitAcount() != null) {
+                taxDetail.put("debitAccountId", taxDetailPaidBy.getTaxComponent().getDebitAcount().getId());
+            }
+            if (taxDetailPaidBy.getTaxComponent().getCreditAcount() != null) {
+                taxDetail.put("creditAccountId", taxDetailPaidBy.getTaxComponent().getCreditAcount().getId());
+            }
+            taxDetails.add(taxDetail);
+        }
+        return taxDetails;
+    }
 
 }

@@ -828,6 +828,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder applyOverdueChargesForLoan(final Long loanId) {
+        this.actionName = "APPLYOVERDUE";
+        this.entityName = "LOANCHARGE";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/charges/apply-overdue";
+        return this;
+    }
+
     public CommandWrapperBuilder deleteLoanCharge(final Long loanId, final Long loanChargeId) {
         this.actionName = "DELETE";
         this.entityName = "LOANCHARGE";
@@ -1304,6 +1313,15 @@ public class CommandWrapperBuilder {
         this.entityName = "PERIODICACCRUALACCOUNTING";
         this.entityId = null;
         this.href = "/accrualaccounting";
+        return this;
+    }
+
+    public CommandWrapperBuilder postAccrualsTillDateForLoan(final Long loanId) {
+        this.actionName = "EXECUTE_LOAN";
+        this.entityName = "PERIODICACCRUALACCOUNTING";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/accruals/post-till-date";
         return this;
     }
 
@@ -3901,6 +3919,42 @@ public class CommandWrapperBuilder {
         this.entityId = loanId;
         this.loanId = loanId;
         this.href = "/loans/" + loanId;
+        return this;
+    }
+
+    public CommandWrapperBuilder payChargeByChargeId(final Long loanId, final Long chargeId) {
+        this.actionName = "PAY";
+        this.entityName = "CHARGE";
+        this.loanId = loanId;
+        this.entityId = chargeId;
+        this.href = "/loans/" + loanId + "/charge-payment/" + chargeId;
+        return this;
+    }
+
+    public CommandWrapperBuilder waiveBulkLoanCharges(final Long loanId) {
+        this.actionName = "BULK_WAIVE";
+        this.entityName = "LOANCHARGE";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/charges?command=bulkWaive";
+        return this;
+    }
+
+    public CommandWrapperBuilder createCustomLoanSchedule(final Long loanId) {
+        this.actionName = "CREATE";
+        this.entityName = "CUSTOMSCHEDULE";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/custom-schedule";
+        return this;
+    }
+
+    public CommandWrapperBuilder updateCustomLoanSchedule(final Long loanId) {
+        this.actionName = "UPDATE";
+        this.entityName = "CUSTOMSCHEDULE";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/custom-schedule";
         return this;
     }
 }

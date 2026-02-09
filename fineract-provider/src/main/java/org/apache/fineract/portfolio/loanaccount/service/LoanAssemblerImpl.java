@@ -74,6 +74,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.GroupLoanIndividualMonit
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanConfigMapping;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCreditAllocationRule;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanPaymentAllocationRule;
@@ -94,6 +95,9 @@ import org.apache.fineract.portfolio.loanaccount.mapper.LoanChargeMapper;
 import org.apache.fineract.portfolio.loanaccount.mapper.LoanCollateralManagementMapper;
 import org.apache.fineract.portfolio.loanaccount.service.schedule.LoanScheduleComponent;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
+import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
@@ -259,8 +263,9 @@ public class LoanAssemblerImpl implements LoanAssembler {
         final List<Holiday> holidays = this.holidayRepository.findByOfficeIdAndGreaterThanDate(officeId,
                 loanApplicationTerms.getExpectedDisbursementDate(), HolidayStatusType.ACTIVE.getValue());
         final WorkingDays workingDays = this.workingDaysRepository.findOne();
+        final Boolean includeLoanChargeDetails = false;
         final LoanScheduleModel loanScheduleModel = this.loanScheduleAssembler.assembleLoanScheduleFrom(loanApplicationTerms,
-                isHolidayEnabled, holidays, workingDays, element, disbursementDetails);
+                isHolidayEnabled, holidays, workingDays, element, disbursementDetails, includeLoanChargeDetails);
 
         if (client != null && group != null) {
             loanApplication = Loan.newIndividualLoanApplicationFromGroup(accountNo, client, group, loanAccountType, loanProduct, fund,
@@ -287,6 +292,35 @@ public class LoanAssemblerImpl implements LoanAssembler {
 
         loanSchedule.updateLoanSchedule(loanApplication, loanScheduleModel);
 
+        // Handle BPI configuration: override if explicit parameters provided, otherwise copy from product
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element)) {
+            // User provided explicit BPI parameters - create loan-specific config (override)
+            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromJsonElement(element, fromApiJsonHelper);
+            if (bpiConfig != null) {
+                final LoanConfigMapping loanConfigMapping = new LoanConfigMapping(loanApplication, loanProduct.getShortName(), bpiConfig);
+                loanApplication.setBpiConfig(loanConfigMapping);
+            }
+        } else if (loanProduct.getBpiConfig() != null) {
+            // Copy BPI configuration from product to loan if not explicitly provided
+            copyBpiConfigFromProductToLoan(loanProduct, loanApplication);
+        }
+
+        // Handle isBpiCollectedAtDisbursement flag - only applicable with ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+        // strategy
+        final boolean isCompatibleBpiStrategy = loanApplication.getBpiConfig() != null
+                && loanApplication.getBpiConfig().getBrokenPeriodConfig() != null && loanApplication.getBpiConfig().getBrokenPeriodConfig()
+                        .getStrategy() == BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE;
+
+        if (isCompatibleBpiStrategy) {
+            // Use payload value if provided, otherwise fall back to product default
+            final Boolean isBpiCollectedAtDisbursement = command.parameterExists(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT)
+                    ? command.booleanObjectValueOfParameterNamed(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT)
+                    : loanProduct.getLoanProductRelatedDetail().isBpiCollectedAtDisbursement();
+            loanApplication.setBpiCollectedAtDisbursement(isBpiCollectedAtDisbursement);
+        } else {
+            // Incompatible BPI strategy - flag must be false
+            loanApplication.setBpiCollectedAtDisbursement(false);
+        }
         copyAdvancedPaymentRulesIfApplicable(transactionProcessingStrategyCode, loanProduct, loanApplication);
         // TODO: review
         loanChargeService.recalculateAllCharges(loanApplication);
@@ -863,7 +897,7 @@ public class LoanAssemblerImpl implements LoanAssembler {
             final JsonElement parsedQuery = this.fromApiJsonHelper.parse(command.json());
             final JsonQuery query = JsonQuery.from(command.json(), parsedQuery, this.fromApiJsonHelper);
 
-            final LoanScheduleModel loanScheduleModel = this.calculationPlatformService.calculateLoanSchedule(query, false);
+            final LoanScheduleModel loanScheduleModel = this.calculationPlatformService.calculateLoanSchedule(query, false, false);
             loanSchedule.updateLoanSchedule(loan, loanScheduleModel);
             loanAccrualsProcessingService.reprocessExistingAccruals(loan, false);
             loanChargeService.recalculateAllCharges(loan);
@@ -922,5 +956,16 @@ public class LoanAssemblerImpl implements LoanAssembler {
         actualChanges.put(Loan.REJECTED_ON_DATE, rejectedOn.format(fmt));
         actualChanges.put(Loan.CLOSED_ON_DATE, rejectedOn.format(fmt));
         return actualChanges;
+    }
+
+    /**
+     * Copy BPI configuration from loan product to loan
+     */
+    private void copyBpiConfigFromProductToLoan(LoanProduct loanProduct, Loan loan) {
+        if (loanProduct.getBpiConfig() != null) {
+            // Copy the entire configuration from product to loan, including configIdentity and configJson
+            LoanConfigMapping loanBpiConfig = new LoanConfigMapping(loan, loanProduct.getBpiConfig());
+            loan.setBpiConfig(loanBpiConfig);
+        }
     }
 }

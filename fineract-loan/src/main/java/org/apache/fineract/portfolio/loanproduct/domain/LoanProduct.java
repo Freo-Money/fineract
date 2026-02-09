@@ -182,6 +182,9 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
     @Column(name = "can_define_fixed_emi_amount")
     private boolean canDefineInstallmentAmount;
 
+    @Column(name = "adjust_interest_for_rounding")
+    private boolean adjustInterestForRounding;
+
     @Column(name = "is_linked_to_floating_interest_rates", nullable = false)
     private boolean isLinkedToFloatingInterestRate;
 
@@ -231,6 +234,9 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
     @Column(name = "repayment_start_date_type_enum", nullable = false)
     private RepaymentStartDateType repaymentStartDateType;
 
+    @OneToOne(cascade = CascadeType.ALL, mappedBy = "loanProduct", orphanRemoval = true, fetch = FetchType.LAZY)
+    private LoanProductConfigMapping bpiConfig;
+
     public void updateLoanProductInRelatedClasses() {
         if (this.isInterestRecalculationEnabled()) {
             this.productInterestRecalculationDetails.updateProduct(this);
@@ -268,9 +274,10 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
             final Integer minimumDaysBetweenDisbursalAndFirstRepayment, final boolean holdGuarantorFunds,
             final LoanProductGuaranteeDetails loanProductGuaranteeDetails, final BigDecimal principalThresholdForLastInstallment,
             final boolean accountMovesOutOfNPAOnlyOnArrearsCompletion, final boolean canDefineEmiAmount,
-            final Integer installmentAmountInMultiplesOf, final LoanProductConfigurableAttributes loanProductConfigurableAttributes,
-            Boolean isLinkedToFloatingInterestRates, FloatingRate floatingRate, BigDecimal interestRateDifferential,
-            BigDecimal minDifferentialLendingRate, BigDecimal maxDifferentialLendingRate, BigDecimal defaultDifferentialLendingRate,
+            final boolean adjustInterestForRounding, final Integer installmentAmountInMultiplesOf,
+            final LoanProductConfigurableAttributes loanProductConfigurableAttributes, Boolean isLinkedToFloatingInterestRates,
+            FloatingRate floatingRate, BigDecimal interestRateDifferential, BigDecimal minDifferentialLendingRate,
+            BigDecimal maxDifferentialLendingRate, BigDecimal defaultDifferentialLendingRate,
             Boolean isFloatingInterestRateCalculationAllowed, final Boolean isVariableInstallmentsAllowed,
             final Integer minimumGapBetweenInstallments, final Integer maximumGapBetweenInstallments,
             final boolean syncExpectedWithDisbursementDate, final boolean canUseForTopup, final boolean isEqualAmortization,
@@ -288,7 +295,8 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
             final LoanCapitalizedIncomeStrategy capitalizedIncomeStrategy, final LoanCapitalizedIncomeType capitalizedIncomeType,
             final boolean enableBuyDownFee, final LoanBuyDownFeeCalculationType buyDownFeeCalculationType,
             final LoanBuyDownFeeStrategy buyDownFeeStrategy, final LoanBuyDownFeeIncomeType buyDownFeeIncomeType,
-            final boolean merchantBuyDownFee, final boolean allowFullTermForTranche) {
+            final boolean merchantBuyDownFee, final boolean allowFullTermForTranche, final LoanProductConfigMapping bpiConfig,
+            final Integer installmentInterestCalculationType, final boolean bpiCollectedAtDisbursement) {
         this.fund = fund;
         this.transactionProcessingStrategyCode = transactionProcessingStrategyCode;
 
@@ -341,7 +349,10 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
                 supportedInterestRefundTypes, chargeOffBehaviour, isInterestRecognitionOnDisbursementDate, daysInYearCustomStrategy,
                 enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType,
                 installmentAmountInMultiplesOf, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                merchantBuyDownFee);
+                merchantBuyDownFee,
+                installmentInterestCalculationType != null ? InterestCalculationPeriodMethod.fromInt(installmentInterestCalculationType)
+                        : null,
+                bpiCollectedAtDisbursement);
 
         this.loanProductMinMaxConstraints = new LoanProductMinMaxConstraints(defaultMinPrincipal, defaultMaxPrincipal,
                 defaultMinNominalInterestRatePerPeriod, defaultMaxNominalInterestRatePerPeriod, defaultMinNumberOfInstallments,
@@ -374,6 +385,7 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
         this.principalThresholdForLastInstallment = principalThresholdForLastInstallment;
         this.accountMovesOutOfNPAOnlyOnArrearsCompletion = accountMovesOutOfNPAOnlyOnArrearsCompletion;
         this.canDefineInstallmentAmount = canDefineEmiAmount;
+        this.adjustInterestForRounding = adjustInterestForRounding;
         this.syncExpectedWithDisbursementDate = syncExpectedWithDisbursementDate;
         this.canUseForTopup = canUseForTopup;
         this.fixedPrincipalPercentagePerInstallment = fixedPrincipalPercentagePerInstallment;
@@ -391,6 +403,7 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
         this.overDueDaysForRepaymentEvent = overDueDaysForRepaymentEvent;
         this.repaymentStartDateType = repaymentStartDateType;
 
+        this.bpiConfig = bpiConfig;
         this.enableInstallmentLevelDelinquency = enableInstallmentLevelDelinquency;
         validateLoanProductPreSave();
     }
@@ -766,6 +779,10 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
 
     public boolean isAllowFullTermForTranche() {
         return this.loanProductTrancheDetails != null && this.loanProductTrancheDetails.isAllowFullTermForTranche();
+    }
+
+    public InterestCalculationPeriodMethod getInstallmentInterestCalculationType() {
+        return this.loanProductRelatedDetail.getInstallmentInterestCalculationType();
     }
 
 }

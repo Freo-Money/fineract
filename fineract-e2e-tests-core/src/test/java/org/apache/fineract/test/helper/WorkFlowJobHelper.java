@@ -49,12 +49,13 @@ public class WorkFlowJobHelper {
                 new BusinessStep().stepName("CHECK_LOAN_REPAYMENT_OVERDUE").order(4L), //
                 new BusinessStep().stepName("CHECK_DUE_INSTALLMENTS").order(5L), //
                 new BusinessStep().stepName("UPDATE_LOAN_ARREARS_AGING").order(6L), //
-                new BusinessStep().stepName("ADD_PERIODIC_ACCRUAL_ENTRIES").order(7L), //
-                new BusinessStep().stepName("ACCRUAL_ACTIVITY_POSTING").order(8L), //
-                new BusinessStep().stepName("CAPITALIZED_INCOME_AMORTIZATION").order(9L), //
-                new BusinessStep().stepName("BUY_DOWN_FEE_AMORTIZATION").order(10L), //
-                new BusinessStep().stepName("LOAN_INTEREST_RECALCULATION").order(11L), //
-                new BusinessStep().stepName("EXTERNAL_ASSET_OWNER_TRANSFER").order(12L)//
+                new BusinessStep().stepName("UPDATE_NPA").order(7L), //
+                new BusinessStep().stepName("ADD_PERIODIC_ACCRUAL_ENTRIES").order(8L), //
+                new BusinessStep().stepName("ACCRUAL_ACTIVITY_POSTING").order(9L), //
+                new BusinessStep().stepName("CAPITALIZED_INCOME_AMORTIZATION").order(10L), //
+                new BusinessStep().stepName("BUY_DOWN_FEE_AMORTIZATION").order(11L), //
+                new BusinessStep().stepName("LOAN_INTEREST_RECALCULATION").order(12L), //
+                new BusinessStep().stepName("EXTERNAL_ASSET_OWNER_TRANSFER").order(13L)//
         );
         BusinessStepRequest request = new BusinessStepRequest().businessSteps(businessSteps);
         executeVoid(() -> fineractClient.businessStepConfiguration().updateJobBusinessStepConfig(WORKFLOW_NAME_LOAN_CLOSE_OF_BUSINESS,

@@ -65,6 +65,7 @@ public final class ChargeDefinitionCommandFromApiJsonDeserializer {
     public static final String MONTH_DAY_FORMAT = "monthDayFormat";
     public static final String MIN_CAP = "minCap";
     public static final String MAX_CAP = "maxCap";
+    public static final String MAX_CUMULATIVE_PENALTY_CAP = "maxCumulativePenaltyCap";
     public static final String FEE_FREQUENCY = "feeFrequency";
     public static final String ENABLE_FREE_WITHDRAWAL_CHARGE = "enableFreeWithdrawalCharge";
     public static final String FREE_WITHDRAWAL_FREQUENCY = "freeWithdrawalFrequency";
@@ -78,9 +79,9 @@ public final class ChargeDefinitionCommandFromApiJsonDeserializer {
      */
     private static final Set<String> SUPPORTED_PARAMETERS = new HashSet<>(Arrays.asList(NAME, AMOUNT, LOCALE, CURRENCY_CODE,
             CURRENCY_OPTIONS, CHARGE_APPLIES_TO, CHARGE_TIME_TYPE, CHARGE_CALCULATION_TYPE, CHARGE_CALCULATION_TYPE_OPTIONS, PENALTY,
-            ACTIVE, CHARGE_PAYMENT_MODE, FEE_ON_MONTH_DAY, FEE_INTERVAL, MONTH_DAY_FORMAT, MIN_CAP, MAX_CAP, FEE_FREQUENCY,
-            ENABLE_FREE_WITHDRAWAL_CHARGE, FREE_WITHDRAWAL_FREQUENCY, RESTART_COUNT_FREQUENCY, COUNT_FREQUENCY_TYPE, PAYMENT_TYPE_ID,
-            ENABLE_PAYMENT_TYPE, ChargesApiConstants.glAccountIdParamName, ChargesApiConstants.taxGroupIdParamName));
+            ACTIVE, CHARGE_PAYMENT_MODE, FEE_ON_MONTH_DAY, FEE_INTERVAL, MONTH_DAY_FORMAT, MIN_CAP, MAX_CAP, MAX_CUMULATIVE_PENALTY_CAP,
+            FEE_FREQUENCY, ENABLE_FREE_WITHDRAWAL_CHARGE, FREE_WITHDRAWAL_FREQUENCY, RESTART_COUNT_FREQUENCY, COUNT_FREQUENCY_TYPE,
+            PAYMENT_TYPE_ID, ENABLE_PAYMENT_TYPE, ChargesApiConstants.glAccountIdParamName, ChargesApiConstants.taxGroupIdParamName));
     private final FromJsonHelper fromApiJsonHelper;
 
     @Autowired
@@ -284,6 +285,11 @@ public final class ChargeDefinitionCommandFromApiJsonDeserializer {
             final BigDecimal maxCap = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(MAX_CAP, element.getAsJsonObject());
             baseDataValidator.reset().parameter(MAX_CAP).value(maxCap).notNull().positiveAmount();
         }
+        if (this.fromApiJsonHelper.parameterExists(MAX_CUMULATIVE_PENALTY_CAP, element)) {
+            final BigDecimal maxCumulativePenaltyCap = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(MAX_CUMULATIVE_PENALTY_CAP,
+                    element.getAsJsonObject());
+            baseDataValidator.reset().parameter(MAX_CUMULATIVE_PENALTY_CAP).value(maxCumulativePenaltyCap).positiveAmount();
+        }
 
         if (this.fromApiJsonHelper.parameterExists(ChargesApiConstants.taxGroupIdParamName, element)) {
             final Long taxGroupId = this.fromApiJsonHelper.extractLongNamed(ChargesApiConstants.taxGroupIdParamName, element);
@@ -412,7 +418,7 @@ public final class ChargeDefinitionCommandFromApiJsonDeserializer {
         if (this.fromApiJsonHelper.parameterExists(CHARGE_CALCULATION_TYPE, element)) {
             final Integer chargeCalculationType = this.fromApiJsonHelper.extractIntegerNamed(CHARGE_CALCULATION_TYPE, element,
                     Locale.getDefault());
-            baseDataValidator.reset().parameter(CHARGE_CALCULATION_TYPE).value(chargeCalculationType).notNull().inMinMaxRange(1, 5);
+            baseDataValidator.reset().parameter(CHARGE_CALCULATION_TYPE).value(chargeCalculationType).notNull().inMinMaxRange(1, 6);
         }
 
         if (this.fromApiJsonHelper.parameterExists(CHARGE_PAYMENT_MODE, element)) {

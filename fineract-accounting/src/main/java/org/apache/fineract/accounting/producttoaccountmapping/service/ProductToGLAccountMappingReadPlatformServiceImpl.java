@@ -176,6 +176,12 @@ public class ProductToGLAccountMappingReadPlatformServiceImpl implements Product
                     accountMappingDetails.put(LoanProductAccountingDataParams.BUY_DOWN_EXPENSE.getValue(), gLAccountData);
                 } else if (glAccountForLoan.equals(AccrualAccountsForLoan.INCOME_FROM_BUY_DOWN)) {
                     accountMappingDetails.put(LoanProductAccountingDataParams.INCOME_FROM_BUY_DOWN.getValue(), gLAccountData);
+                } else if (glAccountForLoan.equals(AccrualAccountsForLoan.NPA_INTEREST_SUSPENSE)) {
+                    accountMappingDetails.put(LoanProductAccountingDataParams.NPA_INTEREST_SUSPENSE.getValue(), gLAccountData);
+                } else if (glAccountForLoan.equals(AccrualAccountsForLoan.NPA_FEES_SUSPENSE)) {
+                    accountMappingDetails.put(LoanProductAccountingDataParams.NPA_FEES_SUSPENSE.getValue(), gLAccountData);
+                } else if (glAccountForLoan.equals(AccrualAccountsForLoan.NPA_PENALTIES_SUSPENSE)) {
+                    accountMappingDetails.put(LoanProductAccountingDataParams.NPA_PENALTIES_SUSPENSE.getValue(), gLAccountData);
                 }
             }
 

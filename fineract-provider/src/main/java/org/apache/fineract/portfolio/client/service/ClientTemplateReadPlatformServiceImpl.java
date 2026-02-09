@@ -105,6 +105,9 @@ public class ClientTemplateReadPlatformServiceImpl implements ClientTemplateRead
         final List<CodeValueData> clientClassificationOptions = new ArrayList<>(
                 this.codeValueReadPlatformService.retrieveCodeValuesByCode(ClientApiConstants.CLIENT_CLASSIFICATION));
 
+        final List<CodeValueData> maritalStatusOptions = new ArrayList<>(
+                this.codeValueReadPlatformService.retrieveCodeValuesByCode(ClientApiConstants.CLIENT_MARITAL_STATUS));
+
         final List<CodeValueData> clientNonPersonConstitutionOptions = new ArrayList<>(
                 this.codeValueReadPlatformService.retrieveCodeValuesByCode(ClientApiConstants.CLIENT_NON_PERSON_CONSTITUTION));
 
@@ -117,8 +120,8 @@ public class ClientTemplateReadPlatformServiceImpl implements ClientTemplateRead
                 EntityTables.CLIENT.getName(), null);
 
         return ClientData.template(defaultOfficeId, LocalDate.now(DateUtils.getDateTimeZoneOfTenant()), offices, staffOptions, null,
-                genderOptions, savingsProductDatas, clientTypeOptions, clientClassificationOptions, clientNonPersonConstitutionOptions,
-                clientNonPersonMainBusinessLineOptions, clientLegalFormOptions, familyMemberOptions,
+                genderOptions, savingsProductDatas, clientTypeOptions, clientClassificationOptions, maritalStatusOptions,
+                clientNonPersonConstitutionOptions, clientNonPersonMainBusinessLineOptions, clientLegalFormOptions, familyMemberOptions,
                 new ArrayList<AddressData>(Arrays.asList(address)), isAddressEnabled, datatableTemplates);
     }
 

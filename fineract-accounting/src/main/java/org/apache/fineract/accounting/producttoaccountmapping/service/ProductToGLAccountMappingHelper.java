@@ -106,6 +106,9 @@ public class ProductToGLAccountMappingHelper {
                 optionalProductToGLAccountMappingEntries.add(LoanProductAccountingParams.INCOME_FROM_CAPITALIZATION.getValue());
                 optionalProductToGLAccountMappingEntries.add(LoanProductAccountingParams.BUY_DOWN_EXPENSE.getValue());
                 optionalProductToGLAccountMappingEntries.add(LoanProductAccountingParams.INCOME_FROM_BUY_DOWN.getValue());
+                optionalProductToGLAccountMappingEntries.add(LoanProductAccountingParams.NPA_INTEREST_SUSPENSE.getValue());
+                optionalProductToGLAccountMappingEntries.add(LoanProductAccountingParams.NPA_FEES_SUSPENSE.getValue());
+                optionalProductToGLAccountMappingEntries.add(LoanProductAccountingParams.NPA_PENALTIES_SUSPENSE.getValue());
 
                 if (optionalProductToGLAccountMappingEntries.contains(paramName)) {
                     saveProductToAccountMapping(element, paramName, productId, accountTypeId, expectedAccountType, portfolioProductType);

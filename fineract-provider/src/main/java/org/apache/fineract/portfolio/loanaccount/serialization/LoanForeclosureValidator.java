@@ -27,14 +27,22 @@ import org.springframework.stereotype.Component;
 @Component
 public final class LoanForeclosureValidator {
 
+    public void validateForForeclosureTemplate(final Loan loan, final LocalDate transactionDate) {
+        validate(loan, transactionDate, true);
+    }
+
     public void validateForForeclosure(final Loan loan, final LocalDate transactionDate) {
+        validate(loan, transactionDate, false);
+    }
+
+    private void validate(final Loan loan, final LocalDate transactionDate, final boolean allowFutureDate) {
         if (loan.isInterestBearingAndInterestRecalculationEnabled()) {
             final String defaultUserMessage = "The loan with interest recalculation enabled cannot be foreclosed.";
             throw new LoanForeclosureException("loan.with.interest.recalculation.enabled.cannot.be.foreclosured", defaultUserMessage,
                     loan.getId());
         }
 
-        if (DateUtils.isDateInTheFuture(transactionDate)) {
+        if (!allowFutureDate && DateUtils.isDateInTheFuture(transactionDate)) {
             final String defaultUserMessage = "The transactionDate cannot be in the future.";
             throw new LoanForeclosureException("loan.foreclosure.transaction.date.is.in.future", defaultUserMessage, transactionDate);
         }

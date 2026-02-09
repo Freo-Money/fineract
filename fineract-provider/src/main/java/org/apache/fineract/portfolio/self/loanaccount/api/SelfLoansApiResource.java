@@ -210,8 +210,9 @@ public class SelfLoansApiResource {
         HashMap<String, Object> attr = this.dataValidator.validateLoanApplication(apiRequestBodyAsJson);
         final Long clientId = (Long) attr.get("clientId");
         validateAppuserClientsMapping(clientId);
-
-        return this.loansApiResource.calculateLoanScheduleOrSubmitLoanApplication(commandParam, uriInfo, apiRequestBodyAsJson);
+        final Boolean includeLoanChargeDetails = false;
+        return this.loansApiResource.calculateLoanScheduleOrSubmitLoanApplication(commandParam, uriInfo, apiRequestBodyAsJson,
+                includeLoanChargeDetails);
     }
 
     @PUT

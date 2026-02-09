@@ -106,8 +106,7 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
     String FIND_ALL_LOAN_IDS_BY_STATUS = "SELECT loan.id FROM Loan loan WHERE loan.loanStatus = :loanStatus";
 
     String LOANS_FOR_ACCRUAL = "select l from Loan l left join l.loanInterestRecalculationDetails recalcDetails "
-            + "where l.loanStatus = :loanStatus and l.isNpa = false and l.chargedOff = false "
-            + "and l.loanProduct.accountingRule = :accountingType "
+            + "where l.loanStatus = :loanStatus and l.chargedOff = false " + "and l.loanProduct.accountingRule = :accountingType "
             + "and (recalcDetails.isCompoundingToBePostedAsTransaction is null or recalcDetails.isCompoundingToBePostedAsTransaction = false) "
             + "and (exists (select ls.id from LoanRepaymentScheduleInstallment ls where ls.loan.id = l.id and ls.isDownPayment = false "
             + "and ((coalesce(ls.interestCharged, 0) - coalesce(ls.interestWaived, 0)) <> coalesce(ls.interestAccrued, 0) "

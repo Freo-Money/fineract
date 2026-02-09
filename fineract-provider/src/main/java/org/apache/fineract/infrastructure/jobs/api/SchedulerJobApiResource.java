@@ -34,6 +34,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
@@ -133,8 +134,8 @@ public class SchedulerJobApiResource {
             @PathParam(SchedulerJobApiConstants.JOB_ID) @Parameter(description = "jobId") final Long jobId,
             @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
             @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
-            @QueryParam("orderBy") @Parameter(description = "orderBy") final String orderBy,
-            @QueryParam("sortOrder") @Parameter(description = "sortOrder") final String sortOrder) {
+            @QueryParam("orderBy") @DefaultValue("runHistory.id") @Parameter(description = "orderBy") final String orderBy,
+            @QueryParam("sortOrder") @DefaultValue("DESC") @Parameter(description = "sortOrder") final String sortOrder) {
         return retrieveHistory(IdTypeResolver.resolveDefault(), Objects.toString(jobId, null), offset, limit, orderBy, sortOrder, uriInfo);
     }
 
@@ -148,8 +149,8 @@ public class SchedulerJobApiResource {
             @PathParam("shortName") @Parameter(required = true, description = SchedulerJobApiConstants.SHORT_NAME_PARAM) final String shortName,
             @QueryParam("offset") @Parameter(description = "offset") final Integer offset,
             @QueryParam("limit") @Parameter(description = "limit") final Integer limit,
-            @QueryParam("orderBy") @Parameter(description = "orderBy") final String orderBy,
-            @QueryParam("sortOrder") @Parameter(description = "sortOrder") final String sortOrder) {
+            @QueryParam("orderBy") @DefaultValue("runHistory.id") @Parameter(description = "orderBy") final String orderBy,
+            @QueryParam("sortOrder") @DefaultValue("DESC") @Parameter(description = "sortOrder") final String sortOrder) {
         return retrieveHistory(IdTypeResolver.resolve(SHORT_NAME_PARAM), shortName, offset, limit, orderBy, sortOrder, uriInfo);
     }
 

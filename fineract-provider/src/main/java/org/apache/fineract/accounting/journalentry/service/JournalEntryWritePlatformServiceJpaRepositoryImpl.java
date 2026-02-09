@@ -97,6 +97,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanAmortizationAllocati
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAmortizationAllocationMappingRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeTaxDetailsPaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRelation;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRelationTypeEnum;
@@ -955,6 +956,24 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
                 loanChargePaidData.setLoanChargeId(chargePaidBy.getLoanCharge().getId());
                 loanChargePaidData.setAmount(chargePaidBy.getAmount());
                 loanChargePaidData.setInstallmentNumber(chargePaidBy.getInstallmentNumber());
+
+                // Populate tax details from LoanChargeTaxDetailsPaidBy
+                if (!chargePaidBy.getLoanChargeTaxDetailsPaidBy().isEmpty()) {
+                    List<Map<String, Object>> taxDetails = new ArrayList<>();
+                    for (final LoanChargeTaxDetailsPaidBy taxDetailPaidBy : chargePaidBy.getLoanChargeTaxDetailsPaidBy()) {
+                        Map<String, Object> taxDetail = new LinkedHashMap<>();
+                        taxDetail.put("amount", taxDetailPaidBy.getAmount());
+                        taxDetail.put("taxComponentId", taxDetailPaidBy.getTaxComponent().getId());
+                        if (taxDetailPaidBy.getTaxComponent().getDebitAcount() != null) {
+                            taxDetail.put("debitAccountId", taxDetailPaidBy.getTaxComponent().getDebitAcount().getId());
+                        }
+                        if (taxDetailPaidBy.getTaxComponent().getCreditAcount() != null) {
+                            taxDetail.put("creditAccountId", taxDetailPaidBy.getTaxComponent().getCreditAcount().getId());
+                        }
+                        taxDetails.add(taxDetail);
+                    }
+                    loanChargePaidData.setTaxDetails(taxDetails);
+                }
 
                 loanChargesPaidData.add(loanChargePaidData);
             }

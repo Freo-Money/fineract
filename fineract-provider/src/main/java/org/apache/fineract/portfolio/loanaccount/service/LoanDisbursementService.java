@@ -27,6 +27,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -43,10 +44,13 @@ import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
 import org.apache.fineract.infrastructure.core.serialization.JsonParserHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanDisbursalTransactionBusinessEvent;
+import org.apache.fineract.infrastructure.event.business.service.BusinessEventNotifierService;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
+import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
@@ -57,6 +61,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDisbursementValidator;
+import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
 import org.springframework.lang.NonNull;
 
@@ -70,6 +75,8 @@ public class LoanDisbursementService {
     private final LoanBalanceService loanBalanceService;
     private final LoanJournalEntryPoster loanJournalEntryPoster;
     private final LoanTransactionRepository loanTransactionRepository;
+    private final BusinessEventNotifierService businessEventNotifierService;
+    private final LoanDownPaymentHandlerService loanDownPaymentHandlerService;
 
     public void updateDisbursementDetails(final Loan loan, final JsonCommand jsonCommand, final Map<String, Object> actualChanges) {
         final List<Long> disbursementList = loan.fetchDisbursementIds();
@@ -213,48 +220,71 @@ public class LoanDisbursementService {
         return disburseAmount;
     }
 
-    public void handleDisbursementTransaction(final Loan loan, final LocalDate disbursedOn, final PaymentDetail paymentDetail) {
-        // add repayment transaction to track incoming money from client to mfi
-        // for (charges due at time of disbursement)
+    public void handleDisbursementTransaction(final Loan loan, final LocalDate disbursedOn, final PaymentDetail paymentDetail,
+            final ScheduleGeneratorDTO scheduleGeneratorDTO) {
+        final List<LoanTransaction> transactionsToSave = new ArrayList<>();
 
-        /*
-         * TODO Vishwas: do we need to be able to pass in payment type details for repayments at disbursements too?
-         */
+        // Recalculate tax for all charges with actual disbursement date
+        for (LoanCharge loanCharge : loan.getActiveCharges()) {
+            loanCharge.updateLoanChargeTaxDetails(disbursedOn, loanCharge.amount());
+        }
 
-        final Money totalFeeChargesDueAtDisbursement = loan.getSummary().getTotalFeeChargesDueAtDisbursement(loan.getCurrency());
-        /*
-         * all Charges repaid at disbursal is marked as repaid and "APPLY Charge" transactions are created for all other
-         * fees ( which are created during disbursal but not repaid)
-         */
+        // Calculate disbursement charges and BPI amount
+        final Money disbursementCharges = Money.of(loan.getCurrency(), loan.deriveSumTotalOfChargesDueAtDisbursement());
+        final boolean collectBpiAtDisbursement = shouldCollectBpiAtDisbursement(loan);
+        final Money bpiAmount = collectBpiAtDisbursement && loan.getBrokenPeriodInterest() != null
+                ? Money.of(loan.getCurrency(), loan.getBrokenPeriodInterest())
+                : Money.zero(loan.getCurrency());
 
-        Money disbursentMoney = Money.zero(loan.getCurrency());
-        final LoanTransaction chargesPayment = LoanTransaction.repaymentAtDisbursement(loan.getOffice(), disbursentMoney, paymentDetail,
+        // Create disbursement transaction for charges + BPI (if any)
+        final Money chargesAndBpiTotal = disbursementCharges.plus(bpiAmount);
+        if (chargesAndBpiTotal.isGreaterThanZero()) {
+            createChargesAndBpiDisbursementTransaction(loan, disbursedOn, paymentDetail, chargesAndBpiTotal, transactionsToSave);
+        }
+
+        // Create BPI repayment transaction (offsets BPI portion, keeps balance at principal)
+        final LoanTransaction bpiRepaymentTransaction = bpiAmount.isGreaterThanZero()
+                ? createBpiRepaymentTransaction(loan, disbursedOn, paymentDetail, bpiAmount, transactionsToSave)
+                : null;
+
+        // Create charges repayment transaction (offsets charges portion, keeps balance at principal)
+        if (disbursementCharges.isGreaterThanZero()) {
+            createChargesRepaymentTransaction(loan, disbursedOn, paymentDetail, disbursementCharges, transactionsToSave);
+        }
+
+        // Batch save all transactions and post journal entries
+        saveAndPostAllTransactions(loan, transactionsToSave);
+
+        // Process BPI repayment to allocate it to installments
+        if (bpiRepaymentTransaction != null) {
+            loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, bpiRepaymentTransaction, null,
+                    scheduleGeneratorDTO);
+        }
+
+        // Validate disbursement date
+        loanDisbursementValidator.validateDisburseDate(loan, disbursedOn, loan.getExpectedFirstRepaymentOnDate());
+    }
+
+    private void createChargesRepaymentTransaction(final Loan loan, final LocalDate disbursedOn, final PaymentDetail paymentDetail,
+            final Money disbursementCharges, final List<LoanTransaction> transactionsToSave) {
+        final LoanTransaction chargesPayment = LoanTransaction.repaymentAtDisbursement(loan.getOffice(), disbursementCharges, paymentDetail,
                 disbursedOn, null);
-        final Integer installmentNumber = null;
+        final Money totalFeeChargesDueAtDisbursement = loan.getSummary().getTotalFeeChargesDueAtDisbursement(loan.getCurrency());
+        final boolean hasFeesAtDisbursement = totalFeeChargesDueAtDisbursement.isGreaterThanZero();
+
+        // Mark charges as paid and associate with repayment transaction
         for (final LoanCharge charge : loan.getActiveCharges()) {
-            LocalDate actualDisbursementDate = loan.getActualDisbursementDate(charge);
-
-            boolean isDisbursementCharge = charge.getCharge().getChargeTimeType().equals(ChargeTimeType.DISBURSEMENT.getValue())
-                    && disbursedOn.equals(actualDisbursementDate) && !charge.isWaived() && !charge.isFullyPaid();
-
-            boolean isTrancheDisbursementCharge = charge.getCharge().getChargeTimeType()
-                    .equals(ChargeTimeType.TRANCHE_DISBURSEMENT.getValue()) && disbursedOn.equals(actualDisbursementDate)
+            final LocalDate actualDisbursementDate = loan.getActualDisbursementDate(charge);
+            final Integer chargeTimeType = charge.getCharge().getChargeTimeType();
+            final boolean isDisbursementCharge = (chargeTimeType.equals(ChargeTimeType.DISBURSEMENT.getValue())
+                    || chargeTimeType.equals(ChargeTimeType.TRANCHE_DISBURSEMENT.getValue())) && disbursedOn.equals(actualDisbursementDate)
                     && !charge.isWaived() && !charge.isFullyPaid();
 
-            /*
-             * create a Charge applied transaction if Up front Accrual, None or Cash based accounting is enabled
-             */
-            if (isDisbursementCharge || isTrancheDisbursementCharge) {
-                if (totalFeeChargesDueAtDisbursement.isGreaterThanZero() && !charge.getChargePaymentMode().isPaymentModeAccountTransfer()) {
-                    charge.markAsFullyPaid();
-                    // Add "Loan Charge Paid By" details to this transaction
-                    final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(chargesPayment, charge, charge.amount(),
-                            installmentNumber);
-                    chargesPayment.getLoanChargesPaid().add(loanChargePaidBy);
-                    disbursentMoney = disbursentMoney.plus(charge.amount());
-                }
-            } else if (disbursedOn.equals(loan.getActualDisbursementDate())
-                    && loan.isNoneOrCashOrUpfrontAccrualAccountingEnabledOnLoanProduct()) {
+            if (isDisbursementCharge && hasFeesAtDisbursement && !charge.getChargePaymentMode().isPaymentModeAccountTransfer()) {
+                charge.markAsFullyPaid();
+                final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(chargesPayment, charge, charge.amount(), null);
+                chargesPayment.getLoanChargesPaid().add(loanChargePaidBy);
+            } else if (disbursedOn.equals(loan.getActualDisbursementDate()) && loan.isUpfrontAccrualAccountingEnabledOnLoanProduct()) {
                 final LoanTransaction applyLoanChargeTransaction = loanChargeService.handleChargeAppliedTransaction(loan, charge,
                         disbursedOn);
                 if (applyLoanChargeTransaction != null) {
@@ -264,18 +294,82 @@ public class LoanDisbursementService {
             }
         }
 
-        if (disbursentMoney.isGreaterThanZero()) {
-            final Money zero = Money.zero(loan.getCurrency());
-            chargesPayment.updateComponentsAndTotal(zero, zero, disbursentMoney, zero);
-            chargesPayment.updateLoan(loan);
-            loan.addLoanTransaction(chargesPayment);
-            loanTransactionRepository.saveAndFlush(chargesPayment);
-            loanJournalEntryPoster.postJournalEntriesForLoanTransaction(chargesPayment, false, false);
-            loanBalanceService.updateLoanOutstandingBalances(loan);
+        // Update transaction components and add to loan
+        final Money zero = Money.zero(loan.getCurrency());
+        chargesPayment.updateComponentsAndTotal(zero, zero, disbursementCharges, zero);
+        chargesPayment.updateLoan(loan);
+        loan.addLoanTransaction(chargesPayment);
+        transactionsToSave.add(chargesPayment);
+    }
+
+    private LoanTransaction createBpiRepaymentTransaction(final Loan loan, final LocalDate disbursedOn, final PaymentDetail paymentDetail,
+            final Money bpiAmount, final List<LoanTransaction> transactionsToSave) {
+        // Create BPI as a paid repayment transaction
+        final LoanTransaction bpiRepayment = LoanTransaction.repayment(loan.getOffice(), bpiAmount, paymentDetail, disbursedOn,
+                generateExternalIdIfEnabled());
+
+        // Update components: BPI is interest, so set interest portion as paid
+        final Money zero = Money.zero(loan.getCurrency());
+        bpiRepayment.updateComponentsAndTotal(zero, bpiAmount, zero, zero); // principal, interest, fees, penalties
+
+        bpiRepayment.updateLoan(loan);
+        loan.addLoanTransaction(bpiRepayment);
+        transactionsToSave.add(bpiRepayment);
+
+        return bpiRepayment;
+    }
+
+    private boolean shouldCollectBpiAtDisbursement(final Loan loan) {
+        // Check loan-level flag only (set during loan creation/modification)
+        if (!loan.isBpiCollectedAtDisbursement()) {
+            return false;
         }
 
-        final LocalDate expectedDate = loan.getExpectedFirstRepaymentOnDate();
-        loanDisbursementValidator.validateDisburseDate(loan, disbursedOn, expectedDate);
+        // Validate BPI amount exists
+        if (loan.getBrokenPeriodInterest() == null || loan.getBrokenPeriodInterest().compareTo(BigDecimal.ZERO) <= 0) {
+            return false;
+        }
+
+        // Validate BPI configuration and strategy
+        return loan.getBpiConfig() != null && loan.getBpiConfig().getBrokenPeriodConfig() != null && loan.getBpiConfig()
+                .getBrokenPeriodConfig().getStrategy() == BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE;
+    }
+
+    private void createChargesAndBpiDisbursementTransaction(final Loan loan, final LocalDate disbursedOn, final PaymentDetail paymentDetail,
+            final Money chargesAndBpiTotal, final List<LoanTransaction> transactionsToSave) {
+        final Money totalOverpaid = loan.getTotalOverpaidAsMoney();
+        final LoanTransaction chargesDisbursementTransaction = LoanTransaction.disbursement(loan, chargesAndBpiTotal, paymentDetail,
+                disbursedOn, generateExternalIdIfEnabled(), totalOverpaid);
+        chargesDisbursementTransaction.updateLoan(loan);
+        loan.addLoanTransaction(chargesDisbursementTransaction);
+        transactionsToSave.add(chargesDisbursementTransaction);
+    }
+
+    private void saveAndPostAllTransactions(final Loan loan, final List<LoanTransaction> transactions) {
+        // Batch save all transactions
+        if (!transactions.isEmpty()) {
+            loanTransactionRepository.saveAllAndFlush(transactions);
+
+            // Post journal entries and fire business events for each transaction
+            for (LoanTransaction transaction : transactions) {
+                loanJournalEntryPoster.postJournalEntriesForLoanTransaction(transaction, false, false);
+
+                // Fire business event for disbursement transactions
+                if (transaction.isDisbursement()) {
+                    businessEventNotifierService.notifyPostBusinessEvent(new LoanDisbursalTransactionBusinessEvent(transaction));
+                }
+            }
+
+            // Update loan balance once after all transactions
+            loanBalanceService.updateLoanOutstandingBalances(loan);
+        }
+    }
+
+    private ExternalId generateExternalIdIfEnabled() {
+        if (TemporaryConfigurationServiceContainer.isExternalIdAutoGenerationEnabled()) {
+            return ExternalId.generate();
+        }
+        return ExternalId.empty();
     }
 
     private void createOrUpdateDisbursementDetails(final Loan loan, final Long disbursementID, final Map<String, Object> actualChanges,

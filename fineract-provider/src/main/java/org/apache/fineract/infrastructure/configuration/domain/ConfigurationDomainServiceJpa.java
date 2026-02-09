@@ -548,4 +548,37 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
         return getGlobalConfigurationPropertyData(
                 GlobalConfigurationConstants.ASSET_OWNER_TRANSFER_OUTSTANDING_INTEREST_CALCULATION_STRATEGY).getStringValue();
     }
+
+    @Override
+    public Integer getArrearsBasedOnValue() {
+        final String propertyName = "arrears-based-on";
+        final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(propertyName);
+        int arrearsBasedOnValue = -1;
+        if (property.isEnabled() && property.getValue() != null) {
+            return property.getValue().intValue();
+        }
+        return arrearsBasedOnValue;
+    }
+
+    @Override
+    public LocalDate retrieveMigrationCutoffDate() {
+        try {
+            final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(
+                    GlobalConfigurationConstants.FINERACT_MIGRATION_CUTOFF_DATE);
+            return property.getDateValue();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    @Override
+    public Long retrieveMigrationLastImportedLoanId() {
+        try {
+            final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(
+                    GlobalConfigurationConstants.FINERACT_MIGRATION_LAST_IMPORTED_LOAN_ID);
+            return property.getValue();
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }

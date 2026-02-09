@@ -194,6 +194,7 @@ import org.apache.fineract.portfolio.loanaccount.exception.MultiDisbursementData
 import org.apache.fineract.portfolio.loanaccount.exception.MultiDisbursementDataRequiredException;
 import org.apache.fineract.portfolio.loanaccount.exception.UndoLastTrancheDisbursementException;
 import org.apache.fineract.portfolio.loanaccount.guarantor.service.GuarantorDomainService;
+import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModelPeriod;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryWritePlatformService;
@@ -268,6 +269,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanAccountLockService loanAccountLockService;
     private final ExternalIdFactory externalIdFactory;
     private final LoanAccrualTransactionBusinessEventService loanAccrualTransactionBusinessEventService;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
     private final ErrorHandler errorHandler;
     private final LoanDownPaymentHandlerService loanDownPaymentHandlerService;
     private final LoanTransactionAssembler loanTransactionAssembler;
@@ -378,11 +380,20 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             Money amountToDisburse = disburseAmount.copy();
             boolean recalculateSchedule = amountBeforeAdjust.isNotEqualTo(loan.getPrincipal());
             final ExternalId txnExternalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
+            final Money disbursementCharges = Money.of(loan.getCurrency(), loan.deriveSumTotalOfChargesDueAtDisbursement());
+            // Calculate BPI amount only if BPI collection at disbursement is enabled
+            // Check loan-level flag only (already set during loan creation/modification)
+            Money bpiAmount = Money.zero(loan.getCurrency());
+            if (loan.isBpiCollectedAtDisbursement() && loan.getBrokenPeriodInterest() != null) {
+                bpiAmount = Money.of(loan.getCurrency(), loan.getBrokenPeriodInterest());
+            }
 
+            // Amount to disburse = disburse amount - disbursement charges - BPI (if enabled)
+            amountToDisburse = disburseAmount.minus(disbursementCharges).minus(bpiAmount);
             if (loan.isTopup() && loan.getClientId() != null) {
                 final BigDecimal loanOutstanding = loanApplicationValidator.validateTopupLoan(loan, actualDisbursementDate);
 
-                amountToDisburse = disburseAmount.minus(loanOutstanding);
+                amountToDisburse = amountToDisburse.minus(loanOutstanding);
                 disburseLoanToLoan(loan, command, loanOutstanding);
             }
 
@@ -563,16 +574,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loan.updateLoanRepaymentPeriodsDerivedFields(actualDisbursementDate1);
         loanTransactionValidator.validateActivityNotBeforeClientOrGroupTransferDate(loan, LoanEvent.LOAN_DISBURSED,
                 actualDisbursementDate1);
-        loanDisbursementService.handleDisbursementTransaction(loan, actualDisbursementDate1, paymentDetail1);
+        loanDisbursementService.handleDisbursementTransaction(loan, actualDisbursementDate1, paymentDetail1, scheduleGeneratorDTO);
         loanBalanceService.updateLoanSummaryDerivedFields(loan);
         final Money interestApplied = Money.of(loan.getCurrency(), loan.getSummary().getTotalInterestCharged());
 
         /*
-         * Add an interest applied transaction of the interest is accrued upfront (Up front accrual), no accounting or
-         * cash based accounting is selected
+         * Add an interest applied transaction of the interest is accrued upfront (Up front accrual) is selected. Note:
+         * If accounting is disabled (NONE), accrual transactions should not be created.
          */
         if (((loan.isMultiDisburmentLoan() && loan.getDisbursedLoanDisbursementDetails().size() == 1) || !loan.isMultiDisburmentLoan())
-                && loan.isNoneOrCashOrUpfrontAccrualAccountingEnabledOnLoanProduct() && interestApplied.isGreaterThanZero()) {
+                && loan.isUpfrontAccrualAccountingEnabledOnLoanProduct() && interestApplied.isGreaterThanZero()) {
             ExternalId externalId = ExternalId.empty();
             if (TemporaryConfigurationServiceContainer.isExternalIdAutoGenerationEnabled()) {
                 externalId = ExternalId.generate();
@@ -754,6 +765,17 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             if (canDisburse(loan)) {
                 Money amountBeforeAdjust = loan.getPrincipal();
                 Money disburseAmount = loanDisbursementService.adjustDisburseAmount(loan, command, actualDisbursementDate);
+                final Money disbursementCharges = Money.of(loan.getCurrency(), loan.deriveSumTotalOfChargesDueAtDisbursement());
+
+                // Calculate BPI amount only if BPI collection at disbursement is enabled
+                // Check loan-level flag only (already set during loan creation/modification)
+                Money bpiAmount = Money.zero(loan.getCurrency());
+                if (loan.isBpiCollectedAtDisbursement() && loan.getBrokenPeriodInterest() != null) {
+                    bpiAmount = Money.of(loan.getCurrency(), loan.getBrokenPeriodInterest());
+                }
+
+                // Amount to disburse = disburse amount - disbursement charges - BPI (if enabled)
+                disburseAmount = disburseAmount.minus(disbursementCharges).minus(bpiAmount);
                 boolean recalculateSchedule = amountBeforeAdjust.isNotEqualTo(loan.getPrincipal());
                 final ExternalId txnExternalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
                 if (isAccountTransfer) {
@@ -1413,6 +1435,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         journalEntryPoster.postJournalEntriesForLoanTransaction(waiveInterestTransaction, false, false);
         loan = saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
 
+        // For NPA loans with periodic accrual accounting, create ACCRUAL_WRITEOFF transaction for waived interest
+        if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct() && interestComponent != null
+                && interestComponent.isGreaterThanZero()) {
+            createAccrualWriteoffTransaction(loan, transactionDate, interestComponent.getAmount(), interestComponent.getAmount(), null,
+                    null);
+        }
+
         final String noteText = command.stringValueOfParameterNamed("note");
         if (StringUtils.isNotBlank(noteText)) {
             changes.put("note", noteText);
@@ -1502,6 +1531,21 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             this.loanTransactionRepository.saveAndFlush(loanTransaction);
             journalEntryPoster.postJournalEntriesForLoanTransaction(loanTransaction, false, false);
             saveLoanWithDataIntegrityViolationChecks(loan);
+
+            // For NPA loans with periodic accrual accounting, create ACCRUAL_WRITEOFF transaction for outstanding
+            // interest, fees, and penalties
+            if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+                BigDecimal outstandingInterest = loan.getSummary().getTotalInterestOutstanding();
+                BigDecimal outstandingFees = loan.getSummary().getTotalFeeChargesOutstanding();
+                BigDecimal outstandingPenalties = loan.getSummary().getTotalPenaltyChargesOutstanding();
+                BigDecimal totalAccrualWriteoff = MathUtil.add(outstandingInterest, outstandingFees, outstandingPenalties);
+
+                if (MathUtil.isGreaterThanZero(totalAccrualWriteoff)) {
+                    createAccrualWriteoffTransaction(loan, transactionDate, totalAccrualWriteoff, outstandingInterest, outstandingFees,
+                            outstandingPenalties);
+                }
+            }
+
             final String noteText = command.stringValueOfParameterNamed("note");
             if (StringUtils.isNotBlank(noteText)) {
                 changes.put("note", noteText);
@@ -2647,6 +2691,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed(LoanApiConstants.transactionDateParamName, element);
         final ExternalId externalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
         this.loanTransactionValidator.validateLoanForeclosure(command.json());
+        Map<Long, BigDecimal> foreclosureChargePercentageMap;
+        try {
+            foreclosureChargePercentageMap = foreclosureChargeHelper.extractChargePercentagesFromJsonElement(element,
+                    LoanApiConstants.foreclosureChargePercentageMapParamName);
+        } catch (IllegalArgumentException e) {
+            ApiParameterError error = ApiParameterError.parameterError("error.msg.invalid.charge.percentage.format", e.getMessage(),
+                    LoanApiConstants.foreclosureChargePercentageMapParamName);
+            throw new PlatformApiDataValidationException(List.of(error), e);
+        }
+        this.loanTransactionValidator.validateLoanForeclosureChargePercentages(loan, foreclosureChargePercentageMap);
         final Map<String, Object> changes = new LinkedHashMap<>();
         // Got changed to match with the rest of the APIs
         changes.put("dateFormat", command.dateFormat());
@@ -2667,7 +2721,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 loanRescheduleRequest);
 
         LoanTransaction foreclosureTransaction = this.loanAccountDomainService.foreCloseLoan(loan, transactionDate, noteText, externalId,
-                changes);
+                foreclosureChargePercentageMap, changes);
 
         final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
         return commandProcessingResultBuilder //
@@ -3641,5 +3695,18 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         if (latestRepaymentDate != null) {
             loan.setExpectedMaturityDate(latestRepaymentDate);
         }
+    }
+
+    /**
+     * Creates and posts an ACCRUAL_WRITEOFF transaction for NPA loans with periodic accrual accounting enabled.
+     */
+    private void createAccrualWriteoffTransaction(final Loan loan, final LocalDate transactionDate, final BigDecimal totalAmount,
+            final BigDecimal interestPortion, final BigDecimal feePortion, final BigDecimal penaltyPortion) {
+        LoanTransaction accrualWriteoffTransaction = LoanTransaction.accrualWriteoffTransaction(loan, loan.getOffice(), transactionDate,
+                totalAmount, interestPortion, feePortion, penaltyPortion, externalIdFactory.create());
+        LoanTransaction savedAccrualWriteoffTransaction = this.loanTransactionRepository.save(accrualWriteoffTransaction);
+        this.loanTransactionRepository.flush(); // Flush to ensure ID is available for journal entry posting
+        loan.addLoanTransaction(savedAccrualWriteoffTransaction);
+        journalEntryPoster.postJournalEntriesForLoanTransaction(savedAccrualWriteoffTransaction, false, false);
     }
 }

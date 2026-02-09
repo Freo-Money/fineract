@@ -141,6 +141,7 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
         final LocalDate idealDisbursementDate = getScheduledDateGenerator().idealDisbursementDateBasedOnFirstRepaymentDate(
                 loanApplicationTerms.getLoanTermPeriodFrequencyType(), loanApplicationTerms.getRepaymentEvery(), firstRepaymentDate,
                 loanApplicationTerms.getLoanCalendar(), loanApplicationTerms.getHolidayDetailDTO(), loanApplicationTerms);
+        loanApplicationTerms.setIdealDisbursementDate(idealDisbursementDate);
 
         if (!scheduleParams.isPartialUpdate()) {
             Money calculatedAmortizableAmount = loanApplicationTerms.getPrincipal().minus(loanApplicationTerms.getDownPaymentAmount());
@@ -325,6 +326,7 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
 
             // update cumulative fields for principal & interest
             currentPeriodParams.setInterestForThisPeriod(principalInterestForThisPeriod.interest());
+
             Money lastTotalOutstandingInterestPaymentDueToGrace = scheduleParams.getTotalOutstandingInterestPaymentDueToGrace();
             scheduleParams.setTotalOutstandingInterestPaymentDueToGrace(principalInterestForThisPeriod.interestPaymentDueToGrace());
             currentPeriodParams.setPrincipalForThisPeriod(principalInterestForThisPeriod.principal());
@@ -335,6 +337,7 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
             // updates amounts with current earlyPaidAmount
             updateAmountsBasedOnCurrentEarlyPayments(mc, loanApplicationTerms, scheduleParams, currentPeriodParams);
 
+            boolean shouldRoundLastInstallment = false;
             if (scheduleParams.getOutstandingBalance().isLessThanZero() || !isNextRepaymentAvailable) {
                 currentPeriodParams.plusPrincipalForThisPeriod(scheduleParams.getOutstandingBalance());
                 scheduleParams.setOutstandingBalance(Money.zero(currency));
@@ -343,12 +346,32 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
             if (!isNextRepaymentAvailable) {
                 scheduleParams.getDisburseDetailMap().clear();
             }
+            if (scheduleParams.getOutstandingBalance().isZero() && loanApplicationTerms.isAdjustInterestForRoundingEnabled()
+                    && loanApplicationTerms.getInstallmentAmountInMultiplesOf() != null) {
+                shouldRoundLastInstallment = true;
+            }
 
             // applies charges for the period
             applyChargesForCurrentPeriod(loanCharges, monetaryCurrency, scheduleParams, scheduledDueDate, currentPeriodParams, mc);
 
             // sum up real totalInstallmentDue from components
-            final Money totalInstallmentDue = currentPeriodParams.fetchTotalAmountForPeriod();
+            Money totalInstallmentDue = currentPeriodParams.fetchTotalAmountForPeriod();
+
+            if (shouldRoundLastInstallment) {
+                Money roundedTotalInstallmentDue = Money.roundToMultiplesOf(totalInstallmentDue,
+                        loanApplicationTerms.getInstallmentAmountInMultiplesOf());
+                Money emiDelta = roundedTotalInstallmentDue.minus(totalInstallmentDue);
+                if (!emiDelta.isZero()) {
+                    Money adjustedInterest = currentPeriodParams.getInterestForThisPeriod().plus(emiDelta);
+                    if (adjustedInterest.isLessThanZero()) {
+                        adjustedInterest = null;
+                    }
+                    if (adjustedInterest != null) {
+                        currentPeriodParams.setInterestForThisPeriod(adjustedInterest);
+                        totalInstallmentDue = roundedTotalInstallmentDue;
+                    }
+                }
+            }
 
             // if previous installment is last then add interest to same
             // installment
@@ -434,12 +457,15 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
         final BigDecimal totalOutstanding = BigDecimal.ZERO;
 
         updateCompoundingDetails(periods, scheduleParams, loanApplicationTerms);
-        return LoanScheduleModel.from(periods, currency, scheduleParams.getLoanTermInDays(),
+        final Money brokenPeriodInterest = loanApplicationTerms.getBrokenPeriodInterest();
+        LoanScheduleModel scheduleModel = LoanScheduleModel.from(periods, currency, scheduleParams.getLoanTermInDays(),
                 scheduleParams.getPrincipalToBeScheduled().plus(loanApplicationTerms.getDownPaymentAmount()),
                 scheduleParams.getTotalCumulativePrincipal().plus(loanApplicationTerms.getDownPaymentAmount()).getAmount(),
                 totalPrincipalPaid, scheduleParams.getTotalCumulativeInterest().getAmount(),
                 scheduleParams.getTotalFeeChargesCharged().getAmount(), scheduleParams.getTotalPenaltyChargesCharged().getAmount(),
-                scheduleParams.getTotalRepaymentExpected().getAmount(), totalOutstanding);
+                scheduleParams.getTotalRepaymentExpected().getAmount(), totalOutstanding, brokenPeriodInterest);
+
+        return scheduleModel;
     }
 
     private void updateCompoundingDetails(final Collection<LoanScheduleModelPeriod> periods, final LoanScheduleParams params,
@@ -1199,6 +1225,7 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
      * @param scheduledDueDate
      * @param exceptionDataListIterator
      * @param instalmentNumber
+     *            TODO
      * @param totalCumulativePrincipal
      *            TODO
      * @param totalCumulativeInterest

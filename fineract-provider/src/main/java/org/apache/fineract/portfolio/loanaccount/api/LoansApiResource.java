@@ -33,6 +33,7 @@ import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.Positive;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
@@ -58,6 +59,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.commands.domain.CommandWrapper;
 import org.apache.fineract.commands.service.CommandWrapperBuilder;
@@ -71,8 +73,10 @@ import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDoma
 import org.apache.fineract.infrastructure.core.api.ApiFacingEnum;
 import org.apache.fineract.infrastructure.core.api.ApiParameterHelper;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
+import org.apache.fineract.infrastructure.core.api.DateParam;
 import org.apache.fineract.infrastructure.core.api.JsonQuery;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.data.DateFormat;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.data.UploadRequest;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
@@ -123,14 +127,18 @@ import org.apache.fineract.portfolio.fund.data.FundData;
 import org.apache.fineract.portfolio.fund.service.FundReadPlatformService;
 import org.apache.fineract.portfolio.group.data.GroupGeneralData;
 import org.apache.fineract.portfolio.group.service.GroupReadPlatformService;
+import org.apache.fineract.portfolio.loanaccount.data.ChargePaymentRequest;
+import org.apache.fineract.portfolio.loanaccount.data.ChargePaymentTemplateData;
 import org.apache.fineract.portfolio.loanaccount.data.CollectionData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.GlimRepaymentTemplate;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovalData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovedAmountHistoryData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanBasicDataForSchedule;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanCollateralManagementData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanDueDetailsDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanSummaryData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionBalanceWithLoanId;
@@ -561,14 +569,16 @@ public class LoansApiResource {
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoansApiResourceSwagger.PostLoansResponse.class))) })
     public String calculateLoanScheduleOrSubmitLoanApplication(
             @QueryParam("command") @Parameter(description = "command") final String commandParam, @Context final UriInfo uriInfo,
-            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
+            @Parameter(hidden = true) final String apiRequestBodyAsJson,
+            @DefaultValue("false") @QueryParam("includeLoanChargeDetails") @Parameter(description = "includeLoanChargeDetails") final Boolean includeLoanChargeDetails) {
 
         if (CommandParameterUtil.is(commandParam, "calculateLoanSchedule")) {
 
             final JsonElement parsedQuery = this.fromJsonHelper.parse(apiRequestBodyAsJson);
             final JsonQuery query = JsonQuery.from(apiRequestBodyAsJson, parsedQuery, this.fromJsonHelper);
 
-            final LoanScheduleModel loanSchedule = this.calculationPlatformService.calculateLoanSchedule(query, true);
+            final LoanScheduleModel loanSchedule = this.calculationPlatformService.calculateLoanSchedule(query, true,
+                    includeLoanChargeDetails);
 
             final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
             return this.loanScheduleToApiJsonSerializer.serialize(settings, loanSchedule.toData(), new HashSet<>());
@@ -1112,10 +1122,11 @@ public class LoansApiResource {
                 if (associationParameters.contains(DataTableApiConstant.originalScheduleAssociateParamName)
                         && loanBasicDetails.isInterestRecalculationEnabled()
                         && LoanStatus.fromInt(loanBasicDetails.getStatus().getId().intValue()).isActive()) {
+                    Integer version = this.loanScheduleHistoryReadPlatformService.fetchCurrentVersionNumber(loanId);
                     mandatoryResponseParameters.add(DataTableApiConstant.originalScheduleAssociateParamName);
                     LoanScheduleData loanScheduleData = this.loanScheduleHistoryReadPlatformService.retrieveRepaymentArchiveSchedule(
                             resolvedLoanId, repaymentScheduleRelatedData, disbursementData,
-                            LoanScheduleType.fromEnumOptionData(loanBasicDetails.getLoanScheduleType()));
+                            LoanScheduleType.fromEnumOptionData(loanBasicDetails.getLoanScheduleType()), version);
                     loanBasicDetails = loanBasicDetails.setOriginalSchedule(loanScheduleData);
                 }
             }
@@ -1410,4 +1421,115 @@ public class LoansApiResource {
         return this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
     }
 
+    @GET
+    @Path("{loanId}/due-ason")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Returns the due details for a given loan as on date", description = "")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoansApiResourceSwagger.GetLoanDueDetailsResponse.class))) })
+    public LoanDueDetailsDTO getLoanDueDetails(@PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
+            @QueryParam("asOnDate") @NonNull final DateParam asOnDateParam, @QueryParam("dateFormat") String dateFormat,
+            @QueryParam("locale") String locale, @Context final UriInfo uriInfo) {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        DateFormat df = new DateFormat(dateFormat);
+        LocalDate asOnLocalDate = asOnDateParam.getDate("asOnDate", df, locale);
+        return this.loanReadPlatformService.getLoanDueDetails(loanId, asOnLocalDate);
+    }
+
+    @GET
+    @Path("{loanId}/charge-payment/template")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Returns the charge payment template for a loan as of a specific date", description = "")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = ChargePaymentTemplateData.class))) })
+    public ChargePaymentTemplateData getChargePaymentTemplateDetails(
+            @PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
+            @QueryParam("asOnDate") @NonNull final DateParam asOnDateParam, @QueryParam("dateFormat") String dateFormat,
+            @QueryParam("locale") String locale, @Context final UriInfo uriInfo) {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        DateFormat df = new DateFormat(dateFormat);
+        LocalDate asOnLocalDate = asOnDateParam.getDate("asOnDate", df, locale);
+        return this.loanReadPlatformService.getChargePaymentTemplateDetails(loanId, asOnLocalDate);
+    }
+
+    @POST
+    @Path("{loanId}/charge-payment/{chargeId}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "pay charge for a loan by loanChargeId", description = "")
+    @RequestBody(required = true, content = @Content(schema = @Schema(implementation = ChargePaymentRequest.class)))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = CommandProcessingResult.class))) })
+    public CommandProcessingResult payCharge(@PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
+            @PathParam("chargeId") @Parameter(description = "chargeId", required = true) final Long chargeId,
+            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        final CommandWrapperBuilder builder = new CommandWrapperBuilder().withJson(apiRequestBodyAsJson);
+        CommandWrapper commandRequest = builder.payChargeByChargeId(loanId, chargeId).build();
+        return this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+    }
+
+    @GET
+    @Path("{loanId}/schedule-history/{historyVersion}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Returns the schedule history for a given loan at a specific version", description = "")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanScheduleData.class))) })
+    public LoanScheduleData getLoanScheduleHistory(
+            @PathParam("loanId") @Parameter(description = "loanId", required = true) @NonNull final Long loanId,
+            @PathParam("historyVersion") @Parameter(description = "historyVersion", required = true) @NonNull @Positive final Integer historyVersion) {
+        context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        return retrieveLoanScheduleHistory(loanId, historyVersion);
+    }
+
+    private LoanScheduleData retrieveLoanScheduleHistory(Long loanId, Integer historyVersion) {
+        // Use optimized method to fetch only essential loan fields (reduces DB
+        // overhead)
+        final LoanBasicDataForSchedule loanBasicData = this.loanReadPlatformService.retrieveLoanBasicDataForScheduleHistory(loanId);
+
+        final RepaymentScheduleRelatedLoanData repaymentScheduleRelatedData = new RepaymentScheduleRelatedLoanData(
+                loanBasicData.getExpectedDisbursementDate(), loanBasicData.getActualDisbursementDate(), loanBasicData.getCurrency(),
+                loanBasicData.getPrincipal(), loanBasicData.getInArrearsTolerance(), loanBasicData.getFeeChargesAtDisbursementCharged());
+
+        final Collection<DisbursementData> disbursementData = this.loanReadPlatformService.retrieveLoanDisbursementDetails(loanId);
+        LoanScheduleData loanScheduleData = this.loanScheduleHistoryReadPlatformService.retrieveRepaymentArchiveSchedule(loanId,
+                repaymentScheduleRelatedData, disbursementData, loanBasicData.getLoanScheduleType(), historyVersion);
+        return loanScheduleData;
+
+    }
+
+    @POST
+    @Path("{loanId}/custom-schedule")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Create Custom Loan Schedule")
+    public String createCustomSchedule(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
+
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().createCustomLoanSchedule(loanId).withJson(apiRequestBodyAsJson)
+                .build();
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
+
+    @PUT
+    @Path("{loanId}/custom-schedule")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Update Custom Loan Schedule")
+    public String updateCustomSchedule(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
+
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().updateCustomLoanSchedule(loanId).withJson(apiRequestBodyAsJson)
+                .build();
+
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+
+        return this.toApiJsonSerializer.serialize(result);
+    }
 }

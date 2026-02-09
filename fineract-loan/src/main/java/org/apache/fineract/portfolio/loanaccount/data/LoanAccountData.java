@@ -50,6 +50,7 @@ import org.apache.fineract.portfolio.group.data.GroupGeneralData;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.guarantor.data.IGuarantor;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleData;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductBorrowerCycleVariationData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
@@ -97,6 +98,8 @@ public class LoanAccountData {
     // terms
     private CurrencyData currency;
     private BigDecimal principal;
+    private BigDecimal brokenPeriodInterest;
+    private BrokenPeriodConfigData brokenPeriodConfig;
     private BigDecimal approvedPrincipal;
     private BigDecimal proposedPrincipal;
     private BigDecimal netDisbursalAmount;
@@ -193,6 +196,7 @@ public class LoanAccountData {
     private Boolean multiDisburseLoan;
 
     private Boolean canDefineInstallmentAmount;
+    private Boolean adjustInterestForRounding;
 
     private BigDecimal fixedEmiAmount;
 
@@ -290,6 +294,8 @@ public class LoanAccountData {
     private StringEnumOptionData buyDownFeeStrategy;
     private StringEnumOptionData buyDownFeeIncomeType;
     private Boolean merchantBuyDownFee;
+    private Boolean customScheduleDefined;
+    private boolean bpiCollectedAtDisbursement;
 
     public static LoanAccountData importInstanceIndividual(EnumOptionData loanTypeEnumOption, Long clientId, Long productId,
             Long loanOfficerId, LocalDate submittedOnDate, Long fundId, BigDecimal principal, Integer numberOfRepayments,
@@ -430,6 +436,7 @@ public class LoanAccountData {
                 .setGraceOnInterestPayment(product.getGraceOnInterestPayment())
                 .setGraceOnInterestCharged(product.getGraceOnInterestCharged()).setCharges(charges)
                 .setMultiDisburseLoan(product.getMultiDisburseLoan()).setCanDefineInstallmentAmount(product.isCanDefineInstallmentAmount())
+                .setAdjustInterestForRounding(product.isAdjustInterestForRounding())
                 .setMaxOutstandingLoanBalance(product.getOutstandingLoanBalance()).setProduct(product)
                 .setGraceOnArrearsAgeing(product.getGraceOnArrearsAgeing()).setOverdueCharges(product.overdueFeeCharges())
                 .setDaysInMonthType(product.getDaysInMonthType()).setDaysInYearType(product.getDaysInYearType())
@@ -469,8 +476,8 @@ public class LoanAccountData {
             final LoanApplicationTimelineData timeline, final LoanSummaryData loanSummary,
             final BigDecimal feeChargesDueAtDisbursementCharged, final Boolean syncDisbursementWithMeeting, final Integer loanCounter,
             final Integer loanProductCounter, final Boolean multiDisburseLoan, Boolean canDefineInstallmentAmount,
-            final BigDecimal fixedEmiAmont, final BigDecimal outstandingLoanBalance, final Boolean inArrears,
-            final Integer graceOnArrearsAgeing, final Boolean isNPA, final EnumOptionData daysInMonthType,
+            final Boolean adjustInterestForRounding, final BigDecimal fixedEmiAmont, final BigDecimal outstandingLoanBalance,
+            final Boolean inArrears, final Integer graceOnArrearsAgeing, final Boolean isNPA, final EnumOptionData daysInMonthType,
             final EnumOptionData daysInYearType, final boolean isInterestRecalculationEnabled,
             final LoanInterestRecalculationData interestRecalculationData, final Boolean createStandingInstructionAtDisbursement,
             final Boolean isVariableInstallmentsAllowed, Integer minimumGap, Integer maximumGap, final EnumOptionData subStatus,
@@ -486,7 +493,7 @@ public class LoanAccountData {
             final StringEnumOptionData capitalizedIncomeCalculationType, final StringEnumOptionData capitalizedIncomeStrategy,
             StringEnumOptionData capitalizedIncomeType, final boolean enableBuyDownFee,
             final StringEnumOptionData buyDownFeeCalculationType, final StringEnumOptionData buyDownFeeStrategy,
-            final StringEnumOptionData buyDownFeeIncomeType, final boolean merchantBuyDownFee) {
+            final StringEnumOptionData buyDownFeeIncomeType, final boolean merchantBuyDownFee, final BigDecimal brokenPeriodInterest) {
 
         final CollectionData delinquent = CollectionData.template();
 
@@ -516,10 +523,11 @@ public class LoanAccountData {
                 .setFeeChargesAtDisbursementCharged(feeChargesDueAtDisbursementCharged)
                 .setSyncDisbursementWithMeeting(syncDisbursementWithMeeting).setLoanCounter(loanCounter)
                 .setLoanProductCounter(loanProductCounter).setMultiDisburseLoan(multiDisburseLoan)
-                .setCanDefineInstallmentAmount(canDefineInstallmentAmount).setFixedEmiAmount(fixedEmiAmont)
-                .setMaxOutstandingLoanBalance(outstandingLoanBalance).setInArrears(inArrears).setGraceOnArrearsAgeing(graceOnArrearsAgeing)
-                .setIsNPA(isNPA).setDaysInMonthType(daysInMonthType).setDaysInYearType(daysInYearType)
-                .setInterestRecalculationEnabled(isInterestRecalculationEnabled).setInterestRecalculationData(interestRecalculationData)
+                .setCanDefineInstallmentAmount(canDefineInstallmentAmount).setAdjustInterestForRounding(adjustInterestForRounding)
+                .setFixedEmiAmount(fixedEmiAmont).setMaxOutstandingLoanBalance(outstandingLoanBalance).setInArrears(inArrears)
+                .setGraceOnArrearsAgeing(graceOnArrearsAgeing).setIsNPA(isNPA).setDaysInMonthType(daysInMonthType)
+                .setDaysInYearType(daysInYearType).setInterestRecalculationEnabled(isInterestRecalculationEnabled)
+                .setInterestRecalculationData(interestRecalculationData)
                 .setCreateStandingInstructionAtDisbursement(createStandingInstructionAtDisbursement)
                 .setIsVariableInstallmentsAllowed(isVariableInstallmentsAllowed).setMinimumGap(minimumGap).setMaximumGap(maximumGap)
                 .setSubStatus(subStatus).setCanUseForTopup(canUseForTopup).setTopup(isTopup).setClosureLoanId(closureLoanId)
@@ -538,7 +546,7 @@ public class LoanAccountData {
                 .setCapitalizedIncomeStrategy(capitalizedIncomeStrategy).setCapitalizedIncomeType(capitalizedIncomeType)
                 .setEnableBuyDownFee(enableBuyDownFee).setBuyDownFeeCalculationType(buyDownFeeCalculationType)
                 .setBuyDownFeeStrategy(buyDownFeeStrategy).setBuyDownFeeIncomeType(buyDownFeeIncomeType)
-                .setMerchantBuyDownFee(merchantBuyDownFee);
+                .setMerchantBuyDownFee(merchantBuyDownFee).setBrokenPeriodInterest(brokenPeriodInterest);
     }
 
     /*
@@ -712,5 +720,13 @@ public class LoanAccountData {
                 chargeData.getAmount(), percentage, chargeData.getChargeTimeType(), chargeData.getChargeCalculationType(),
                 chargeData.isPenalty(), chargeData.getChargePaymentMode(), chargeData.getMinCap(), chargeData.getMaxCap(),
                 ExternalId.empty());
+    }
+
+    public void setBpiCollectedAtDisbursement(boolean bpiCollectedAtDisbursement) {
+        this.bpiCollectedAtDisbursement = bpiCollectedAtDisbursement;
+    }
+
+    public void setCustomScheduleDefined(boolean customScheduleDefined) {
+        this.customScheduleDefined = customScheduleDefined;
     }
 }

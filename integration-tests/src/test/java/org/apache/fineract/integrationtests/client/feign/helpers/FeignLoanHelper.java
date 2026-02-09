@@ -45,7 +45,8 @@ public class FeignLoanHelper {
     }
 
     public Long applyForLoan(PostLoansRequest request) {
-        PostLoansResponse response = ok(() -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(request, (String) null));
+        PostLoansResponse response = ok(
+                () -> fineractClient.loans().calculateLoanScheduleOrSubmitLoanApplication(request, (String) null, Boolean.FALSE));
         return response.getLoanId();
     }
 

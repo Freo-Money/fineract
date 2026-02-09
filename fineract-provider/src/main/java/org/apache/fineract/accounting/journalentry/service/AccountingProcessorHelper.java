@@ -134,6 +134,7 @@ public class AccountingProcessorHelper {
 
             final List<ChargePaymentDTO> feePaymentDetails = new ArrayList<>();
             final List<ChargePaymentDTO> penaltyPaymentDetails = new ArrayList<>();
+            final List<TaxPaymentDTO> taxPaymentDetails = new ArrayList<>();
             // extract charge payment details (if exists)
             if (loanTxnDto.getLoanChargesPaid() != null) {
                 List<LoanChargePaidByDTO> loanChargesPaidData = loanTxnDto.getLoanChargesPaid();
@@ -142,7 +143,35 @@ public class AccountingProcessorHelper {
                     final Long loanChargeId = loanChargePaid.getLoanChargeId();
                     final boolean isPenalty = loanChargePaid.getIsPenalty();
                     final BigDecimal chargeAmountPaid = loanChargePaid.getAmount();
-                    final ChargePaymentDTO chargePaymentDTO = new ChargePaymentDTO(chargeId, chargeAmountPaid, loanChargeId);
+
+                    BigDecimal taxAmountForCharge = BigDecimal.ZERO;
+                    Map<Long, BigDecimal> taxComponentAmounts = null;
+                    if (loanChargePaid.getTaxDetails() != null) {
+                        for (final Map<String, Object> taxDetail : loanChargePaid.getTaxDetails()) {
+                            final BigDecimal taxAmount = (BigDecimal) taxDetail.get("amount");
+                            final Long creditAccountId = (Long) taxDetail.get("creditAccountId");
+                            final Long debitAccountId = (Long) taxDetail.get("debitAccountId");
+                            taxPaymentDetails.add(new TaxPaymentDTO(debitAccountId, creditAccountId, taxAmount));
+
+                            if (taxAmount != null && taxAmount.compareTo(BigDecimal.ZERO) > 0) {
+                                taxAmountForCharge = taxAmountForCharge.add(taxAmount);
+                                final Long taxComponentId = (Long) taxDetail.get("taxComponentId");
+                                if (taxComponentId != null) {
+                                    if (taxComponentAmounts == null) {
+                                        taxComponentAmounts = new LinkedHashMap<>();
+                                    }
+                                    taxComponentAmounts.merge(taxComponentId, taxAmount, BigDecimal::add);
+                                }
+                            }
+                        }
+                    }
+
+                    final BigDecimal safeChargeAmountPaid = chargeAmountPaid != null ? chargeAmountPaid : BigDecimal.ZERO;
+                    final BigDecimal amountSansTax = taxAmountForCharge.compareTo(BigDecimal.ZERO) > 0
+                            ? safeChargeAmountPaid.subtract(taxAmountForCharge)
+                            : safeChargeAmountPaid;
+                    final ChargePaymentDTO chargePaymentDTO = new ChargePaymentDTO(chargeId, chargeAmountPaid, loanChargeId, amountSansTax,
+                            taxAmountForCharge, taxComponentAmounts);
                     if (isPenalty) {
                         penaltyPaymentDetails.add(chargePaymentDTO);
                     } else {
@@ -164,7 +193,7 @@ public class AccountingProcessorHelper {
             final LoanTransactionDTO transaction = new LoanTransactionDTO(transactionOfficeId, paymentTypeId, transactionId,
                     transactionDate, transactionType, amount, principal, interest, fees, penalties, overPayments, reversed,
                     penaltyPaymentDetails, feePaymentDetails, localIsAccountTransfer, chargeRefundChargeType, loanChargeData, principalPaid,
-                    feePaid, penaltyPaid);
+                    feePaid, penaltyPaid, taxPaymentDetails);
 
             transaction.setLoanToLoanTransfer(loanTxnDto.isLoanToLoanTransfer());
             newLoanTransactions.add(transaction);
@@ -386,7 +415,8 @@ public class AccountingProcessorHelper {
             final GLAccount chargeSpecificCreditAccount = getLinkedGLAccountForLoanCharges(loanProductId, accountTypeToBeCredited,
                     chargeId);
             final GLAccount chargeSpecificDebitAccount = getLinkedGLAccountForLoanCharges(loanProductId, accountTypeToBeDebited, chargeId);
-            final BigDecimal chargeSpecificAmount = chargePaymentDTO.getAmount();
+            final BigDecimal chargeSpecificAmount = chargePaymentDTO.getAmountSansTax() != null ? chargePaymentDTO.getAmountSansTax()
+                    : chargePaymentDTO.getAmount();
 
             // aggregate amounts by account for credit entries
             creditDetailsMap.merge(chargeSpecificCreditAccount, chargeSpecificAmount, BigDecimal::add);
@@ -751,16 +781,16 @@ public class AccountingProcessorHelper {
 
     public void createCreditJournalEntryForLoanCharges(final Office office, final String currencyCode, final int accountMappingTypeId,
             final Long loanProductId, final Long loanId, final String transactionId, final LocalDate transactionDate,
-            final BigDecimal totalAmount, final List<ChargePaymentDTO> chargePaymentDTOs) {
+            final BigDecimal totalAmount, final List<ChargePaymentDTO> chargePaymentDTOs, final List<TaxPaymentDTO> taxPaymentDetails) {
         createJournalEntriesForLoanChargesInternal(office, currencyCode, accountMappingTypeId, loanProductId, loanId, transactionId,
-                transactionDate, totalAmount, chargePaymentDTOs, true);
+                transactionDate, totalAmount, chargePaymentDTOs, true, taxPaymentDetails);
     }
 
     public void createDebitJournalEntryForLoanCharges(final Office office, final String currencyCode, final int accountMappingTypeId,
             final Long loanProductId, final Long loanId, final String transactionId, final LocalDate transactionDate,
-            final BigDecimal totalAmount, final List<ChargePaymentDTO> chargePaymentDTOs) {
+            final BigDecimal totalAmount, final List<ChargePaymentDTO> chargePaymentDTOs, final List<TaxPaymentDTO> taxPaymentDetails) {
         createJournalEntriesForLoanChargesInternal(office, currencyCode, accountMappingTypeId, loanProductId, loanId, transactionId,
-                transactionDate, totalAmount, chargePaymentDTOs, false);
+                transactionDate, totalAmount, chargePaymentDTOs, false, taxPaymentDetails);
     }
 
     /**
@@ -1318,7 +1348,7 @@ public class AccountingProcessorHelper {
         }
     }
 
-    private GLAccount getGLAccountById(final Long accountId) {
+    public GLAccount getGLAccountById(final Long accountId) {
         return this.glAccountRepository.getReferenceById(accountId);
     }
 
@@ -1351,28 +1381,46 @@ public class AccountingProcessorHelper {
 
     private void createJournalEntriesForLoanChargesInternal(final Office office, final String currencyCode, final int accountMappingTypeId,
             final Long loanProductId, final Long loanId, final String transactionId, final LocalDate transactionDate,
-            final BigDecimal totalAmount, final List<ChargePaymentDTO> chargePaymentDTOs, final boolean isCredit) {
-        final Map<GLAccount, BigDecimal> creditDetailsMap = new LinkedHashMap<>();
+            final BigDecimal totalAmount, final List<ChargePaymentDTO> chargePaymentDTOs, final boolean isCredit,
+            final List<TaxPaymentDTO> taxPaymentDetails) {
+        final Map<GLAccount, BigDecimal> accountToChargeAmountMap = new LinkedHashMap<>();
+        final Map<Long, BigDecimal> chargeIdToTaxAmountMap = new LinkedHashMap<>();
+        final Map<GLAccount, BigDecimal> accumulatedTaxByAccountMap = new LinkedHashMap<>();
 
         for (final ChargePaymentDTO chargePaymentDTO : chargePaymentDTOs) {
             final Long chargeId = chargePaymentDTO.getChargeId();
-            final GLAccount account = getLinkedGLAccountForLoanCharges(loanProductId, accountMappingTypeId, chargeId);
-            BigDecimal amount = chargePaymentDTO.getAmount();
+            final GLAccount chargeAccount = getLinkedGLAccountForLoanCharges(loanProductId, accountMappingTypeId, chargeId);
+            final BigDecimal chargeAmount = chargePaymentDTO.getAmount();
+            accountToChargeAmountMap.merge(chargeAccount, chargeAmount, BigDecimal::add);
+            chargeIdToTaxAmountMap.put(chargeId, BigDecimal.ZERO);
+        }
 
-            creditDetailsMap.merge(account, amount, BigDecimal::add);
+        if (taxPaymentDetails != null && !taxPaymentDetails.isEmpty()) {
+            processTaxDetailsForCharges(chargePaymentDTOs, taxPaymentDetails, chargeIdToTaxAmountMap, accumulatedTaxByAccountMap);
+            createTaxCreditJournalEntries(office, currencyCode, loanId, transactionId, transactionDate, taxPaymentDetails);
         }
 
         BigDecimal totalCreditedAmount = BigDecimal.ZERO;
+        for (final Map.Entry<GLAccount, BigDecimal> accountEntry : accountToChargeAmountMap.entrySet()) {
+            final GLAccount chargeAccount = accountEntry.getKey();
+            final BigDecimal totalChargeAmountForAccount = accountEntry.getValue();
+            BigDecimal totalTaxForAccount = BigDecimal.ZERO;
 
-        for (Map.Entry<GLAccount, BigDecimal> entry : creditDetailsMap.entrySet()) {
-            GLAccount account = entry.getKey();
-            BigDecimal amount = entry.getValue();
-            totalCreditedAmount = totalCreditedAmount.add(amount);
+            for (final ChargePaymentDTO chargePaymentDTO : chargePaymentDTOs) {
+                final Long chargeId = chargePaymentDTO.getChargeId();
+                if (getLinkedGLAccountForLoanCharges(loanProductId, accountMappingTypeId, chargeId).equals(chargeAccount)) {
+                    totalTaxForAccount = totalTaxForAccount.add(chargeIdToTaxAmountMap.getOrDefault(chargeId, BigDecimal.ZERO));
+                }
+            }
+
+            totalCreditedAmount = totalCreditedAmount.add(totalChargeAmountForAccount);
 
             if (isCredit) {
-                createCreditJournalEntryForLoan(office, currencyCode, account, loanId, transactionId, transactionDate, amount);
+                createCreditJournalEntryForLoan(office, currencyCode, chargeAccount, loanId, transactionId, transactionDate,
+                        totalChargeAmountForAccount.subtract(totalTaxForAccount));
             } else {
-                createDebitJournalEntryForLoan(office, currencyCode, account, loanId, transactionId, transactionDate, amount);
+                createDebitJournalEntryForLoan(office, currencyCode, chargeAccount, loanId, transactionId, transactionDate,
+                        totalChargeAmountForAccount.subtract(totalTaxForAccount));
             }
         }
 
@@ -1383,4 +1431,121 @@ public class AccountingProcessorHelper {
                     totalCreditedAmount, totalAmount);
         }
     }
+
+    private void processTaxDetailsForCharges(final List<ChargePaymentDTO> chargePaymentDTOs, final List<TaxPaymentDTO> taxPaymentDetails,
+            final Map<Long, BigDecimal> chargeIdToTaxAmountMap, final Map<GLAccount, BigDecimal> accumulatedTaxByAccountMap) {
+        final int taxComponentCountPerCharge = taxPaymentDetails.size() / chargePaymentDTOs.size();
+        int taxStartIndex = 0;
+
+        for (final ChargePaymentDTO chargePaymentDTO : chargePaymentDTOs) {
+            final Long chargeId = chargePaymentDTO.getChargeId();
+            BigDecimal totalTaxForCharge = BigDecimal.ZERO;
+            final int taxEndIndex = Math.min(taxStartIndex + taxComponentCountPerCharge, taxPaymentDetails.size());
+
+            for (int i = taxStartIndex; i < taxEndIndex; i++) {
+                final TaxPaymentDTO taxPaymentDTO = taxPaymentDetails.get(i);
+                if (taxPaymentDTO.getAmount() != null && taxPaymentDTO.getAmount().compareTo(BigDecimal.ZERO) > 0
+                        && taxPaymentDTO.getCreditAccountId() != null) {
+                    final GLAccount taxAccount = getGLAccountById(taxPaymentDTO.getCreditAccountId());
+                    accumulatedTaxByAccountMap.merge(taxAccount, taxPaymentDTO.getAmount(), BigDecimal::add);
+                    totalTaxForCharge = totalTaxForCharge.add(taxPaymentDTO.getAmount());
+                }
+            }
+
+            chargeIdToTaxAmountMap.put(chargeId, totalTaxForCharge);
+            taxStartIndex = taxEndIndex;
+        }
+    }
+
+    /**
+     * Calculates tax amounts for fees and penalties by aggregating tax payments and splitting proportionally. Uses the
+     * provided tax payments list to calculate total tax and splits it based on fees vs penalties amounts.
+     */
+
+    public BigDecimal[] calculateTaxAmountsForCharges(final BigDecimal feesAmount, final BigDecimal penaltiesAmount,
+            final List<TaxPaymentDTO> taxPayments) {
+        BigDecimal feesTaxAmount = BigDecimal.ZERO;
+        BigDecimal penaltiesTaxAmount = BigDecimal.ZERO;
+        BigDecimal totalTaxAmount = BigDecimal.ZERO;
+
+        if (taxPayments != null && !taxPayments.isEmpty()) {
+            for (TaxPaymentDTO taxPayment : taxPayments) {
+                if (taxPayment.getAmount() != null && taxPayment.getAmount().compareTo(BigDecimal.ZERO) > 0) {
+                    totalTaxAmount = totalTaxAmount.add(taxPayment.getAmount());
+                }
+            }
+
+            final BigDecimal safeFeesAmount = feesAmount != null ? feesAmount : BigDecimal.ZERO;
+            final BigDecimal safePenaltiesAmount = penaltiesAmount != null ? penaltiesAmount : BigDecimal.ZERO;
+            final BigDecimal totalChargeAmount = safeFeesAmount.add(safePenaltiesAmount);
+            if (MathUtil.isGreaterThanZero(totalChargeAmount) && MathUtil.isGreaterThanZero(totalTaxAmount)) {
+                int scale = Math.max(Math.max(safeFeesAmount.scale(), safePenaltiesAmount.scale()), totalTaxAmount.scale());
+                if (MathUtil.isGreaterThanZero(safeFeesAmount)) {
+                    feesTaxAmount = totalTaxAmount.multiply(safeFeesAmount)
+                            .divide(totalChargeAmount, scale + 2, java.math.RoundingMode.HALF_UP)
+                            .setScale(scale, java.math.RoundingMode.HALF_UP);
+                }
+                if (MathUtil.isGreaterThanZero(safePenaltiesAmount)) {
+                    penaltiesTaxAmount = totalTaxAmount.multiply(safePenaltiesAmount)
+                            .divide(totalChargeAmount, scale + 2, java.math.RoundingMode.HALF_UP)
+                            .setScale(scale, java.math.RoundingMode.HALF_UP);
+                }
+            }
+        }
+
+        return new BigDecimal[] { feesTaxAmount, penaltiesTaxAmount, totalTaxAmount };
+    }
+
+    /**
+     * Creates tax credit journal entries for all tax payments (credits tax payable accounts).
+     *
+     */
+    public void createTaxCreditJournalEntries(final Office office, final String currencyCode, final Long loanId, final String transactionId,
+            final LocalDate transactionDate, final List<TaxPaymentDTO> taxPayments) {
+        if (taxPayments != null && !taxPayments.isEmpty()) {
+            final Map<GLAccount, BigDecimal> taxAccountMap = new LinkedHashMap<>();
+            addTaxDetailsToGLAccount(taxPayments, taxAccountMap);
+
+            for (Map.Entry<GLAccount, BigDecimal> taxEntry : taxAccountMap.entrySet()) {
+                if (MathUtil.isGreaterThanZero(taxEntry.getValue())) {
+                    createCreditJournalEntryForLoan(office, currencyCode, loanId, transactionId, transactionDate, taxEntry.getValue(),
+                            taxEntry.getKey());
+                }
+            }
+        }
+    }
+
+    public void createTaxDebitJournalEntries(final Office office, final String currencyCode, final Long loanId, final String transactionId,
+            final LocalDate transactionDate, final List<TaxPaymentDTO> taxPayments) {
+        if (taxPayments != null && !taxPayments.isEmpty()) {
+            final Map<GLAccount, BigDecimal> taxAccountMap = new LinkedHashMap<>();
+            addTaxDetailsToGLAccount(taxPayments, taxAccountMap);
+
+            for (Map.Entry<GLAccount, BigDecimal> taxEntry : taxAccountMap.entrySet()) {
+                if (MathUtil.isGreaterThanZero(taxEntry.getValue())) {
+                    createDebitJournalEntryForLoan(office, currencyCode, loanId, transactionId, transactionDate, taxEntry.getValue(),
+                            taxEntry.getKey());
+                }
+            }
+        }
+    }
+
+    private BigDecimal addTaxDetailsToGLAccount(final List<TaxPaymentDTO> taxPaymentDetails, Map<GLAccount, BigDecimal> accountMap) {
+        BigDecimal totalTaxAmount = BigDecimal.ZERO;
+        for (TaxPaymentDTO taxPaymentDTO : taxPaymentDetails) {
+            if (taxPaymentDTO.getAmount() != null && taxPaymentDTO.getAmount().compareTo(BigDecimal.ZERO) > 0
+                    && taxPaymentDTO.getCreditAccountId() != null) {
+                final GLAccount glAccount = getGLAccountById(taxPaymentDTO.getCreditAccountId());
+                if (accountMap.containsKey(glAccount)) {
+                    final BigDecimal amount = accountMap.get(glAccount).add(taxPaymentDTO.getAmount());
+                    accountMap.put(glAccount, amount);
+                } else {
+                    accountMap.put(glAccount, taxPaymentDTO.getAmount());
+                }
+                totalTaxAmount = totalTaxAmount.add(taxPaymentDTO.getAmount());
+            }
+        }
+        return totalTaxAmount;
+    }
+
 }

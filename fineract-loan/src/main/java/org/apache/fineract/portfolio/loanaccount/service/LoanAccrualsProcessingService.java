@@ -18,8 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import org.apache.fineract.infrastructure.core.exception.MultiException;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
@@ -30,6 +32,12 @@ public interface LoanAccrualsProcessingService {
     void addPeriodicAccruals(@NonNull LocalDate tillDate) throws MultiException;
 
     void addPeriodicAccruals(@NonNull LocalDate tillDate, @NonNull Loan loan) throws MultiException;
+
+    /**
+     * Posts periodic accruals for a single loan up to the given date (same logic as COB step / batch runaccruals for
+     * that loan). The loan product must have periodic accrual accounting enabled.
+     */
+    void addPeriodicAccrualsForLoanId(@NonNull Long loanId, @NonNull LocalDate tillDate);
 
     void addAccruals(@NonNull LocalDate tillDate) throws MultiException;
 
@@ -44,5 +52,9 @@ public interface LoanAccrualsProcessingService {
     void processAccrualsOnLoanClosure(@NonNull Loan loan, boolean addJournal);
 
     void processAccrualsOnLoanForeClosure(@NonNull Loan loan, @NonNull LocalDate foreClosureDate,
-            @NonNull List<LoanTransaction> newAccrualTransactions);
+            @NonNull List<LoanTransaction> newAccrualTransactions, @NonNull Map<Long, BigDecimal> mergedChargePercentages);
+
+    void convertAccrualToSuspenseForNpaLoans(@NonNull List<Long> loanIds);
+
+    void reverseAccrualSuspenseForNonNpaLoans(@NonNull List<Long> loanIds);
 }

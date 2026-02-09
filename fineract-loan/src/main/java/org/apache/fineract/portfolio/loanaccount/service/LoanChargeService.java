@@ -87,12 +87,12 @@ public class LoanChargeService {
         BigDecimal chargeAmt;
         BigDecimal totalChargeAmt = BigDecimal.ZERO;
         if (loanCharge.getChargeCalculation().isPercentageBased()) {
-            if (loanCharge.isOverdueInstallmentCharge()) {
-                amount = calculateOverdueAmountPercentageAppliedTo(loan, loanCharge, penaltyWaitPeriod);
-            } else {
-                amount = calculateAmountPercentageAppliedTo(loan, loanCharge);
-            }
-            chargeAmt = loanCharge.getPercentage();
+            final boolean isOverdueCharge = loanCharge.isOverdueInstallmentCharge();
+            amount = isOverdueCharge ? calculateOverdueAmountPercentageAppliedTo(loan, loanCharge, penaltyWaitPeriod)
+                    : calculateAmountPercentageAppliedTo(loan, loanCharge);
+            // For overdue charges, use utility to convert yearly percentage to daily if charge_percentage_type = 2
+            final BigDecimal basePercentage = loanCharge.getPercentage();
+            chargeAmt = isOverdueCharge ? ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge, basePercentage) : basePercentage;
             if (loanCharge.isInstalmentFee()) {
                 totalChargeAmt = calculatePerInstallmentChargeAmount(loan, loanCharge);
             }
@@ -113,12 +113,12 @@ public class LoanChargeService {
         BigDecimal chargeAmt;
         BigDecimal totalChargeAmt = BigDecimal.ZERO;
         if (loanCharge.getChargeCalculation().isPercentageBased()) {
-            if (loanCharge.isOverdueInstallmentCharge()) {
-                amount = calculateOverdueAmountPercentageAppliedTo(loan, loanCharge, penaltyWaitPeriod);
-            } else {
-                amount = calculateAmountPercentageAppliedTo(loan, loanCharge);
-            }
-            chargeAmt = loanCharge.getPercentage();
+            final boolean isOverdueCharge = loanCharge.isOverdueInstallmentCharge();
+            amount = isOverdueCharge ? calculateOverdueAmountPercentageAppliedTo(loan, loanCharge, penaltyWaitPeriod)
+                    : calculateAmountPercentageAppliedTo(loan, loanCharge);
+            // For overdue charges, use utility to convert yearly percentage to daily if charge_percentage_type = 2
+            final BigDecimal basePercentage = loanCharge.getPercentage();
+            chargeAmt = isOverdueCharge ? ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge, basePercentage) : basePercentage;
             if (loanCharge.isInstalmentFee()) {
                 totalChargeAmt = calculatePerInstallmentChargeAmount(loan, loanCharge);
             }
@@ -213,7 +213,11 @@ public class LoanChargeService {
         BigDecimal chargeAmt;
         BigDecimal totalChargeAmt = BigDecimal.ZERO;
         if (loanCharge.getChargeCalculation().isPercentageBased()) {
-            chargeAmt = loanCharge.getPercentage();
+            // For overdue charges, use utility to convert yearly percentage to daily if charge_percentage_type = 2
+            final BigDecimal basePercentage = loanCharge.getPercentage();
+            chargeAmt = loanCharge.isOverdueInstallmentCharge()
+                    ? ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge, basePercentage)
+                    : basePercentage;
             if (loanCharge.isInstalmentFee()) {
                 totalChargeAmt = calculatePerInstallmentChargeAmount(loan, loanCharge);
             } else if (loanCharge.isOverdueInstallmentCharge()) {
@@ -264,6 +268,7 @@ public class LoanChargeService {
                     yield loan.getPrincipal().getAmount();
                 }
             }
+            case PERCENT_OF_PRINCIPAL_OUTSTANDING -> loan.getSummary().getTotalPrincipalOutstanding();
             case INVALID, FLAT -> BigDecimal.ZERO;
         };
     }
@@ -367,6 +372,7 @@ public class LoanChargeService {
                 case PERCENT_OF_AMOUNT_AND_INTEREST:
                 case PERCENT_OF_INTEREST:
                 case PERCENT_OF_DISBURSEMENT_AMOUNT:
+                case PERCENT_OF_PRINCIPAL_OUTSTANDING:
                     loanCharge.setPercentage(newValue);
                     loanCharge.setAmountPercentageAppliedTo(amount);
                     loanChargeAmount = BigDecimal.ZERO;
@@ -384,6 +390,9 @@ public class LoanChargeService {
             loanCharge.setAmountOrPercentage(newValue);
             if (loanCharge.isInstalmentFee()) {
                 updateInstallmentCharges(loanCharge);
+            }
+            if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
+                LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(), loanCharge.getDueLocalDate());
             }
         }
         return actualChanges;
@@ -421,10 +430,15 @@ public class LoanChargeService {
             case PERCENT_OF_AMOUNT_AND_INTEREST:
             case PERCENT_OF_INTEREST:
             case PERCENT_OF_DISBURSEMENT_AMOUNT:
+            case PERCENT_OF_PRINCIPAL_OUTSTANDING:
                 loanCharge.setPercentage(chargeAmount);
                 loanCharge.setAmountPercentageAppliedTo(amountPercentageAppliedTo);
                 if (loanChargeAmount.compareTo(BigDecimal.ZERO) == 0) {
-                    loanChargeAmount = loanCharge.percentageOf(loanCharge.getAmountPercentageAppliedTo());
+                    // For overdue charges, use effective daily percentage if charge_percentage_type = 2 (YEARLY)
+                    final BigDecimal effectivePercentage = loanCharge.isOverdueInstallmentCharge()
+                            ? ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge, chargeAmount)
+                            : chargeAmount;
+                    loanChargeAmount = LoanCharge.percentageOf(loanCharge.getAmountPercentageAppliedTo(), effectivePercentage);
                 }
                 loanCharge.setAmount(loanCharge.minimumAndMaximumCap(loanChargeAmount));
                 loanCharge.setAmountPaid(null);
@@ -511,6 +525,8 @@ public class LoanChargeService {
         loanCharge.setChargePaymentMode(chargePaymentMode == null ? chargeDefinition.getChargePaymentMode() : chargePaymentMode.getValue());
 
         populateDerivedFields(loanCharge, loanPrincipal, chargeAmount, numberOfRepayments, loanChargeAmount);
+
+        LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, chargeDefinition, dueDate);
 
         loanCharge.setPaid(loanCharge.determineIfFullyPaid());
         loanCharge.setExternalId(externalId);
@@ -794,6 +810,7 @@ public class LoanChargeService {
                 case PERCENT_OF_AMOUNT_AND_INTEREST:
                 case PERCENT_OF_INTEREST:
                 case PERCENT_OF_DISBURSEMENT_AMOUNT:
+                case PERCENT_OF_PRINCIPAL_OUTSTANDING:
                     loanCharge.setPercentage(amount);
                     loanCharge.setAmountPercentageAppliedTo(loanPrincipal);
                     if (loanChargeAmount.compareTo(BigDecimal.ZERO) == 0) {
@@ -806,6 +823,9 @@ public class LoanChargeService {
             loanCharge.setAmountOutstanding(loanCharge.calculateOutstanding());
             if (loanCharge.getLoan() != null && loanCharge.isInstalmentFee()) {
                 updateInstallmentCharges(loanCharge);
+            }
+            if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
+                LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(), loanCharge.getDueLocalDate());
             }
         }
     }
@@ -834,6 +854,7 @@ public class LoanChargeService {
                 case PERCENT_OF_AMOUNT_AND_INTEREST:
                 case PERCENT_OF_INTEREST:
                 case PERCENT_OF_DISBURSEMENT_AMOUNT:
+                case PERCENT_OF_PRINCIPAL_OUTSTANDING:
                     loanCharge.setPercentage(amount);
                     loanCharge.setAmountPercentageAppliedTo(loanPrincipal);
                     if (loanChargeAmount.compareTo(BigDecimal.ZERO) == 0) {
@@ -846,6 +867,10 @@ public class LoanChargeService {
             loanCharge.setAmountOutstanding(loanCharge.calculateOutstanding());
             if (loanCharge.getLoan() != null && loanCharge.isInstalmentFee()) {
                 updateInstallmentCharges(loanCharge, transactionDate);
+            }
+            if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
+                LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(),
+                        transactionDate != null ? transactionDate : loanCharge.getDueLocalDate());
             }
         }
     }
@@ -875,6 +900,7 @@ public class LoanChargeService {
             case PERCENT_OF_AMOUNT_AND_INTEREST ->
                 installment.getPrincipal(loan.getCurrency()).plus(installment.getInterestCharged(loan.getCurrency()));
             case PERCENT_OF_INTEREST -> installment.getInterestCharged(loan.getCurrency());
+            case PERCENT_OF_PRINCIPAL_OUTSTANDING -> installment.getPrincipalOutstanding(loan.getCurrency());
             case PERCENT_OF_DISBURSEMENT_AMOUNT, INVALID, FLAT -> Money.zero(loan.getCurrency());
 
         };

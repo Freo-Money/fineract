@@ -79,6 +79,7 @@ public class LoanChargesApiResource {
     public static final String COMMAND_WAIVE = "waive";
     public static final String COMMAND_ADJUSTMENT = "adjustment";
     public static final String COMMAND_DEACTIVATE_OVERDUE = "deactivateOverdue";
+    public static final String COMMAND_BULK_WAIVE = "bulkWaive";
     private static final Set<String> RESPONSE_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList("id", "chargeId", "name", "penalty", "chargeTimeType", "dueAsOfDate", "chargeCalculationType", "percentage",
                     "amountPercentageAppliedTo", "currency", "amountWaived", "amountWrittenOff", "amountOutstanding", "amountOrPercentage",
@@ -206,6 +207,47 @@ public class LoanChargesApiResource {
             @Context final UriInfo uriInfo) {
 
         return retrieveLoanCharge(null, loanExternalId, null, loanChargeExternalId, uriInfo);
+    }
+
+    @POST
+    @Path("{loanId}/charges/apply-overdue")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Apply overdue penalty charges for a single loan", description = "Applies overdue-installment penalty charges for the given loan (same logic as COB step APPLY_CHARGE_TO_OVERDUE_LOANS). "
+            + "The loan product must have an overdue-installment charge defined. Only overdue installments that have not yet had the penalty applied will be processed.")
+    @RequestBody(required = false, content = @Content(schema = @Schema(implementation = LoanChargesApiResourceSwagger.PostLoansLoanIdChargesApplyOverdueRequest.class)))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanChargesApiResourceSwagger.PostLoansLoanIdChargesApplyOverdueResponse.class))) })
+    public String applyOverdueChargesForLoan(@PathParam("loanId") @Parameter(description = "loanId") final Long loanId,
+            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
+
+        return applyOverdueChargesForLoan(loanId, null, apiRequestBodyAsJson);
+    }
+
+    @POST
+    @Path("external-id/{loanExternalId}/charges/apply-overdue")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Apply overdue penalty charges for a single loan (by external ID)", description = "Same as POST /loans/{loanId}/charges/apply-overdue but uses loan external ID.")
+    @RequestBody(required = false, content = @Content(schema = @Schema(implementation = LoanChargesApiResourceSwagger.PostLoansLoanIdChargesApplyOverdueRequest.class)))
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanChargesApiResourceSwagger.PostLoansLoanIdChargesApplyOverdueResponse.class))) })
+    public String applyOverdueChargesForLoan(
+            @PathParam("loanExternalId") @Parameter(description = "loanExternalId") final String loanExternalId,
+            @Parameter(hidden = true) final String apiRequestBodyAsJson) {
+
+        final Long resolvedLoanId = loanReadPlatformService.getResolvedLoanId(ExternalIdFactory.produce(loanExternalId));
+        return applyOverdueChargesForLoan(resolvedLoanId, null, apiRequestBodyAsJson);
+    }
+
+    private String applyOverdueChargesForLoan(final Long loanId, final String loanExternalIdStr, final String apiRequestBodyAsJson) {
+
+        final Long resolvedLoanId = loanId != null ? loanId
+                : loanReadPlatformService.getResolvedLoanId(ExternalIdFactory.produce(loanExternalIdStr));
+        final CommandWrapper commandRequest = new CommandWrapperBuilder().applyOverdueChargesForLoan(resolvedLoanId)
+                .withJson(apiRequestBodyAsJson != null ? apiRequestBodyAsJson : "{}").build();
+        final CommandProcessingResult result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+        return this.toApiJsonSerializer.serialize(result);
     }
 
     @POST
@@ -465,6 +507,10 @@ public class LoanChargesApiResource {
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else if (CommandParameterUtil.is(commandParam, COMMAND_DEACTIVATE_OVERDUE)) {
             final CommandWrapper commandRequest = new CommandWrapperBuilder().deactivateOverdueLoanCharges(resolvedLoanId, null)
+                    .withJson(apiRequestBodyAsJson).build();
+            result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
+        } else if (CommandParameterUtil.is(commandParam, COMMAND_BULK_WAIVE)) {
+            final CommandWrapper commandRequest = new CommandWrapperBuilder().waiveBulkLoanCharges(resolvedLoanId)
                     .withJson(apiRequestBodyAsJson).build();
             result = this.commandsSourceWritePlatformService.logCommandSource(commandRequest);
         } else {

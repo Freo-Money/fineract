@@ -66,6 +66,7 @@ import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.domain.AdvancedPaymentAllocationsJsonParser;
 import org.apache.fineract.portfolio.loanproduct.domain.AdvancedPaymentAllocationsValidator;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
+import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestRecalculationCompoundingMethod;
@@ -159,7 +160,9 @@ public final class LoanProductDataValidator {
             LoanProductAccountingParams.CHARGE_OFF_REASON_CODE_VALUE_ID.getValue(),
             LoanProductAccountingParams.INCOME_FROM_CAPITALIZATION.getValue(),
             LoanProductAccountingParams.DEFERRED_INCOME_LIABILITY.getValue(), LoanProductAccountingParams.BUY_DOWN_EXPENSE.getValue(),
-            LoanProductAccountingParams.INCOME_FROM_BUY_DOWN.getValue(), LoanProductConstants.USE_BORROWER_CYCLE_PARAMETER_NAME,
+            LoanProductAccountingParams.INCOME_FROM_BUY_DOWN.getValue(), LoanProductAccountingParams.NPA_INTEREST_SUSPENSE.getValue(),
+            LoanProductAccountingParams.NPA_FEES_SUSPENSE.getValue(), LoanProductAccountingParams.NPA_PENALTIES_SUSPENSE.getValue(),
+            LoanProductConstants.USE_BORROWER_CYCLE_PARAMETER_NAME,
             LoanProductConstants.PRINCIPAL_VARIATIONS_FOR_BORROWER_CYCLE_PARAMETER_NAME,
             LoanProductConstants.INTEREST_RATE_VARIATIONS_FOR_BORROWER_CYCLE_PARAMETER_NAME,
             LoanProductConstants.NUMBER_OF_REPAYMENT_VARIATIONS_FOR_BORROWER_CYCLE_PARAMETER_NAME, LoanProductConstants.SHORT_NAME,
@@ -184,8 +187,8 @@ public final class LoanProductDataValidator {
             LoanProductConstants.maximumGapBetweenInstallments, LoanProductConstants.recalculationCompoundingFrequencyWeekdayParamName,
             LoanProductConstants.recalculationCompoundingFrequencyNthDayParamName,
             LoanProductConstants.recalculationCompoundingFrequencyOnDayParamName,
-            LoanProductConstants.recalculationRestFrequencyWeekdayParamName, LoanProductConstants.recalculationRestFrequencyNthDayParamName,
-            LoanProductConstants.recalculationRestFrequencyOnDayParamName,
+            LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME, LoanProductConstants.recalculationRestFrequencyWeekdayParamName,
+            LoanProductConstants.recalculationRestFrequencyNthDayParamName, LoanProductConstants.recalculationRestFrequencyOnDayParamName,
             LoanProductConstants.isCompoundingToBePostedAsTransactionParamName, LoanProductConstants.allowCompoundingOnEodParamName,
             LoanProductConstants.disallowInterestCalculationOnPastDueParamName, LoanProductConstants.CAN_USE_FOR_TOPUP,
             LoanProductConstants.IS_EQUAL_AMORTIZATION_PARAM, LoanProductConstants.RATES_PARAM_NAME,
@@ -209,7 +212,10 @@ public final class LoanProductDataValidator {
             LoanProductConstants.MERCHANT_BUY_DOWN_FEE_PARAM_NAME,
             LoanProductAccountingParams.CAPITALIZED_INCOME_CLASSIFICATION_TO_INCOME_ACCOUNT_MAPPINGS.getValue(), //
             LoanProductAccountingParams.BUYDOWN_FEE_CLASSIFICATION_TO_INCOME_ACCOUNT_MAPPINGS.getValue(), //
-            LoanProductConstants.ALLOW_FULL_TERM_FOR_TRANCHE_PARAM_NAME //
+            LoanProductConstants.ALLOW_FULL_TERM_FOR_TRANCHE_PARAM_NAME, //
+            LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR,
+            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE,
+            LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME //
     ));
 
     private static final String[] SUPPORTED_LOAN_CONFIGURABLE_ATTRIBUTES = { LoanProductConstants.amortizationTypeParamName,
@@ -370,6 +376,13 @@ public final class LoanProductDataValidator {
                 Locale.getDefault());
         baseDataValidator.reset().parameter(INTEREST_CALCULATION_PERIOD_TYPE).value(interestCalculationPeriodType).notNull()
                 .inMinMaxRange(0, 1);
+
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE, element)) {
+            final Integer installmentInterestCalculationType = this.fromApiJsonHelper
+                    .extractIntegerNamed(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE, element, Locale.getDefault());
+            baseDataValidator.reset().parameter(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE)
+                    .value(installmentInterestCalculationType).notNull().inMinMaxRange(0, 1);
+        }
 
         final BigDecimal inArrearsTolerance = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(IN_ARREARS_TOLERANCE, element);
         baseDataValidator.reset().parameter(IN_ARREARS_TOLERANCE).value(inArrearsTolerance).ignoreIfNull().zeroOrPositiveAmount();
@@ -646,6 +659,13 @@ public final class LoanProductDataValidator {
                     .isOneOfTheseValues(true, false);
         }
 
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME, element)) {
+            final Boolean adjustInterestForRounding = this.fromApiJsonHelper
+                    .extractBooleanNamed(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME, element);
+            baseDataValidator.reset().parameter(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME)
+                    .value(adjustInterestForRounding).isOneOfTheseValues(true, false);
+        }
+
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.installmentAmountInMultiplesOfParamName, element)) {
             final Integer installmentAmountInMultiplesOf = this.fromApiJsonHelper
                     .extractIntegerWithLocaleNamed(LoanProductConstants.installmentAmountInMultiplesOfParamName, element);
@@ -908,6 +928,8 @@ public final class LoanProductDataValidator {
         validateIncomeCapitalization(transactionProcessingStrategyCode, element, baseDataValidator, accountingRuleType);
 
         validateBuyDownFee(transactionProcessingStrategyCode, element, baseDataValidator, accountingRuleType);
+
+        validateBrokenPeriodInterest(element, baseDataValidator);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
@@ -1511,6 +1533,13 @@ public final class LoanProductDataValidator {
                     .inMinMaxRange(0, 1);
         }
 
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE, element)) {
+            final Integer installmentInterestCalculationType = this.fromApiJsonHelper
+                    .extractIntegerNamed(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE, element, Locale.getDefault());
+            baseDataValidator.reset().parameter(LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE)
+                    .value(installmentInterestCalculationType).notNull().inMinMaxRange(0, 1);
+        }
+
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.DAYS_IN_YEAR_TYPE_PARAMETER_NAME, element)) {
             final Integer daysInYearType = this.fromApiJsonHelper.extractIntegerNamed(LoanProductConstants.DAYS_IN_YEAR_TYPE_PARAMETER_NAME,
                     element, Locale.getDefault());
@@ -1784,6 +1813,13 @@ public final class LoanProductDataValidator {
                     .isOneOfTheseValues(true, false);
         }
 
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME, element)) {
+            final Boolean adjustInterestForRounding = this.fromApiJsonHelper
+                    .extractBooleanNamed(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME, element);
+            baseDataValidator.reset().parameter(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME)
+                    .value(adjustInterestForRounding).isOneOfTheseValues(true, false);
+        }
+
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.installmentAmountInMultiplesOfParamName, element)) {
             final Integer installmentAmountInMultiplesOf = this.fromApiJsonHelper
                     .extractIntegerWithLocaleNamed(LoanProductConstants.installmentAmountInMultiplesOfParamName, element);
@@ -2030,6 +2066,8 @@ public final class LoanProductDataValidator {
         validateIncomeCapitalization(transactionProcessingStrategyCode, element, baseDataValidator, accountingRuleType);
 
         validateBuyDownFee(transactionProcessingStrategyCode, element, baseDataValidator, accountingRuleType);
+
+        validateBrokenPeriodInterest(element, baseDataValidator);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
@@ -3001,6 +3039,50 @@ public final class LoanProductDataValidator {
             if (Boolean.TRUE.equals(enableBuyDownFee)) {
                 baseDataValidator.reset().parameter(LoanProductConstants.ENABLE_BUY_DOWN_FEE_PARAM_NAME).failWithCode(
                         "supported.only.for.progressive.loan.buyDownFee", "Buy down fee is only supported for Progressive loans");
+            }
+        }
+    }
+
+    private void validateBrokenPeriodInterest(JsonElement element, DataValidatorBuilder baseDataValidator) {
+        // Broken Period Interest Configuration Validation
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element)) {
+            final String brokenPeriodMethodType = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE,
+                    element);
+            baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE).value(brokenPeriodMethodType).notBlank()
+                    .isOneOfTheseStringValues(BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_EMI.getCode(),
+                            BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE.getCode());
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, element)) {
+            final Integer daysInYear = this.fromApiJsonHelper.extractIntegerNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, element,
+                    Locale.getDefault());
+            baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR).value(daysInYear).ignoreIfNull()
+                    .integerGreaterThanZero().isOneOfTheseValues(1, 360, 364, 365);
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, element)) {
+            final Integer daysInMonth = this.fromApiJsonHelper.extractIntegerNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, element,
+                    Locale.getDefault());
+            baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH).value(daysInMonth).ignoreIfNull()
+                    .integerGreaterThanZero().isOneOfTheseValues(1, 30);
+        }
+
+        // Validate isBpiCollectedAtDisbursement - can only be true with ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+        // strategy
+        if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME, element)) {
+            final Boolean isBpiCollectedAtDisbursement = this.fromApiJsonHelper
+                    .extractBooleanNamed(LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME, element);
+            baseDataValidator.reset().parameter(LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME)
+                    .value(isBpiCollectedAtDisbursement).ignoreIfNull().validateForBooleanValue();
+
+            final String brokenPeriodMethodType = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE,
+                    element);
+            if (Boolean.TRUE.equals(isBpiCollectedAtDisbursement)
+                    && (brokenPeriodMethodType == null || !BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+                            .getCode().equalsIgnoreCase(brokenPeriodMethodType))) {
+                throw new GeneralPlatformDomainRuleException(
+                        "error.msg.loan.product.bpi.collect.at.disbursement.requires.add.to.first.installment.with.principal.grace.strategy",
+                        "BPI collection at disbursement can only be enabled when BPI strategy is 'Add to First Installment with Principal Grace'");
             }
         }
     }

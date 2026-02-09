@@ -395,8 +395,16 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     @Column(name = "is_fraud", nullable = false)
     private boolean fraud = false;
 
+    @Getter
+    @Setter
+    @Column(name = "adjusted_interest_amount", scale = 6, precision = 19)
+    private BigDecimal adjustedInterestAmount = BigDecimal.ZERO;
+
     @OneToOne(cascade = CascadeType.ALL, mappedBy = "loan", orphanRemoval = true, fetch = FetchType.LAZY)
     private LoanTopupDetails loanTopupDetails;
+
+    @OneToOne(cascade = CascadeType.ALL, mappedBy = "loan", orphanRemoval = true, fetch = FetchType.LAZY)
+    private LoanConfigMapping bpiConfig;
 
     @OneToMany(fetch = FetchType.LAZY)
     @JoinTable(name = "m_loan_rate", joinColumns = @JoinColumn(name = "loan_id"), inverseJoinColumns = @JoinColumn(name = "rate_id"))
@@ -429,6 +437,12 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     @Column(name = "allow_full_term_for_tranche", nullable = false)
     private boolean allowFullTermForTranche = false;
+
+    @Column(name = "broken_period_interest")
+    private BigDecimal brokenPeriodInterest;
+
+    @Column(name = "custom_schedule_defined", nullable = false)
+    private boolean customScheduleDefined = false;
 
     public static Loan newIndividualLoanApplication(final String accountNo, final Client client, final AccountType loanType,
             final LoanProduct loanProduct, final Fund fund, final Staff officer, final CodeValue loanPurpose,
@@ -1211,6 +1225,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     }
 
     public void addLoanTransaction(final LoanTransaction loanTransaction) {
+        loanTransaction.updateLoan(this);
         this.loanTransactions.add(loanTransaction);
     }
 
@@ -1399,6 +1414,10 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     public boolean isNpa() {
         return this.isNpa;
+    }
+
+    public void setNpa(boolean npa) {
+        this.isNpa = npa;
     }
 
     public Integer getLoanRepaymentScheduleInstallmentsSize() {
@@ -1651,6 +1670,14 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         return this.loanTopupDetails;
     }
 
+    public void setBpiConfig(LoanConfigMapping bpiConfig) {
+        this.bpiConfig = bpiConfig;
+    }
+
+    public LoanConfigMapping getBpiConfig() {
+        return this.bpiConfig;
+    }
+
     public Set<LoanCharge> getLoanCharges() {
         return this.charges;
     }
@@ -1845,5 +1872,49 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     public boolean hasReAgingTransaction() {
         return getLoanTransactions().stream().anyMatch(t -> t.isReAge() && t.isNotReversed());
+    }
+
+    public BigDecimal getBrokenPeriodInterest() {
+        return this.brokenPeriodInterest;
+    }
+
+    public void setBrokenPeriodInterest(BigDecimal brokenPeriodInterest) {
+        this.brokenPeriodInterest = brokenPeriodInterest;
+    }
+
+    public void setCustomScheduleDefined(boolean customScheduleDefined) {
+        this.customScheduleDefined = customScheduleDefined;
+    }
+
+    public boolean isCustomScheduleDefined() {
+        return this.customScheduleDefined;
+    }
+
+    public void updateLoanScheduleSummary(List<LoanRepaymentScheduleInstallment> installments) {
+        this.repaymentScheduleInstallments.clear();
+        clearLoanTransactionToRepaymentScheduleMappings();
+        this.repaymentScheduleInstallments.addAll(installments);
+        updateLoanScheduleDependentDerivedFields();
+        final LoanRepaymentScheduleProcessingWrapper wrapper = new LoanRepaymentScheduleProcessingWrapper();
+        wrapper.reprocess(getCurrency(), getDisbursementDate(), this.repaymentScheduleInstallments, charges);
+
+    }
+
+    private void clearLoanTransactionToRepaymentScheduleMappings() {
+        this.repaymentScheduleInstallments.forEach(installment -> installment.getLoanTransactionToRepaymentScheduleMappings().clear());
+    }
+
+    public boolean isBpiCollectedAtDisbursement() {
+        return this.loanRepaymentScheduleDetail.isBpiCollectedAtDisbursement();
+    }
+
+    public void setBpiCollectedAtDisbursement(Boolean isBpiCollectedAtDisbursement) {
+        this.loanRepaymentScheduleDetail.setBpiCollectedAtDisbursement(isBpiCollectedAtDisbursement);
+    }
+
+    public void updateAdjustedInterestAmount(BigDecimal adjustedInterestAmount) {
+        if (adjustedInterestAmount != null) {
+            this.adjustedInterestAmount = MathUtil.add(this.adjustedInterestAmount, adjustedInterestAmount);
+        }
     }
 }

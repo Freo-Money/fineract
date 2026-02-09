@@ -25,4 +25,15 @@ public interface AccrualAccountingWritePlatformService {
 
     CommandProcessingResult executeLoansPeriodicAccrual(JsonCommand command);
 
+    /**
+     * Posts periodic accruals for a single loan up to the given date. Same logic as runaccruals but for one loan.
+     *
+     * @param loanId
+     *            the loan id
+     * @param command
+     *            JSON containing tillDate (and optionally dateFormat, locale)
+     * @return result with resource id
+     */
+    CommandProcessingResult executeLoanPeriodicAccrual(Long loanId, JsonCommand command);
+
 }

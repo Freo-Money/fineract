@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
@@ -29,9 +30,12 @@ import org.apache.fineract.infrastructure.core.service.SearchParameters;
 import org.apache.fineract.organisation.staff.data.StaffData;
 import org.apache.fineract.portfolio.calendar.data.CalendarData;
 import org.apache.fineract.portfolio.floatingrates.data.InterestRatePeriodData;
+import org.apache.fineract.portfolio.loanaccount.data.ChargePaymentTemplateData;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanAccountData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanApprovalData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanBasicDataForSchedule;
+import org.apache.fineract.portfolio.loanaccount.data.LoanDueDetailsDTO;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentScheduleInstallmentData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
 import org.apache.fineract.portfolio.loanaccount.data.PaidInAdvanceData;
@@ -64,7 +68,7 @@ public interface LoanReadPlatformService {
 
     LoanAccountData retrieveTemplateWithGroupAndProductDetails(Long groupId, Long productId);
 
-    LoanTransactionData retrieveLoanTransactionTemplate(Long loanId);
+    LoanTransactionData retrieveLoanTransactionTemplate(Long loanId, LocalDate date);
 
     LoanTransactionData retrieveLoanTransactionTemplate(Long loanId, LoanTransactionType transactionType, Long transactionId);
 
@@ -135,7 +139,8 @@ public interface LoanReadPlatformService {
 
     Collection<Long> retrieveLoanIdsWithPendingIncomePostingTransactions();
 
-    LoanTransactionData retrieveLoanForeclosureTemplate(Long loanId, LocalDate transactionDate);
+    LoanTransactionData retrieveLoanForeclosureTemplate(Long loanId, LocalDate transactionDate,
+            Map<Long, BigDecimal> foreclosureChargePercentageMap);
 
     LoanAccountData retrieveLoanByLoanAccount(String loanAccountNumber);
 
@@ -168,4 +173,10 @@ public interface LoanReadPlatformService {
     LoanTransactionData retrieveLoanReAgeTemplate(Long loanId);
 
     LoanTransactionData retrieveLoanReAmortizationTemplate(Long loanId);
+
+    LoanDueDetailsDTO getLoanDueDetails(Long loanId, LocalDate asOnLocalDate);
+
+    ChargePaymentTemplateData getChargePaymentTemplateDetails(Long loanId, LocalDate asOnLocalDate);
+
+    LoanBasicDataForSchedule retrieveLoanBasicDataForScheduleHistory(Long loanId);
 }

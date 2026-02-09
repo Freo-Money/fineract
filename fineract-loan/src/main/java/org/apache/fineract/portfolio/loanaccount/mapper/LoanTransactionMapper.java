@@ -18,9 +18,12 @@
  */
 package org.apache.fineract.portfolio.loanaccount.mapper;
 
+import com.google.gson.Gson;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.core.config.MapstructMapperConfig;
 import org.apache.fineract.organisation.monetary.mapper.CurrencyMapper;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
@@ -65,6 +68,7 @@ public interface LoanTransactionMapper {
     @Mapping(target = "rowIndex", ignore = true)
     @Mapping(target = "dateFormat", ignore = true)
     @Mapping(target = "locale", ignore = true)
+    @Mapping(target = "transactionAmount", ignore = true)
     @Mapping(target = "paymentTypeId", ignore = true)
     @Mapping(target = "accountNumber", ignore = true)
     @Mapping(target = "checkNumber", ignore = true)
@@ -72,7 +76,23 @@ public interface LoanTransactionMapper {
     @Mapping(target = "receiptNumber", ignore = true)
     @Mapping(target = "bankNumber", ignore = true)
     @Mapping(target = "accountId", ignore = true)
-    @Mapping(target = "transactionAmount", ignore = true)
     @Mapping(target = "classification", expression = "java(loanTransaction.getClassification() != null ? loanTransaction.getClassification().toData() : null)")
+    @Mapping(target = "loanOverdueData", ignore = true)
+    @Mapping(target = "loanOverdueChargeData", ignore = true)
+    @Mapping(target = "foreclosureChargePercentageMap", ignore = true)
+    @Mapping(target = "transactionMetaData", expression = "java(deserializeTransactionMetaData(loanTransaction.getTransactionMetaData()))")
     LoanTransactionData mapLoanTransaction(LoanTransaction loanTransaction);
+
+    default TransactionMetaData deserializeTransactionMetaData(String transactionMetaDataJson) {
+        if (StringUtils.isBlank(transactionMetaDataJson)) {
+            return null;
+        }
+        try {
+            Gson gson = new Gson();
+            return gson.fromJson(transactionMetaDataJson, TransactionMetaData.class);
+        } catch (Exception e) {
+            // If deserialization fails, return null
+            return null;
+        }
+    }
 }

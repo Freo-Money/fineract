@@ -207,8 +207,15 @@ public class LoanProductRelatedDetail {
     @Column(name = "is_merchant_buy_down_fee")
     private boolean merchantBuyDownFee = true;
 
+    @Enumerated(EnumType.ORDINAL)
+    @Column(name = "installment_interest_calculation_type_enum", nullable = false)
+    private InterestCalculationPeriodMethod installmentInterestCalculationType;
+
     @Column(name = "installment_amount_in_multiples_of")
     private Integer installmentAmountInMultiplesOf;
+
+    @Column(name = "is_bpi_collected_at_disbursement", nullable = false)
+    private boolean bpiCollectedAtDisbursement = false;
 
     public static LoanProductRelatedDetail createFrom(final CurrencyData currencyData, final BigDecimal principal,
             final BigDecimal nominalInterestRatePerPeriod, final PeriodFrequencyType interestRatePeriodFrequencyType,
@@ -229,7 +236,8 @@ public class LoanProductRelatedDetail {
             final LoanCapitalizedIncomeStrategy capitalizedIncomeStrategy, final LoanCapitalizedIncomeType capitalizedIncomeType,
             final Integer installmentAmountInMultiplesOf, final boolean enableBuyDownFee,
             final LoanBuyDownFeeCalculationType buyDownFeeCalculationType, final LoanBuyDownFeeStrategy buyDownFeeStrategy,
-            final LoanBuyDownFeeIncomeType buyDownFeeIncomeType, final boolean merchantBuyDownFee) {
+            final LoanBuyDownFeeIncomeType buyDownFeeIncomeType, final boolean merchantBuyDownFee,
+            final InterestCalculationPeriodMethod installmentInterestCalculationType, final boolean bpiCollectedAtDisbursement) {
 
         final MonetaryCurrency currency = MonetaryCurrency.fromCurrencyData(currencyData);
         return new LoanProductRelatedDetail(currency, principal, nominalInterestRatePerPeriod, interestRatePeriodFrequencyType,
@@ -241,7 +249,8 @@ public class LoanProductRelatedDetail {
                 loanScheduleType, loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes,
                 chargeOffBehaviour, interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, installmentAmountInMultiplesOf,
-                enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee);
+                enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee,
+                installmentInterestCalculationType, bpiCollectedAtDisbursement);
     }
 
     protected LoanProductRelatedDetail() {
@@ -267,7 +276,8 @@ public class LoanProductRelatedDetail {
             final LoanCapitalizedIncomeStrategy capitalizedIncomeStrategy, final LoanCapitalizedIncomeType capitalizedIncomeType,
             final Integer installmentAmountInMultiplesOf, final boolean enableBuyDownFee,
             final LoanBuyDownFeeCalculationType buyDownFeeCalculationType, final LoanBuyDownFeeStrategy buyDownFeeStrategy,
-            final LoanBuyDownFeeIncomeType buyDownFeeIncomeType, final boolean merchantBuyDownFee) {
+            final LoanBuyDownFeeIncomeType buyDownFeeIncomeType, final boolean merchantBuyDownFee,
+            final InterestCalculationPeriodMethod installmentInterestCalculationType, final boolean bpiCollectedAtDisbursement) {
         this.currency = currency;
         this.principal = defaultPrincipal;
         this.nominalInterestRatePerPeriod = defaultNominalInterestRatePerPeriod;
@@ -315,6 +325,8 @@ public class LoanProductRelatedDetail {
         this.buyDownFeeStrategy = buyDownFeeStrategy;
         this.buyDownFeeIncomeType = buyDownFeeIncomeType;
         this.merchantBuyDownFee = merchantBuyDownFee;
+        this.installmentInterestCalculationType = installmentInterestCalculationType;
+        this.bpiCollectedAtDisbursement = bpiCollectedAtDisbursement;
     }
 
     private Integer defaultToNullIfZero(final Integer value) {
@@ -379,5 +391,13 @@ public class LoanProductRelatedDetail {
 
     public void updateInterestRecognitionOnDisbursementDate(boolean interestRecognitionOnDisbursementDate) {
         this.interestRecognitionOnDisbursementDate = interestRecognitionOnDisbursementDate;
+    }
+
+    public InterestCalculationPeriodMethod getInstallmentInterestCalculationType() {
+        return this.installmentInterestCalculationType;
+    }
+
+    public void setInstallmentInterestCalculationType(InterestCalculationPeriodMethod installmentInterestCalculationType) {
+        this.installmentInterestCalculationType = installmentInterestCalculationType;
     }
 }

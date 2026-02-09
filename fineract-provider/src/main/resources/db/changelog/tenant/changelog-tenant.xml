@@ -226,4 +226,23 @@
     <include file="parts/0205_add_read_familymembers_permission.xml" relativeToChangelogFile="true" />
     <include file="parts/0206_transaction_summary_with_asset_owner_classification_name_bug_fix.xml" relativeToChangelogFile="true" />
     <include file="parts/0207_add_allow_full_term_for_tranche.xml" relativeToChangelogFile="true" />
+    <include file="parts/0199_create_broken_period_interest_tables.xml" relativeToChangelogFile="true" />
+    <include file="parts/0200_add_bpi_column_to_loan.xml" relativeToChangelogFile="true" />
+    <include file="parts/0203_add_charge_pay_and_bulk_waive_permissions.xml" relativeToChangelogFile="true" />
+    <include file="parts/0204_add_custom_schedule_defined_column_to_loan.xml" relativeToChangelogFile="true" />
+    <include file="parts/0205_add_client_marital_status_code.xml" relativeToChangelogFile="true" />
+    <include file="parts/0206_add_transaction_meta_data_field_to_loan_transaction.xml" relativeToChangelogFile="true" />
+    <include file="parts/0207_add_arrears_based_on_configuration.xml" relativeToChangelogFile="true" />
+    <include file="parts/0208_add_loan_charge_tax_support.xml" relativeToChangelogFile="true" />
+    <include file="parts/0209_add_charge_percentage_type_columns.xml" relativeToChangelogFile="true" />
+    <include file="parts/0210_add_amount_paid_to_loan_charge_tax_details.xml" relativeToChangelogFile="true" />
+    <include file="parts/0211_add_apply_overdue_charges_permissions.xml" relativeToChangelogFile="true" />
+    <include file="parts/0212_add_post_accruals_till_date_permissions.xml" relativeToChangelogFile="true" />
+    <include file="parts/1035_add_adjust_interest_for_rounding_to_product_loan.xml" relativeToChangelogFile="true" />
+    <include file="parts/1036_add_adjusted_interest_amount_column.xml" relativeToChangelogFile="true" />
+    <include file="parts/1037_add_max_cumulative_penalty_cap_to_charge.xml" relativeToChangelogFile="true" />
+    <include file="parts/1038_add_overdue_due_principal_interest_overdue_due_penalties_fees_order_strategy.xml" relativeToChangelogFile="true" />
+    <include file="parts/1039_add_overdue_due_interest_principal_overdue_due_penalties_fees_order_strategy.xml" relativeToChangelogFile="true" />
+    <include file="parts/1040_add_migration_cutoff_date_configuration.xml" relativeToChangelogFile="true" />
+    <include file="parts/1041_add_update_npa_business_step.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

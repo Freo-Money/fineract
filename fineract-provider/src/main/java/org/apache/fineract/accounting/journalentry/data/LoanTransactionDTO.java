@@ -65,4 +65,5 @@ public class LoanTransactionDTO {
     private final BigDecimal principalPaid;
     private final BigDecimal feePaid;
     private final BigDecimal penaltyPaid;
+    private final List<TaxPaymentDTO> taxPayments;
 }

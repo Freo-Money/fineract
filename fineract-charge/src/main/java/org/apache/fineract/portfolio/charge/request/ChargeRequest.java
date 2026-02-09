@@ -51,6 +51,7 @@ public class ChargeRequest implements Serializable {
     private Boolean enablePaymentType;
     private BigDecimal minCap;
     private BigDecimal maxCap;
+    private BigDecimal maxCumulativePenaltyCap;
     private Long taxGroupId;
 
 }

@@ -46,6 +46,7 @@ import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidati
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.core.service.MathUtil;
 import org.apache.fineract.infrastructure.dataqueries.data.EntityTables;
 import org.apache.fineract.infrastructure.dataqueries.data.StatusEnum;
 import org.apache.fineract.infrastructure.dataqueries.service.EntityDatatableChecksWritePlatformService;
@@ -62,6 +63,11 @@ import org.apache.fineract.portfolio.calendar.domain.CalendarEntityType;
 import org.apache.fineract.portfolio.calendar.domain.CalendarInstance;
 import org.apache.fineract.portfolio.calendar.domain.CalendarInstanceRepository;
 import org.apache.fineract.portfolio.calendar.exception.NotValidRecurringDateException;
+import org.apache.fineract.portfolio.charge.data.ChargeData;
+import org.apache.fineract.portfolio.charge.domain.Charge;
+import org.apache.fineract.portfolio.charge.domain.ChargeRepositoryWrapper;
+import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
+import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.exception.ClientNotActiveException;
 import org.apache.fineract.portfolio.collateralmanagement.exception.LoanCollateralAmountNotSufficientException;
@@ -80,6 +86,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleIns
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.exception.DateMismatchException;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
@@ -111,6 +118,9 @@ public class LoanTransactionValidatorImpl implements LoanTransactionValidator {
     private final LoanDownPaymentTransactionValidator loanDownPaymentTransactionValidator;
     private final LoanDisbursementValidator loanDisbursementValidator;
     private final CodeValueRepository codeValueRepository;
+    private final ChargeRepositoryWrapper chargeRepositoryWrapper;
+    private final ChargeReadPlatformService chargeReadPlatformService;
+    private final LoanTransactionRepository loanTransactionRepository;
 
     private void throwExceptionIfValidationWarningsExist(final List<ApiParameterError> dataValidationErrors) {
         if (!dataValidationErrors.isEmpty()) {
@@ -651,6 +661,79 @@ public class LoanTransactionValidatorImpl implements LoanTransactionValidator {
     }
 
     @Override
+    public void validateLoanForeclosureChargePercentages(Loan loan, Map<Long, BigDecimal> chargePercentages) {
+        if (chargePercentages == null || chargePercentages.isEmpty()) {
+            return;
+        }
+
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan");
+
+        // Get all foreclosure charges from the loan product
+        Long loanProductId = loan.getLoanProduct().getId();
+        List<ChargeData> loanProductForeclosureCharges = chargeReadPlatformService.retrieveLoanProductCharges(loanProductId,
+                ChargeTimeType.FORECLOSURE);
+        Set<Long> productChargeIds = loanProductForeclosureCharges.stream().map(ChargeData::getId).collect(Collectors.toSet());
+
+        for (Map.Entry<Long, BigDecimal> entry : chargePercentages.entrySet()) {
+            Long chargeId = entry.getKey();
+            BigDecimal percentage = entry.getValue();
+
+            // Validate chargeId exists in product charges
+            if (!productChargeIds.contains(chargeId)) {
+                baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(chargeId).failWithCode(
+                        "error.msg.charge.not.in.product", "Charge with ID " + chargeId + " is not present in the loan product charges");
+                continue;
+            }
+
+            // Early validation: percentage must be positive (before DB lookup)
+            if (percentage == null || percentage.compareTo(BigDecimal.ZERO) <= 0) {
+                baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(percentage)
+                        .failWithCode("error.msg.charge.percentage.must.be.positive",
+                                "Percentage for charge ID " + chargeId + " must be positive");
+                continue;
+            }
+
+            // Find the charge definition
+            Charge charge;
+            try {
+                charge = this.chargeRepositoryWrapper.findOneWithNotFoundDetection(chargeId);
+            } catch (Exception e) {
+                baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(chargeId)
+                        .failWithCode("error.msg.charge.not.found", "Charge with ID " + chargeId + " not found");
+                continue;
+            }
+
+            // Validate charge is a foreclosure charge
+            ChargeTimeType chargeTimeType = ChargeTimeType.fromInt(charge.getChargeTimeType());
+            if (!ChargeTimeType.FORECLOSURE.equals(chargeTimeType)) {
+                baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(chargeId).failWithCode(
+                        "error.msg.charge.not.foreclosure.type",
+                        "Charge with ID " + chargeId + " is not a foreclosure charge (chargeTimeType must be FORECLOSURE)");
+                continue;
+            }
+
+            // Validate percentage is within min and max range (inclusive) if defined
+            BigDecimal minCap = charge.getMinCap();
+            BigDecimal maxCap = charge.getMaxCap();
+            if (minCap != null && percentage.compareTo(minCap) < 0) {
+                baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(percentage)
+                        .failWithCode("error.msg.charge.percentage.below.minimum", "Percentage " + percentage + " for charge ID " + chargeId
+                                + " is below the minimum allowed value of " + minCap);
+                continue;
+            }
+            if (maxCap != null && percentage.compareTo(maxCap) > 0) {
+                baseDataValidator.reset().parameter(LoanApiConstants.foreclosureChargePercentageMapParamName).value(percentage)
+                        .failWithCode("error.msg.charge.percentage.above.maximum", "Percentage " + percentage + " for charge ID " + chargeId
+                                + " is above the maximum allowed value of " + maxCap);
+                continue;
+            }
+        }
+
+        throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    @Override
     public void validateLoanClientIsActive(final Loan loan) {
         final Client client = loan.client();
         if (client != null && client.isNotActive()) {
@@ -1147,6 +1230,68 @@ public class LoanTransactionValidatorImpl implements LoanTransactionValidator {
                 baseDataValidator.reset().parameter(LoanTransactionApiConstants.TRANSACTION_CLASSIFICATIONID_PARAMNAME)
                         .failWithCode("code.value.classification.not.exists", "Code value does not exists in the code " + codeName);
             }
+        }
+    }
+
+    @Override
+    public void validateAccrualSuspenseReverseForRepayment(final Loan loan, final LoanTransaction suspenseReverseTransaction,
+            final LoanTransaction repaymentTransaction) {
+
+        BigDecimal repaymentInterest = MathUtil.nullToZero(repaymentTransaction.getInterestPortion());
+        BigDecimal repaymentFee = MathUtil.nullToZero(repaymentTransaction.getFeeChargesPortion());
+        BigDecimal repaymentPenalty = MathUtil.nullToZero(repaymentTransaction.getPenaltyChargesPortion());
+
+        // If repayment has no interest/fee/penalty portions, no reverse suspense should be created
+        if (repaymentInterest.compareTo(BigDecimal.ZERO) == 0 && repaymentFee.compareTo(BigDecimal.ZERO) == 0
+                && repaymentPenalty.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
+
+        // Find ACCRUAL_SUSPENSE_REVERSE transaction created on the same date as repayment
+        LoanTransaction reverseTransaction = suspenseReverseTransaction;
+        BigDecimal reverseInterest = MathUtil.nullToZero(reverseTransaction.getInterestPortion());
+        BigDecimal reverseFee = MathUtil.nullToZero(reverseTransaction.getFeeChargesPortion());
+        BigDecimal reversePenalty = MathUtil.nullToZero(reverseTransaction.getPenaltyChargesPortion());
+
+        // Calculate total ACCRUAL_SUSPENSE balance in a single pass
+        // Exclude the reverse transaction being validated to avoid double-counting
+        BigDecimal totalSuspenseInterest = BigDecimal.ZERO;
+        BigDecimal totalSuspenseFee = BigDecimal.ZERO;
+        BigDecimal totalSuspensePenalty = BigDecimal.ZERO;
+
+        for (LoanTransaction transaction : loan.getLoanTransactions()) {
+            // Skip the reverse transaction being validated to avoid including it in balance calculation
+            if (transaction.getId() != null && transaction.getId().equals(reverseTransaction.getId())) {
+                continue;
+            }
+            if (transaction.isNotReversed()) {
+                LoanTransactionType type = transaction.getTypeOf();
+                if (type.equals(LoanTransactionType.ACCRUAL_SUSPENSE)) {
+                    totalSuspenseInterest = totalSuspenseInterest.add(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    totalSuspenseFee = totalSuspenseFee.add(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    totalSuspensePenalty = totalSuspensePenalty.add(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                } else if (type.equals(LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE)) {
+                    totalSuspenseInterest = totalSuspenseInterest.subtract(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    totalSuspenseFee = totalSuspenseFee.subtract(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    totalSuspensePenalty = totalSuspensePenalty.subtract(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                }
+            }
+        }
+
+        // Validate that reverse amounts do not exceed suspense balance
+        validateSuspenseBalance("interest", reverseInterest, totalSuspenseInterest, loan.getId(),
+                repaymentTransaction.getTransactionDate());
+        validateSuspenseBalance("fee", reverseFee, totalSuspenseFee, loan.getId(), repaymentTransaction.getTransactionDate());
+        validateSuspenseBalance("penalty", reversePenalty, totalSuspensePenalty, loan.getId(), repaymentTransaction.getTransactionDate());
+    }
+
+    private void validateSuspenseBalance(String component, BigDecimal reverseAmount, BigDecimal suspenseBalance, Long loanId,
+            LocalDate transactionDate) {
+        if (reverseAmount.compareTo(suspenseBalance) > 0) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.accrual.suspense.reverse.exceeds.balance", String.format(
+                    "ACCRUAL_SUSPENSE_REVERSE %s portion (%s) exceeds available ACCRUAL_SUSPENSE balance (%s) for NPA loan %d on %s",
+                    component, reverseAmount, suspenseBalance, loanId, transactionDate), loanId, transactionDate, reverseAmount,
+                    suspenseBalance);
         }
     }
 }

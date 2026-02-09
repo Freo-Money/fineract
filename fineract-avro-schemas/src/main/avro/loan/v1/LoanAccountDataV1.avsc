@@ -574,6 +574,14 @@
         },
         {
             "default": null,
+            "name": "adjustInterestForRounding",
+            "type": [
+                "null",
+                "boolean"
+            ]
+        },
+        {
+            "default": null,
             "name": "fixedEmiAmount",
             "type": [
                 "null",

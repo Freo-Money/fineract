@@ -296,6 +296,10 @@ public final class JsonCommand {
         return this.fromApiJsonHelper.extractLongNamed(parameterName, this.parsedCommand);
     }
 
+    public Long[] longArrayValueOfParameterNamed(String string) {
+        return this.fromApiJsonHelper.extractLongArrayNamed(string, this.parsedCommand);
+    }
+
     public boolean isChangeInDateParameterNamed(final String parameterName, final LocalDate existingValue) {
         return isChangeInLocalDateParameterNamed(parameterName, existingValue);
     }

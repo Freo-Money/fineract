@@ -106,6 +106,7 @@ public interface LoanApiConstants {
     String rescheduleStrategyMethodParameterName = "rescheduleStrategyMethod";
     String repaymentFrequencyNthDayTypeParameterName = "repaymentFrequencyNthDayType";
     String repaymentFrequencyDayOfWeekTypeParameterName = "repaymentFrequencyDayOfWeekType";
+    String repeatsOnDayOfMonthParameterName = "repeatsOnDayOfMonth";
 
     // Floating interest rate related
     String interestRateDifferentialParameterName = "interestRateDifferential";
@@ -147,6 +148,7 @@ public interface LoanApiConstants {
     // fore closure constants
     String transactionDateParamName = "transactionDate";
     String noteParamName = "note";
+    String foreclosureChargePercentageMapParamName = "foreclosureChargePercentageMap";
 
     String canUseForTopup = "canUseForTopup";
     String clientActiveLoanOptions = "clientActiveLoanOptions";
@@ -194,6 +196,12 @@ public interface LoanApiConstants {
     String LOAN_FRAUD_DATAVALIDATOR_PREFIX = "loans.fraud";
 
     String INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE = "interestRecognitionOnDisbursementDate";
+
+    // Broken Period Interest Configuration Parameters
+    String BROKEN_PERIOD_METHOD_TYPE = "brokenPeriodMethodType";
+    String BROKEN_PERIOD_DAYS_IN_YEAR = "brokenPeriodDaysInYear";
+    String BROKEN_PERIOD_DAYS_IN_MONTH = "brokenPeriodDaysInMonth";
+    String IS_BPI_COLLECTED_AT_DISBURSEMENT = "isBpiCollectedAtDisbursement";
 
     String ALLOW_FULL_TERM_FOR_TRANCHE = "allowFullTermForTranche";
 

@@ -469,6 +469,14 @@ public class LoanProductToGLAccountMappingHelper extends ProductToGLAccountMappi
                             loanProductId, AccrualAccountsForLoan.DEFERRED_INCOME_LIABILITY.getValue(),
                             AccrualAccountsForLoan.DEFERRED_INCOME_LIABILITY.toString(), changes);
                 }
+                mergeLoanToLiabilityAccountMappingChanges(element, LoanProductAccountingParams.NPA_INTEREST_SUSPENSE.getValue(),
+                        loanProductId, AccrualAccountsForLoan.NPA_INTEREST_SUSPENSE.getValue(),
+                        AccrualAccountsForLoan.NPA_INTEREST_SUSPENSE.toString(), changes);
+                mergeLoanToLiabilityAccountMappingChanges(element, LoanProductAccountingParams.NPA_FEES_SUSPENSE.getValue(), loanProductId,
+                        AccrualAccountsForLoan.NPA_FEES_SUSPENSE.getValue(), AccrualAccountsForLoan.NPA_FEES_SUSPENSE.toString(), changes);
+                mergeLoanToLiabilityAccountMappingChanges(element, LoanProductAccountingParams.NPA_PENALTIES_SUSPENSE.getValue(),
+                        loanProductId, AccrualAccountsForLoan.NPA_PENALTIES_SUSPENSE.getValue(),
+                        AccrualAccountsForLoan.NPA_PENALTIES_SUSPENSE.toString(), changes);
             break;
         }
     }

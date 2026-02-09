@@ -37,6 +37,7 @@ public interface ClientRepository extends JpaRepository<Client, Long>, JpaSpecif
             FROM Client client
             JOIN client.office office
             LEFT JOIN client.transferToOffice transferToOffice
+            LEFT JOIN FETCH client.maritalStatus
             WHERE client.id = :clientId
             AND (office.hierarchy LIKE :officeHierarchy OR transferToOffice.hierarchy LIKE :transferToOfficeHierarchy)
                 """)

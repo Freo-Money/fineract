@@ -40,11 +40,13 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.UriInfo;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import lombok.AllArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
@@ -68,14 +70,17 @@ import org.apache.fineract.infrastructure.security.service.PlatformSecurityConte
 import org.apache.fineract.portfolio.loanaccount.api.request.ReAgePreviewRequest;
 import org.apache.fineract.portfolio.loanaccount.api.request.ReAmortizationPreviewRequest;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentScheduleInstallmentData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionBasicData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanTransactionTypeException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanTransactionNotFoundException;
+import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleData;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargePaidByReadService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
+import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionReadService;
 import org.apache.fineract.portfolio.loanaccount.service.reaging.LoanReAgingService;
 import org.apache.fineract.portfolio.loanaccount.service.reamortization.LoanReAmortizationService;
 import org.apache.fineract.portfolio.paymenttype.data.PaymentTypeData;
@@ -114,6 +119,8 @@ public class LoanTransactionsApiResource {
     private final LoanChargePaidByReadService loanChargePaidByReadService;
     private final LoanReAgingService loanReAgingService;
     private final LoanReAmortizationService loanReAmortizationService;
+    private final LoanTransactionReadService loanTransactionReadService;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
 
     @GET
     @Path("{loanId}/transactions/template")
@@ -630,7 +637,11 @@ public class LoanTransactionsApiResource {
         LoanTransactionData transactionData;
 
         if (CommandParameterUtil.is(commandParam, "repayment")) {
-            transactionData = this.loanReadPlatformService.retrieveLoanTransactionTemplate(resolvedLoanId);
+            LocalDate transactionDate = DateUtils.getLocalDateOfTenant();
+            if (transactionDateParam != null) {
+                transactionDate = transactionDateParam.getDate("transactionDate", dateFormat, locale);
+            }
+            transactionData = this.loanReadPlatformService.retrieveLoanTransactionTemplate(resolvedLoanId, transactionDate);
         } else if (CommandParameterUtil.is(commandParam, "merchantIssuedRefund")) {
             LocalDate transactionDate = DateUtils.getBusinessLocalDate();
             transactionData = this.loanReadPlatformService.retrieveLoanPrePaymentTemplate(LoanTransactionType.MERCHANT_ISSUED_REFUND,
@@ -686,13 +697,26 @@ public class LoanTransactionsApiResource {
             } else {
                 transactionDate = transactionDateParam.getDate("transactionDate", dateFormat, locale);
             }
-            transactionData = this.loanReadPlatformService.retrieveLoanForeclosureTemplate(resolvedLoanId, transactionDate);
+            Map<Long, BigDecimal> chargePercentages;
+            String chargePercentagesJson = uriInfo.getQueryParameters().getFirst(LoanApiConstants.foreclosureChargePercentageMapParamName);
+            try {
+                chargePercentages = foreclosureChargeHelper.extractChargePercentagesFromJsonString(chargePercentagesJson);
+            } catch (IllegalArgumentException e) {
+                throw new UnrecognizedQueryParamException(LoanApiConstants.foreclosureChargePercentageMapParamName, chargePercentagesJson,
+                        e, e.getMessage());
+            }
+            transactionData = this.loanReadPlatformService.retrieveLoanForeclosureTemplate(resolvedLoanId, transactionDate,
+                    chargePercentages);
         } else if (CommandParameterUtil.is(commandParam, "creditBalanceRefund")) {
             transactionData = this.loanReadPlatformService.retrieveCreditBalanceRefundTemplate(resolvedLoanId);
         } else if (CommandParameterUtil.is(commandParam, CHARGE_OFF_COMMAND_VALUE)) {
             transactionData = this.loanReadPlatformService.retrieveLoanChargeOffTemplate(resolvedLoanId);
         } else if (CommandParameterUtil.is(commandParam, DOWN_PAYMENT)) {
-            transactionData = this.loanReadPlatformService.retrieveLoanTransactionTemplate(resolvedLoanId);
+            LocalDate transactionDate = DateUtils.getLocalDateOfTenant();
+            if (transactionDateParam != null) {
+                transactionDate = transactionDateParam.getDate("transactionDate", dateFormat, locale);
+            }
+            transactionData = this.loanReadPlatformService.retrieveLoanTransactionTemplate(resolvedLoanId, transactionDate);
         } else if (CommandParameterUtil.is(commandParam, LoanApiConstants.CAPITALIZED_INCOME_TRANSACTION_COMMAND)) {
             transactionData = this.loanReadPlatformService.retrieveLoanTransactionTemplate(resolvedLoanId,
                     LoanTransactionType.CAPITALIZED_INCOME, transactionId);
@@ -829,6 +853,20 @@ public class LoanTransactionsApiResource {
             @Valid @BeanParam final ReAmortizationPreviewRequest reAmortizationPreviewRequest) {
         this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
         return loanReAmortizationService.previewReAmortization(null, loanExternalId, reAmortizationPreviewRequest);
+    }
+
+    @GET
+    @Path("/transactions/external-id/{externalId}")
+    @Consumes({ MediaType.APPLICATION_JSON })
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Retrieve Loan Transaction by External ID", description = "Retrieves a loan transaction using its external reference ID\n\n"
+            + "Example Request:\n" + "loans/transactions/TXN-123456")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanTransactionBasicData.class))),
+            @ApiResponse(responseCode = "404", description = "Loan transaction not found") })
+    public LoanTransactionBasicData retrieveLoanTransactionByExternalId(
+            @PathParam("externalId") @Parameter(description = "External ID of the loan transaction", required = true) final String externalId) {
+        return loanTransactionReadService.retrieveTransactionByExternalId(externalId);
     }
 
 }

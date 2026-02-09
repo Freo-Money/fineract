@@ -505,6 +505,8 @@ public class FineractProperties {
         private FineractTransactionProcessorItemProperties interestPrincipalPenaltiesFees;
         private FineractTransactionProcessorItemProperties principalInterestPenaltiesFees;
         private FineractTransactionProcessorItemProperties rbiIndia;
+        private FineractTransactionProcessorItemProperties overdueDuePrincipalInterestOverdueDuePenaltiesFees;
+        private FineractTransactionProcessorItemProperties overdueDueInterestPrincipalOverdueDuePenaltiesFees;
         private FineractTransactionProcessorItemProperties duePenaltyFeeInterestPrincipalInAdvancePrincipalPenaltyFeeInterest;
         private FineractTransactionProcessorItemProperties duePenaltyInterestPrincipalFeeInAdvancePenaltyInterestPrincipalFee;
         private FineractTransactionProcessorItemProperties advancedPaymentStrategy;

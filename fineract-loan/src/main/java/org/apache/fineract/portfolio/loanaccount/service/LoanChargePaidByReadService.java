@@ -64,6 +64,9 @@ public class LoanChargePaidByReadService {
 
         final Root<LoanChargePaidBy> root = query.from(LoanChargePaidBy.class);
         root.fetch("loanTransaction", JoinType.INNER);
+        // Fetch tax details and nested tax component relationships to avoid lazy loading issues
+        root.fetch("loanChargeTaxDetailsPaidBy", JoinType.LEFT).fetch("taxComponent", JoinType.LEFT);
+
         final Path<LoanTransaction> loanTransaction = root.join("loanTransaction", JoinType.INNER);
 
         query.select(root).where(loanTransaction.get("id").in(transactionIds));

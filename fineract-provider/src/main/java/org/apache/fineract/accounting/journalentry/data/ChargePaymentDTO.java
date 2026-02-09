@@ -19,14 +19,40 @@
 package org.apache.fineract.accounting.journalentry.data;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
+import java.util.Map;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 
-@RequiredArgsConstructor
 @Getter
 public class ChargePaymentDTO {
 
     private final Long chargeId;
     private final BigDecimal amount;
     private final Long loanChargeId;
+    private final BigDecimal amountSansTax;
+    private final BigDecimal taxAmount;
+    private final Map<Long, BigDecimal> taxComponentAmounts;
+
+    public ChargePaymentDTO(final Long chargeId, final BigDecimal amount, final Long loanChargeId) {
+        this(chargeId, amount, loanChargeId, null, null, null);
+    }
+
+    public ChargePaymentDTO(final Long chargeId, final BigDecimal amount, final Long loanChargeId, final BigDecimal amountSansTax,
+            final BigDecimal taxAmount) {
+        this(chargeId, amount, loanChargeId, amountSansTax, taxAmount, null);
+    }
+
+    public ChargePaymentDTO(final Long chargeId, final BigDecimal amount, final Long loanChargeId, final BigDecimal amountSansTax,
+            final BigDecimal taxAmount, final Map<Long, BigDecimal> taxComponentAmounts) {
+        this.chargeId = chargeId;
+        this.amount = amount;
+        this.loanChargeId = loanChargeId;
+        this.amountSansTax = amountSansTax;
+        this.taxAmount = taxAmount;
+        if (taxComponentAmounts == null || taxComponentAmounts.isEmpty()) {
+            this.taxComponentAmounts = null;
+        } else {
+            this.taxComponentAmounts = new HashMap<>(taxComponentAmounts);
+        }
+    }
 }

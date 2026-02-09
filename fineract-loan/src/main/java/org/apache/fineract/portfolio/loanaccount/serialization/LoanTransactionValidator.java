@@ -19,8 +19,10 @@
 package org.apache.fineract.portfolio.loanaccount.serialization;
 
 import com.google.gson.JsonElement;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
 import org.apache.fineract.organisation.holiday.domain.Holiday;
@@ -60,6 +62,8 @@ public interface LoanTransactionValidator {
 
     void validateLoanForeclosure(String json);
 
+    void validateLoanForeclosureChargePercentages(Loan loan, Map<Long, BigDecimal> foreclosureChargePercentageMap);
+
     void validateLoanClientIsActive(Loan loan);
 
     void validateLoanGroupIsActive(Loan loan);
@@ -98,4 +102,7 @@ public interface LoanTransactionValidator {
     void validateManualInterestRefundTransaction(String json);
 
     void validateClassificationCodeValue(String codeName, Long transactionClassificationId, DataValidatorBuilder baseDataValidator);
+
+    void validateAccrualSuspenseReverseForRepayment(Loan loan, LoanTransaction suspenseReverseTransaction,
+            LoanTransaction repaymentTransaction);
 }

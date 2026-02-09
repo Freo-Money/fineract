@@ -45,7 +45,9 @@ import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.ErrorHandler;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.exception.PlatformDataIntegrityException;
+import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.dataqueries.data.EntityTables;
 import org.apache.fineract.infrastructure.dataqueries.data.StatusEnum;
 import org.apache.fineract.infrastructure.dataqueries.service.EntityDatatableChecksWritePlatformService;
@@ -70,6 +72,7 @@ import org.apache.fineract.portfolio.calendar.domain.CalendarType;
 import org.apache.fineract.portfolio.calendar.exception.CalendarNotFoundException;
 import org.apache.fineract.portfolio.calendar.service.CalendarReadPlatformService;
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagement;
+import org.apache.fineract.portfolio.common.domain.NthDayType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.group.exception.GroupMemberNotFoundInGSIMException;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
@@ -78,6 +81,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.GLIMAccountInfoRepositor
 import org.apache.fineract.portfolio.loanaccount.domain.GroupLoanIndividualMonitoringAccount;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCollateralManagement;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanConfigMapping;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanEvent;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
@@ -86,10 +90,14 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanApplicationNotInSubmittedAndPendingApprovalStateCannotBeDeleted;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleAssembler;
+import org.apache.fineract.portfolio.loanaccount.repository.LoanConfigMappingRepository;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanApplicationTransitionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanApplicationValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTransactionValidator;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
+import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.RecalculationFrequencyType;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
 import org.apache.fineract.portfolio.note.domain.Note;
@@ -129,6 +137,8 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
     private final LoanAccrualsProcessingService loanAccrualsProcessingService;
     private final LoanDownPaymentTransactionValidator loanDownPaymentTransactionValidator;
     private final LoanScheduleService loanScheduleService;
+    private final LoanConfigMappingRepository loanConfigMappingRepository;
+    private final FromJsonHelper fromApiJsonHelper;
 
     @Transactional
     @Override
@@ -288,6 +298,68 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                     && changes.containsKey(LoanProductConstants.IS_INTEREST_RECALCULATION_ENABLED_PARAMETER_NAME)) {
                 createAndPersistCalendarInstanceForInterestRecalculation(loan);
             }
+
+            // Handle Broken Period Interest Configuration update (upsert logic)
+            // Note: validation already ensures loan is in submittedAndPendingApproval state
+            BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper);
+
+            // Get previous strategy before any updates
+            final var existingConfig = loanConfigMappingRepository.findByLoanId(loanId);
+            BrokenPeriodInterestStrategy previousStrategy = existingConfig
+                    .map(config -> config.getBrokenPeriodConfig() != null ? config.getBrokenPeriodConfig().getStrategy() : null)
+                    .orElse(null);
+
+            // Update or create BPI config
+            if (bpiConfig != null) {
+                // User provided explicit BPI parameters
+                final LoanConfigMapping configMapping;
+                if (existingConfig.isPresent()) {
+                    configMapping = existingConfig.get();
+                    configMapping.updateBrokenPeriodConfig(bpiConfig);
+                    changes.put("brokenPeriodConfig", "updated");
+                } else {
+                    configMapping = new LoanConfigMapping(loan, bpiConfig);
+                    changes.put("brokenPeriodConfig", "created");
+                }
+                loanConfigMappingRepository.saveAndFlush(configMapping);
+                loan.setBpiConfig(configMapping);
+            } else if (existingConfig.isEmpty() && loan.getLoanProduct().getBpiConfig() != null) {
+                // Copy BPI config from product if loan doesn't have one
+                final LoanConfigMapping configMapping = new LoanConfigMapping(loan, loan.getLoanProduct().getBpiConfig());
+                loanConfigMappingRepository.saveAndFlush(configMapping);
+                loan.setBpiConfig(configMapping);
+                bpiConfig = configMapping.getBrokenPeriodConfig();
+                changes.put("brokenPeriodConfig", "copied_from_product");
+            }
+
+            // Handle isBpiCollectedAtDisbursement flag
+            // Only update if explicitly provided in payload or if strategy becomes incompatible
+            final BrokenPeriodInterestStrategy currentStrategy = loan.getBpiConfig() != null
+                    && loan.getBpiConfig().getBrokenPeriodConfig() != null ? loan.getBpiConfig().getBrokenPeriodConfig().getStrategy()
+                            : null;
+
+            if (command.parameterExists(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT)) {
+                // User explicitly provided the flag - validate and apply it
+                final Boolean isBpiCollectedAtDisbursement = command
+                        .booleanObjectValueOfParameterNamed(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT);
+                final boolean isCompatibleStrategy = currentStrategy == BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE;
+
+                if (Boolean.TRUE.equals(isBpiCollectedAtDisbursement) && !isCompatibleStrategy) {
+                    throw new GeneralPlatformDomainRuleException(
+                            "error.msg.loan.bpi.collect.at.disbursement.requires.principal.grace.strategy",
+                            "Broken period interest collection at disbursement can only be enabled when BPI strategy is 'Add to First Installment with Principal Grace'");
+                }
+                loan.setBpiCollectedAtDisbursement(isBpiCollectedAtDisbursement);
+                changes.put("isBpiCollectedAtDisbursement", isBpiCollectedAtDisbursement);
+            } else if (bpiConfig != null && previousStrategy == BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+                    && bpiConfig.getStrategy() != BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+                    && loan.isBpiCollectedAtDisbursement()) {
+                // Strategy changed away from principal grace and flag is true - must reset to false for compatibility
+                loan.setBpiCollectedAtDisbursement(false);
+                changes.put("isBpiCollectedAtDisbursement", "reset_due_to_strategy_change");
+            }
+            // Otherwise: preserve existing loan flag value (do not inherit from product during modification)
+            this.loanRepositoryWrapper.saveAndFlush(loan);
 
             businessEventNotifierService.notifyPostBusinessEvent(new LoanApplicationModifiedBusinessEvent(loan));
 
@@ -825,8 +897,20 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 final Integer repeatsOnDay = loanApplicationTerms.getWeekDayType().getValue();
                 final Integer repeatsOnNthDayOfMonth = loanApplicationTerms.getNthDay();
                 final Integer calendarEntityType = CalendarEntityType.LOANS.getValue();
-                final Calendar loanCalendar = Calendar.createRepeatingCalendar(title, calendarStartDate, CalendarType.COLLECTION.getValue(),
-                        calendarFrequencyType, frequency, repeatsOnDay, repeatsOnNthDayOfMonth);
+                final Integer repeatsOnDayOfMonth = command.integerValueOfParameterNamed("repeatsOnDayOfMonth");
+                NthDayType nthDayType = NthDayType.fromInt(loanApplicationTerms.getNthDay());
+                final Calendar loanCalendar;
+                if (nthDayType.isOnDay() && repeatsOnDayOfMonth != null) {
+                    loanCalendar = createLoanCalendar(title, calendarStartDate, frequency, calendarFrequencyType, null,
+                            repeatsOnDayOfMonth);
+                } else {
+                    loanCalendar = createLoanCalendar(title, calendarStartDate, frequency, calendarFrequencyType, repeatsOnDay,
+                            repeatsOnNthDayOfMonth);
+                }
+
+                // final Calendar loanCalendar = Calendar.createRepeatingCalendar(title, calendarStartDate,
+                // CalendarType.COLLECTION.getValue(),
+                // calendarFrequencyType, frequency, repeatsOnDay, repeatsOnNthDayOfMonth);
                 this.calendarRepository.save(loanCalendar);
                 final CalendarInstance calendarInstance = CalendarInstance.from(loanCalendar, loan.getId(), calendarEntityType);
                 this.calendarInstanceRepository.save(calendarInstance);
@@ -881,6 +965,13 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
         }
 
         return actualChanges;
+    }
+
+    private Calendar createLoanCalendar(final String title, final LocalDate calendarStartDate, final Integer frequency,
+            CalendarFrequencyType calendarFrequencyType, final Integer repeatsOnDay, final Integer repeatsOnNthDayOfMonth) {
+        final Calendar calendar = Calendar.createRepeatingCalendar(title, calendarStartDate, CalendarType.COLLECTION.getValue(),
+                calendarFrequencyType, frequency, repeatsOnDay, repeatsOnNthDayOfMonth);
+        return calendar;
     }
 
 }

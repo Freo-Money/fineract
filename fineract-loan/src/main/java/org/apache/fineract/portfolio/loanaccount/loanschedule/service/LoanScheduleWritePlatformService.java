@@ -26,4 +26,8 @@ public interface LoanScheduleWritePlatformService {
     CommandProcessingResult addLoanScheduleVariations(Long loanId, JsonCommand command);
 
     CommandProcessingResult deleteLoanScheduleVariations(Long loanId);
+
+    CommandProcessingResult createCustomSchedule(Long loanId, JsonCommand command);
+
+    CommandProcessingResult updateCustomSchedule(Long loanId, JsonCommand command);
 }

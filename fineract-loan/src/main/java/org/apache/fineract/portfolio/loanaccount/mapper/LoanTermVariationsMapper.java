@@ -41,6 +41,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTermVariationType;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTermVariations;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleUtilService;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestRecalculationCompoundingMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanRescheduleStrategyMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.RecalculationFrequencyType;
@@ -106,12 +108,16 @@ public class LoanTermVariationsMapper {
         if (interestChargedFromDate == null && scheduleGeneratorDTO.isInterestChargedFromDateAsDisbursementDateEnabled()) {
             interestChargedFromDate = loan.getDisbursementDate();
         }
+        // Use loan-level BPI config if available, otherwise fall back to product-level config
+        final BrokenPeriodInterestConfigDTO bpiConfig = loan.getBpiConfig() != null ? loan.getBpiConfig().getBrokenPeriodConfig()
+                : (loan.getLoanProduct().getBpiConfig() != null ? loan.getLoanProduct().getBpiConfig().getBrokenPeriodConfig() : null);
 
-        return LoanApplicationTerms.assembleFrom(scheduleGeneratorDTO.getCurrency(), loanTermFrequency, loan.getTermPeriodFrequencyType(),
-                nthDayType, dayOfWeekType, loan.getDisbursementDate(), loan.getExpectedFirstRepaymentOnDate(),
-                scheduleGeneratorDTO.getCalculatedRepaymentsStartingFromDate(), loan.getInArrearsTolerance(),
-                loan.getLoanRepaymentScheduleDetail(), loan.getLoanProduct().isMultiDisburseLoan(), loan.getFixedEmiAmount(),
-                disbursementData, loan.getMaxOutstandingLoanBalance(), interestChargedFromDate,
+        LoanApplicationTerms loanApplicationTerms = LoanApplicationTerms.assembleFrom(scheduleGeneratorDTO.getCurrency(), loanTermFrequency,
+                loan.getTermPeriodFrequencyType(), nthDayType, dayOfWeekType, loan.getDisbursementDate(),
+                loan.getExpectedFirstRepaymentOnDate(), scheduleGeneratorDTO.getCalculatedRepaymentsStartingFromDate(),
+                loan.getInArrearsTolerance(), loan.getLoanRepaymentScheduleDetail(), loan.getLoanProduct().isAdjustInterestForRounding(),
+                loan.getLoanProduct().isMultiDisburseLoan(), loan.getFixedEmiAmount(), disbursementData,
+                loan.getMaxOutstandingLoanBalance(), interestChargedFromDate,
                 loan.getLoanProduct().getPrincipalThresholdForLastInstallment(),
                 loan.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf(), recalculationFrequencyType, restCalendarInstance,
                 compoundingMethod, compoundingCalendarInstance, compoundingFrequencyType,
@@ -120,7 +126,12 @@ public class LoanTermVariationsMapper {
                 scheduleGeneratorDTO.getNumberOfdays(), scheduleGeneratorDTO.isSkipRepaymentOnFirstDayofMonth(), holidayDetailDTO,
                 allowCompoundingOnEod, scheduleGeneratorDTO.isFirstRepaymentDateAllowedOnHoliday(),
                 scheduleGeneratorDTO.isInterestToBeRecoveredFirstWhenGreaterThanEMI(), loan.getFixedPrincipalPercentagePerInstallment(),
-                scheduleGeneratorDTO.isPrincipalCompoundingDisabledForOverdueLoans(), repaymentStartDateType, loan.getSubmittedOnDate());
+                scheduleGeneratorDTO.isPrincipalCompoundingDisabledForOverdueLoans(), repaymentStartDateType, loan.getSubmittedOnDate(),
+                bpiConfig);
+        boolean isAdditionalPrincipalGracePeriodRequired = LoanScheduleUtilService
+                .isAdditionalPrincipalGracePeriodRequired(loanApplicationTerms);
+        loanApplicationTerms.addAdditionalPrincipalGracePeriod(isAdditionalPrincipalGracePeriodRequired);
+        return loanApplicationTerms;
     }
 
     private BigDecimal constructFloatingInterestRates(final BigDecimal annualNominalInterestRate, final FloatingRateDTO floatingRateDTO,

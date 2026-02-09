@@ -118,6 +118,7 @@ import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.domain.AdvancedPaymentAllocationsValidator;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
+import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
@@ -176,7 +177,9 @@ public final class LoanApplicationValidator {
             LoanProductConstants.ENABLE_INSTALLMENT_LEVEL_DELINQUENCY, LoanProductConstants.ENABLE_DOWN_PAYMENT,
             LoanProductConstants.ENABLE_AUTO_REPAYMENT_DOWN_PAYMENT, LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT,
             LoanApiConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE, LoanApiConstants.daysInYearCustomStrategyParameterName,
-            LoanApiConstants.ALLOW_FULL_TERM_FOR_TRANCHE));
+            LoanApiConstants.ALLOW_FULL_TERM_FOR_TRANCHE, LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE,
+            LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH,
+            LoanApiConstants.repeatsOnDayOfMonthParameterName, LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT));
     public static final String LOANAPPLICATION_UNDO = "loanapplication.undo";
 
     private final FromJsonHelper fromApiJsonHelper;
@@ -218,6 +221,13 @@ public final class LoanApplicationValidator {
         validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
                 loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),
                 loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+
+        if (expectedFirstRepaymentOnDate != null && isAddToFirstInstallmentWithPrincipalGraceBPI(loan)) {
+            throw new LoanApplicationDateException(
+                    "expected.first.repayment.date.not.supported.with.bpimethod.add.to.first.installment.with.principal.grace",
+                    "repaymentsStartingFromDate is not supported with BPI method add to first installment with principal grace.",
+                    expectedFirstRepaymentOnDate);
+        }
     }
 
     public void validateForModify(final Loan loan) {
@@ -232,6 +242,19 @@ public final class LoanApplicationValidator {
         validateLoanTermAndRepaidEveryValues(loan.getTermFrequency(), loan.getTermPeriodFrequencyType().getValue(),
                 loan.getLoanProductRelatedDetail().getNumberOfRepayments(), loan.getLoanProductRelatedDetail().getRepayEvery(),
                 loan.getLoanProductRelatedDetail().getRepaymentPeriodFrequencyType().getValue(), loan);
+
+        if (expectedFirstRepaymentOnDate != null && isAddToFirstInstallmentWithPrincipalGraceBPI(loan)) {
+            throw new LoanApplicationDateException(
+                    "expected.first.repayment.date.not.supported.with.bpimethod.add.to.first.installment.with.principal.grace",
+                    "repaymentsStartingFromDate is not supported with BPI method add to first installment with principal grace.",
+                    expectedFirstRepaymentOnDate);
+        }
+    }
+
+    private boolean isAddToFirstInstallmentWithPrincipalGraceBPI(final Loan loan) {
+        return loan.getBpiConfig() != null && loan.getBpiConfig().getBrokenPeriodConfig() != null
+                && loan.getBpiConfig().getBrokenPeriodConfig().getStrategy() != null
+                && loan.getBpiConfig().getBrokenPeriodConfig().getStrategy().isAddToFirstInstallmentWithPrincipalGrace();
     }
 
     public void validateForCreate(JsonCommand command) {
@@ -275,7 +298,7 @@ public final class LoanApplicationValidator {
                 baseDataValidator.reset().parameter(LoanApiConstants.loanTypeParameterName).value(loanType.getValue()).inMinMaxRange(1, 4);
 
                 if (loanType.isIndividualAccount()) {
-                    baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(clientId).notNull()
+                    baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(clientId).ignoreIfNull()
                             .longGreaterThanZero();
                     baseDataValidator.reset().parameter(LoanApiConstants.groupIdParameterName).value(groupId)
                             .mustBeBlankWhenParameterProvided(LoanApiConstants.clientIdParameterName, clientId);
@@ -791,6 +814,7 @@ public final class LoanApplicationValidator {
                 }
             }
 
+            validateBrokenPeriodInterest(element, baseDataValidator);
         });
 
         validateSubmittedOnDate(element, null, null, loanProduct);
@@ -1508,13 +1532,14 @@ public final class LoanApplicationValidator {
                     throw new UnsupportedParameterException(unsupportedParameterList);
                 }
             }
+            validateBrokenPeriodInterest(element, baseDataValidator);
         });
     }
 
     private void validateClientOrGroup(Client client, Group group, Long productId) {
         Validator.validateOrThrow("loan", baseDataValidator -> {
             if (client == null && group == null) {
-                baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(client).notNull();
+                // baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(client).notNull();
             } else {
                 if (client != null) {
                     officeSpecificLoanProductValidation(productId, client.getOffice().getId());
@@ -1599,6 +1624,7 @@ public final class LoanApplicationValidator {
     private void validateLoanTermAndRepaidEveryValues(final Integer loanTermFrequency, final Integer loanTermFrequencyType,
             final Integer numberOfRepayments, final Integer repaymentEvery, final Integer repaymentEveryType, final Loan loan) {
         final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+
         this.loanScheduleValidator.validateSelectedPeriodFrequencyTypeIsTheSame(dataValidationErrors, loanTermFrequency,
                 loanTermFrequencyType, numberOfRepayments, repaymentEvery, repaymentEveryType);
 
@@ -2261,6 +2287,43 @@ public final class LoanApplicationValidator {
             firstDisbursalAmount = loan.getLoanRepaymentScheduleDetail().getPrincipal().getAmount();
         }
         return firstDisbursalAmount;
+    }
+
+    private void validateBrokenPeriodInterest(JsonElement element, DataValidatorBuilder baseDataValidator) {
+        // Broken Period Interest Configuration Validation
+        String brokenPeriodMethodType = null;
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element)) {
+            brokenPeriodMethodType = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element);
+            baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE).value(brokenPeriodMethodType).notBlank()
+                    .isOneOfTheseStringValues(BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_EMI.getCode(),
+                            BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE.getCode());
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, element)) {
+            final Integer daysInYear = this.fromApiJsonHelper.extractIntegerNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, element,
+                    Locale.getDefault());
+            baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR).value(daysInYear).ignoreIfNull()
+                    .integerGreaterThanZero().isOneOfTheseValues(1, 360, 364, 365);
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, element)) {
+            final Integer daysInMonth = this.fromApiJsonHelper.extractIntegerNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, element,
+                    Locale.getDefault());
+            baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH).value(daysInMonth).ignoreIfNull()
+                    .integerGreaterThanZero().isOneOfTheseValues(1, 30);
+        }
+
+        // Validate isBpiCollectedAtDisbursement - can only be true with ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
+        // strategy
+        final Boolean isBpiCollectedAtDisbursement = this.fromApiJsonHelper
+                .extractBooleanNamed(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT, element);
+        if (Boolean.TRUE.equals(isBpiCollectedAtDisbursement)
+                && (brokenPeriodMethodType == null || !BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE.getCode()
+                        .equalsIgnoreCase(brokenPeriodMethodType))) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.msg.loan.bpi.collect.at.disbursement.requires.add.to.first.installment.with.principal.grace.strategy",
+                    "BPI collection at disbursement requires broken period interest strategy: add_to_first_installment_with_principal_grace");
+        }
     }
 
 }

@@ -280,6 +280,8 @@ final class LoanTransactionsApiResourceSwagger {
         public Set<GetLoansLoanIdLoanChargePaidByData> loanChargePaidByList;
         public PaymentDetailData paymentDetailData;
         public GetCodeValuesDataResponse classification;
+        public LoanOverdueData loanOverdueData;
+        public LoanChargesDueData loanOverdueChargeData;
 
         static final class PaymentDetailData {
 
@@ -310,6 +312,58 @@ final class LoanTransactionsApiResourceSwagger {
             public String name;
             @Schema(example = "true")
             public Boolean isSystemDefined;
+        }
+
+        static final class LoanOverdueData {
+
+            private LoanOverdueData() {}
+
+            @Schema(example = "[2025, 10, 5]")
+            public LocalDate overdueFromDate;
+            @Schema(example = "[2025, 10, 5]")
+            public LocalDate latestOverdueDate;
+            @Schema(example = "[2025, 10, 5]")
+            public LocalDate lastOverdueDate;
+        }
+
+        static final class LoanChargesDueData {
+
+            private LoanChargesDueData() {}
+
+            @Schema(example = "9783.000000")
+            public Double penaltyPostedAsOnDate;
+            @Schema(example = "9783.000000")
+            public Double penaltyPostedTillDate;
+            @Schema(example = "[2025, 10, 10]")
+            public LocalDate lastRunOnDate;
+            @Schema(example = "[2025, 10, 10]")
+            public LocalDate lastChargeAppliedOnDate;
+            @Schema(example = "0")
+            public Double feeDue;
+            public List<LoanChargeData> feeCharges;
+            public List<LoanChargeData> penaltyCharges;
+        }
+
+        static final class LoanChargeData {
+
+            private LoanChargeData() {}
+
+            @Schema(example = "3")
+            public Long chargeId;
+            @Schema(example = "MK_PENAL_CHARGE")
+            public String name;
+            @Schema(example = "[2025, 10, 10]")
+            public LocalDate submittedOnDate;
+            @Schema(example = "9783.000000")
+            public Double amountOutstanding;
+            @Schema(example = "true")
+            public Boolean penalty;
+            @Schema(example = "false")
+            public Boolean paid;
+            @Schema(example = "false")
+            public Boolean waived;
+            @Schema(example = "false")
+            public Boolean chargePayable;
         }
     }
 

@@ -81,6 +81,11 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
     @Column(name = "interest_completed_derived", scale = 6, precision = 19)
     private BigDecimal interestPaid;
 
+    @Getter
+    @Setter
+    @Column(name = "adjusted_interest_amount", scale = 6, precision = 19)
+    private BigDecimal adjustedInterestAmount = BigDecimal.ZERO;
+
     @Column(name = "interest_waived_derived", scale = 6, precision = 19)
     private BigDecimal interestWaived;
 
@@ -161,6 +166,9 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
 
     @Column(name = "is_re_aged", nullable = false)
     private boolean isReAged;
+
+    @Column(name = "emi_cleared_on")
+    private LocalDate emiClearedOn;
 
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY, mappedBy = "loanRepaymentScheduleInstallment")
     private Set<LoanInterestRecalcualtionAdditionalDetails> loanCompoundingDetails = new HashSet<>();
@@ -549,6 +557,7 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
 
         this.obligationsMet = false;
         this.obligationsMetOnDate = null;
+        this.emiClearedOn = null;
         if (this.creditedPrincipal != null) {
             setPrincipal(this.principal != null ? this.principal.subtract(this.creditedPrincipal) : null);
             this.creditedPrincipal = null;
@@ -580,10 +589,16 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
 
     public void resetInterestDue() {
         this.interestCharged = null;
+        if (this.loan != null) {
+            this.emiClearedOn = null;
+        }
     }
 
     public void resetPrincipalDue() {
         this.principal = null;
+        if (this.loan != null) {
+            this.emiClearedOn = null;
+        }
     }
 
     public interface PaymentFunction {
@@ -817,6 +832,7 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
             this.obligationsMet = false;
             this.obligationsMetOnDate = null;
         }
+        checkIfEmiCleared(transactionDate, currency);
     }
 
     private void trackAdvanceAndLateTotalsForRepaymentPeriod(final LocalDate transactionDate, final MonetaryCurrency currency,
@@ -847,6 +863,19 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
         } else {
             this.obligationsMetOnDate = null;
         }
+        checkIfEmiCleared(transactionDate, currency);
+    }
+
+    private void checkIfEmiCleared(final LocalDate transactionDate, final MonetaryCurrency currency) {
+        final boolean principalCleared = getPrincipalOutstanding(currency).isZero();
+        final boolean interestCleared = getInterestOutstanding(currency).isZero();
+        if (principalCleared && interestCleared) {
+            if (this.emiClearedOn == null) {
+                this.emiClearedOn = transactionDate;
+            }
+        } else {
+            this.emiClearedOn = null;
+        }
     }
 
     public void updateDueDate(final LocalDate newDueDate) {
@@ -873,6 +902,11 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
 
     public void updateInterestCharged(final BigDecimal interestCharged) {
         setInterestCharged(interestCharged);
+        if (this.loan != null && this.obligationsMetOnDate != null) {
+            checkIfEmiCleared(this.obligationsMetOnDate, this.loan.getCurrency());
+        } else if (this.loan != null) {
+            this.emiClearedOn = null;
+        }
     }
 
     public void updateObligationMet(final Boolean obligationMet) {
@@ -885,6 +919,11 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
 
     public void updatePrincipal(final BigDecimal principal) {
         setPrincipal(principal);
+        if (this.loan != null && this.obligationsMetOnDate != null) {
+            checkIfEmiCleared(this.obligationsMetOnDate, this.loan.getCurrency());
+        } else if (this.loan != null) {
+            this.emiClearedOn = null;
+        }
     }
 
     public void addToPrincipal(final LocalDate transactionDate, final Money transactionAmount) {
@@ -1103,6 +1142,11 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
         setDownPayment(period.isDownPaymentPeriod());
         setAdditional(false);
         setReAged(false);
+        if (this.loan != null && this.obligationsMetOnDate != null) {
+            checkIfEmiCleared(this.obligationsMetOnDate, this.loan.getCurrency());
+        } else {
+            this.emiClearedOn = null;
+        }
     }
 
     public void copyFrom(final LoanRepaymentScheduleInstallment installment) {
@@ -1115,6 +1159,7 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
         setFromDate(installment.getFromDate());
         setDueDate(installment.getDueDate());
         setObligationsMetOnDate(installment.getObligationsMetOnDate());
+        setEmiClearedOn(installment.getEmiClearedOn());
         // Flags
         setObligationsMet(installment.isObligationsMet());
         setAdditional(installment.isAdditional());
@@ -1247,5 +1292,11 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
 
     public boolean isFirstNormalInstallment(List<LoanRepaymentScheduleInstallment> installments) {
         return installments.stream().filter(rp -> !rp.isDownPayment()).findFirst().stream().anyMatch(rp -> rp.equals(this));
+    }
+
+    public static LoanRepaymentScheduleInstallment createInstallmentDetail(Loan loan, LocalDate fromDate, LocalDate dueDate,
+            Integer periodNumber, BigDecimal principalDue, BigDecimal interestDue, BigDecimal feeChargesDue, BigDecimal penaltyChargesDue) {
+        return new LoanRepaymentScheduleInstallment(loan, periodNumber, fromDate, dueDate, principalDue, interestDue, feeChargesDue,
+                penaltyChargesDue, false, null);
     }
 }

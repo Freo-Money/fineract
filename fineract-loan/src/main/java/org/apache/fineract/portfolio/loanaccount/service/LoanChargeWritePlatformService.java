@@ -44,4 +44,14 @@ public interface LoanChargeWritePlatformService {
     CommandProcessingResult deactivateOverdueLoanCharge(Long loanId, JsonCommand command);
 
     void applyOverdueChargesForLoan(Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList);
+
+    /**
+     * Applies overdue-installment penalty charges for a single loan (same logic as COB step
+     * APPLY_CHARGE_TO_OVERDUE_LOANS). Use this for on-demand penalty application via API.
+     */
+    CommandProcessingResult applyOverdueChargesForLoanByLoanId(Long loanId);
+
+    CommandProcessingResult payByChargeId(Long loanId, Long chargeId, JsonCommand command);
+
+    CommandProcessingResult waiveBulkLoanCharges(Long loanId, JsonCommand command);
 }

@@ -26,16 +26,20 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
+import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
@@ -43,11 +47,15 @@ import org.apache.fineract.portfolio.charge.domain.ChargeRepositoryWrapper;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.charge.exception.LoanChargeNotFoundException;
 import org.apache.fineract.portfolio.charge.exception.LoanChargeWithoutMandatoryFieldException;
+import org.apache.fineract.portfolio.charge.service.ChargeEnumerations;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
+import org.apache.fineract.portfolio.loanaccount.data.LoanChargeData;
+import org.apache.fineract.portfolio.loanaccount.data.LoanInstallmentChargeData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheDisbursementCharge;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
@@ -120,14 +128,14 @@ public class LoanChargeAssembler {
                     final ExternalId externalId = externalIdFactory.create(externalIdStr);
                     if (loanChargeId == null) {
                         final Charge chargeDefinition = this.chargeRepository.findOneWithNotFoundDetection(chargeId);
-                        ChargeTimeType chargeTime = null;
-                        if (chargeTimeType != null) {
-                            chargeTime = ChargeTimeType.fromInt(chargeTimeType);
+                        // Skip FORECLOSURE charges - they should only be created at actual foreclosure time
+                        if (ChargeTimeType.FORECLOSURE.getValue().equals(chargeDefinition.getChargeTimeType())) {
+                            continue;
                         }
-                        ChargeCalculationType chargeCalculation = null;
-                        if (chargeCalculationType != null) {
-                            chargeCalculation = ChargeCalculationType.fromInt(chargeCalculationType);
-                        }
+                        final ChargeTimeType chargeTime = chargeTimeType != null ? ChargeTimeType.fromInt(chargeTimeType) : null;
+                        final ChargeCalculationType chargeCalculation = chargeCalculationType != null
+                                ? ChargeCalculationType.fromInt(chargeCalculationType)
+                                : null;
                         ChargePaymentMode chargePaymentModeEnum = null;
                         if (chargePaymentMode != null) {
                             chargePaymentModeEnum = ChargePaymentMode.fromInt(chargePaymentMode);
@@ -210,6 +218,11 @@ public class LoanChargeAssembler {
                         final LoanCharge loanCharge = this.loanChargeRepository.findById(loanChargeId)
                                 .orElseThrow(() -> new LoanChargeNotFoundException(loanChargeId));
 
+                        // Skip FORECLOSURE charges - they should only be created at actual foreclosure time
+                        if (loanCharge.isDueAtForeclosure()) {
+                            continue;
+                        }
+
                         if (!loanCharge.isTrancheDisbursementCharge() || disbursementChargeIds.contains(loanChargeId)) {
                             loanChargeService.update(loanCharge, amount, dueDate, numberOfRepayments);
                             loanCharges.add(loanCharge);
@@ -287,6 +300,13 @@ public class LoanChargeAssembler {
                     amountPercentageAppliedTo = loan.getTotalInterest();
                 }
             break;
+            case PERCENT_OF_PRINCIPAL_OUTSTANDING:
+                if (command.hasParameter("principalOutstanding")) {
+                    amountPercentageAppliedTo = command.bigDecimalValueOfParameterNamed("principalOutstanding");
+                } else {
+                    amountPercentageAppliedTo = loan.getSummary().getTotalPrincipalOutstanding();
+                }
+            break;
             default:
             break;
         }
@@ -328,4 +348,40 @@ public class LoanChargeAssembler {
         return loanChargeService.create(null, chargeDefinition, loanPrincipal, amount, chargeTime, chargeCalculation, dueDate,
                 chargePaymentMode, numberOfRepayments, BigDecimal.ZERO, externalId);
     }
+
+    public Set<LoanChargeData> convertLoanChargesToData(Set<LoanCharge> loanCharges) {
+        if (loanCharges == null || loanCharges.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+        return loanCharges.stream().map(this::mapToLoanChargeData).collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private LoanChargeData mapToLoanChargeData(LoanCharge loanCharge) {
+        Charge chargeDefinition = loanCharge.getCharge();
+        if (chargeDefinition == null) {
+            return loanCharge.toData();
+        }
+
+        CurrencyData currency = chargeDefinition.toData().getCurrency();
+        EnumOptionData chargeTimeType = ChargeEnumerations.chargeTimeType(chargeDefinition.getChargeTimeType());
+        EnumOptionData chargeCalculationType = ChargeEnumerations.chargeCalculationType(chargeDefinition.getChargeCalculation());
+        EnumOptionData chargePaymentMode = ChargeEnumerations.chargePaymentMode(chargeDefinition.getChargePaymentMode());
+        List<LoanInstallmentChargeData> installmentChargeData = loanCharge.installmentCharges().stream().map(LoanInstallmentCharge::toData)
+                .toList();
+
+        Long taxGroupIdValue = loanCharge.getTaxGroup() != null ? loanCharge.getTaxGroup().getId() : null;
+        return LoanChargeData.builder().id(loanCharge.getId()).chargeId(chargeDefinition.getId()).name(chargeDefinition.getName())
+                .currency(currency).amount(loanCharge.getAmount()).amountPaid(loanCharge.getAmountPaid())
+                .amountWaived(loanCharge.getAmountWaived()).amountWrittenOff(loanCharge.getAmountWrittenOff())
+                .amountOutstanding(loanCharge.getAmountOutstanding()).chargeTimeType(chargeTimeType)
+                .submittedOnDate(loanCharge.getSubmittedOnDate()).dueDate(loanCharge.getDueLocalDate())
+                .chargeCalculationType(chargeCalculationType).percentage(loanCharge.getPercentage())
+                .amountPercentageAppliedTo(loanCharge.getAmountPercentageAppliedTo()).amountOrPercentage(loanCharge.getAmountOrPercentage())
+                .penalty(chargeDefinition.isPenalty()).chargePaymentMode(chargePaymentMode).paid(loanCharge.isPaid())
+                .waived(loanCharge.isWaived()).loanId(loanCharge.getLoan() != null ? loanCharge.getLoan().getId() : null)
+                .minCap(chargeDefinition.getMinCap()).maxCap(chargeDefinition.getMaxCap()).installmentChargeData(installmentChargeData)
+                .externalId(loanCharge.getExternalId()).taxGroupId(taxGroupIdValue).amountSansTax(loanCharge.getAmountSansTax())
+                .taxAmount(loanCharge.getTaxAmount()).taxDetails(loanCharge.getTaxDetailsAsData()).build();
+    }
+
 }

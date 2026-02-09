@@ -140,6 +140,7 @@ public interface LoanProductConstants {
 
     // Multiple disbursement related
     String installmentAmountInMultiplesOfParamName = "installmentAmountInMultiplesOf";
+    String ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME = "adjustInterestForRounding";
     String DISALLOW_EXPECTED_DISBURSEMENTS = "disallowExpectedDisbursements";
     String ALLOW_APPROVED_DISBURSED_AMOUNTS_OVER_APPLIED = "allowApprovedDisbursedAmountsOverApplied";
     String OVER_APPLIED_CALCULATION_TYPE = "overAppliedCalculationType";
@@ -185,4 +186,8 @@ public interface LoanProductConstants {
     String BUY_DOWN_FEE_STRATEGY_PARAM_NAME = "buyDownFeeStrategy";
     String BUY_DOWN_FEE_INCOME_TYPE_PARAM_NAME = "buyDownFeeIncomeType";
     String MERCHANT_BUY_DOWN_FEE_PARAM_NAME = "merchantBuyDownFee";
+
+    String INSTALLMENT_INTEREST_CALCULATION_TYPE = "installmentInterestCalculationType";
+
+    String IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME = "isBpiCollectedAtDisbursement";
 }

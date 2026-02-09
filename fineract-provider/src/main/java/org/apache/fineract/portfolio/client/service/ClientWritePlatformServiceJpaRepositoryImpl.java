@@ -229,6 +229,13 @@ public class ClientWritePlatformServiceJpaRepositoryImpl implements ClientWriteP
                         .findOneByCodeNameAndIdWithNotFoundDetection(ClientApiConstants.CLIENT_CLASSIFICATION, clientClassificationId);
             }
 
+            CodeValue maritalStatus = null;
+            final Long maritalStatusId = command.longValueOfParameterNamed(ClientApiConstants.maritalStatusIdParamName);
+            if (maritalStatusId != null) {
+                maritalStatus = this.codeValueRepository
+                        .findOneByCodeNameAndIdWithNotFoundDetection(ClientApiConstants.CLIENT_MARITAL_STATUS, maritalStatusId);
+            }
+
             final Long savingsProductId = command.longValueOfParameterNamed(ClientApiConstants.savingsProductIdParamName);
             if (savingsProductId != null) {
                 this.savingsProductRepository.findById(savingsProductId)
@@ -287,6 +294,10 @@ public class ClientWritePlatformServiceJpaRepositoryImpl implements ClientWriteP
                     lastname, fullname, activationDate, officeJoiningDate, externalId, mobileNo, emailAddress, staff, submittedOnDate,
                     savingsProductId, savingsAccountId, dataOfBirth, gender, clientType, clientClassification, legalForm.getValue(),
                     isStaff);
+
+            if (maritalStatus != null) {
+                newClient.updateMaritalStatus(maritalStatus);
+            }
 
             // Account Number generation
             this.clientRepository.saveAndFlush(newClient);
@@ -495,6 +506,17 @@ public class ClientWritePlatformServiceJpaRepositoryImpl implements ClientWriteP
                     clientForUpdate.clientClassificationId())) {
                 final Long newValue = command.longValueOfParameterNamed(ClientApiConstants.clientClassificationIdParamName);
                 changes.put(ClientApiConstants.clientClassificationIdParamName, newValue);
+            }
+
+            if (command.isChangeInLongParameterNamed(ClientApiConstants.maritalStatusIdParamName, clientForUpdate.maritalStatusId())) {
+                final Long newValue = command.longValueOfParameterNamed(ClientApiConstants.maritalStatusIdParamName);
+                CodeValue maritalStatus = null;
+                if (newValue != null) {
+                    maritalStatus = this.codeValueRepository
+                            .findOneByCodeNameAndIdWithNotFoundDetection(ClientApiConstants.CLIENT_MARITAL_STATUS, newValue);
+                }
+                changes.put(ClientApiConstants.maritalStatusIdParamName, newValue);
+                clientForUpdate.updateMaritalStatus(maritalStatus);
             }
 
             if (command.isChangeInIntegerParameterNamed(ClientApiConstants.legalFormIdParamName, clientForUpdate.getLegalForm())) {

@@ -93,6 +93,9 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleDelinquencyDat
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.MoneyHolder;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.TransactionCtx;
+import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryWritePlatformService;
+import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanForeclosureValidator;
@@ -160,6 +163,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanTransactionService loanTransactionService;
     private final LoanAccountDomainServiceJpaHelper loanAccountDomainServiceJpaHelper;
     private final LoanJournalEntryPoster journalEntryPoster;
+    private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
+    private final ForeclosureChargeHelper foreclosureChargeHelper;
 
     @Transactional
     @Override
@@ -266,6 +271,15 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         loanTransactionValidator.validateActivityNotBeforeClientOrGroupTransferDate(loan, event,
                 newRepaymentTransaction.getTransactionDate());
         makeRepayment(loan, newRepaymentTransaction, scheduleGeneratorDTO);
+
+        // For NPA loans, create ACCRUAL_SUSPENSE_REVERSE transactions for interest/fee/penalty portions paid
+        if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            LoanTransaction suspenseReverseTransaction = createAccrualSuspenseReverseForRepayment(loan, newRepaymentTransaction);
+            if (suspenseReverseTransaction != null) {
+                loanTransactionValidator.validateAccrualSuspenseReverseForRepayment(loan, suspenseReverseTransaction,
+                        newRepaymentTransaction);
+            }
+        }
 
         if (loan.isInterestBearingAndInterestRecalculationEnabled()) {
             loanAccrualsProcessingService.reprocessExistingAccruals(loan, true);
@@ -383,7 +397,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     @Transactional
     public LoanTransaction makeChargePayment(final Loan loan, final Long chargeId, final LocalDate transactionDate,
             final BigDecimal transactionAmount, final PaymentDetail paymentDetail, final String noteText, final ExternalId txnExternalId,
-            final Integer transactionType, Integer installmentNumber) {
+            final Integer transactionType, Integer installmentNumber, boolean isAccountTransfer) {
         checkClientOrGroupActive(loan);
         if (loan.isChargedOff() && DateUtils.isBefore(transactionDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
@@ -433,7 +447,16 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         loanAccrualsProcessingService.processAccrualsOnInterestRecalculation(loan, loan.isInterestBearingAndInterestRecalculationEnabled(),
                 true);
 
-        journalEntryPoster.postJournalEntriesForLoanTransaction(newPaymentTransaction, true, false);
+        // For NPA loans, create ACCRUAL_SUSPENSE_REVERSE transactions for fee/penalty portions paid in charge payment
+        if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            LoanTransaction suspenseReverseTransaction = createAccrualSuspenseReverseForRepayment(loan, newPaymentTransaction);
+            if (suspenseReverseTransaction != null) {
+                loanTransactionValidator.validateAccrualSuspenseReverseForRepayment(loan, suspenseReverseTransaction,
+                        newPaymentTransaction);
+            }
+        }
+
+        journalEntryPoster.postJournalEntriesForLoanTransaction(newPaymentTransaction, isAccountTransfer, false);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanChargePaymentPostBusinessEvent(newPaymentTransaction));
         return newPaymentTransaction;
@@ -699,7 +722,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
     @Override
     public LoanTransaction foreCloseLoan(Loan loan, final LocalDate foreClosureDate, final String noteText, final ExternalId externalId,
-            Map<String, Object> changes) {
+            Map<Long, BigDecimal> foreclosureChargePercentageMap, Map<String, Object> changes) {
 
         if (loan.isChargedOff() && DateUtils.isBefore(foreClosureDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
@@ -709,47 +732,63 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
         businessEventNotifierService.notifyPreBusinessEvent(new LoanForeClosurePreBusinessEvent(loan));
         MonetaryCurrency currency = loan.getCurrency();
+        List<Long> transactionIds = new ArrayList<>();
         List<LoanTransaction> newTransactions = new ArrayList<>();
+        List<LoanTransaction> transactionsToJournal = new ArrayList<>();
 
         final ScheduleGeneratorDTO scheduleGeneratorDTO = null;
-        final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate);
-
-        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions);
-
-        Money interestPayable = foreCloseDetail.getInterestCharged(currency);
-        Money feePayable = foreCloseDetail.getFeeChargesCharged(currency);
-        Money penaltyPayable = foreCloseDetail.getPenaltyChargesCharged(currency);
-        Money payPrincipal = foreCloseDetail.getPrincipal(currency);
-        updateInstallmentsPostDate(loan, foreClosureDate);
-
-        LoanTransaction payment = null;
-
-        if (payPrincipal.plus(interestPayable).plus(feePayable).plus(penaltyPayable).isGreaterThanZero()) {
-            final PaymentDetail paymentDetail = null;
-            payment = LoanTransaction.repayment(loan.getOffice(), payPrincipal.plus(interestPayable).plus(feePayable).plus(penaltyPayable),
-                    paymentDetail, foreClosureDate, externalId);
-            payment.updateLoan(loan);
-            newTransactions.add(payment);
+        Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.mergeForeclosureChargesFromLoanProduct(loan,
+                foreclosureChargePercentageMap);
+        final boolean updateCharges = true;
+        Money foreclosureFee = foreclosureChargeHelper.calculateForeclosureFee(loan, mergedChargePercentages, currency);
+        final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
+                mergedChargePercentages, updateCharges);
+        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions, mergedChargePercentages);
+        if (!newTransactions.isEmpty()) {
+            persistLoanTransactions(loan, newTransactions, null, transactionsToJournal);
+            newTransactions.clear();
         }
 
-        List<Long> transactionIds = new ArrayList<>();
+        updateInstallmentsPostDate(loan, foreClosureDate);
+        loanBalanceService.updateLoanSummaryDerivedFields(loan);
+        loanBalanceService.applyForeclosureRoundingToLoan(loan, foreCloseDetail);
+
+        Money payPrincipal = foreCloseDetail.getPrincipal(currency);
+        LoanTransaction payment = foreclosureChargeHelper.createForeclosurePaymentTransaction(loan, foreCloseDetail, foreClosureDate,
+                externalId);
+
+        if (payment != null && foreclosureFee.isGreaterThanZero()) {
+            foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
+        }
+
         if (payment != null) {
             loanForeclosureValidator.validateForForeclosure(loan, payment.getTransactionDate());
         }
+        if (payment != null) {
+            payment.updateLoan(loan);
+            newTransactions.add(payment);
+        }
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_FORECLOSURE);
         handleForeClosureTransactions(loan, payment, scheduleGeneratorDTO);
+        LoanTransaction savedPayment = null;
+        if (!newTransactions.isEmpty()) {
+            savedPayment = persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal, payment);
+            newTransactions.clear();
+        }
+        if (savedPayment != null) {
+            payment = savedPayment;
+        }
 
         loanAccrualsProcessingService.reprocessExistingAccruals(loan, true);
         if (loan.isInterestBearingAndInterestRecalculationEnabled()) {
             loanAccrualsProcessingService.processIncomePostingAndAccruals(loan, true);
         }
 
-        for (LoanTransaction newTransaction : newTransactions) {
-            LoanTransaction savedNewTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(newTransaction);
-            loan.addLoanTransaction(savedNewTransaction);
-            journalEntryPoster.postJournalEntriesForLoanTransaction(newTransaction, false, false);
-            transactionIds.add(savedNewTransaction.getId());
+        if (!newTransactions.isEmpty()) {
+            persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal);
+            newTransactions.clear();
         }
+        loanLifecycleStateMachine.determineAndTransition(loan, foreClosureDate);
         changes.put("transactions", transactionIds);
         changes.put("eventAmount", payPrincipal.getAmount().negate());
 
@@ -760,10 +799,40 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final Note note = Note.loanNote(loan, noteText);
             this.noteRepository.save(note);
         }
-
+        postJournalEntriesForTransactions(transactionsToJournal);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanForeClosurePostBusinessEvent(payment));
         return payment;
+    }
+
+    private LoanTransaction persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
+            List<LoanTransaction> transactionsToJournal, LoanTransaction transactionToReturn) {
+        LoanTransaction savedReference = null;
+        for (LoanTransaction transaction : transactions) {
+            LoanTransaction savedTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(transaction);
+            loan.addLoanTransaction(savedTransaction);
+            if (transactionsToJournal != null) {
+                transactionsToJournal.add(savedTransaction);
+            }
+            if (transactionIds != null) {
+                transactionIds.add(savedTransaction.getId());
+            }
+            if (transactionToReturn == transaction) {
+                savedReference = savedTransaction;
+            }
+        }
+        return savedReference;
+    }
+
+    private void persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
+            List<LoanTransaction> transactionsToJournal) {
+        persistLoanTransactions(loan, transactions, transactionIds, transactionsToJournal, null);
+    }
+
+    private void postJournalEntriesForTransactions(List<LoanTransaction> transactions) {
+        for (LoanTransaction transaction : transactions) {
+            journalEntryPoster.postJournalEntriesForLoanTransaction(transaction, false, false);
+        }
     }
 
     @Override
@@ -1018,10 +1087,181 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, repaymentTransaction, null, scheduleGeneratorDTO);
     }
 
+    /**
+     * Creates ACCRUAL_SUSPENSE_REVERSE transactions for interest/fee/penalty portions paid in a repayment for NPA loans
+     */
+    private LoanTransaction createAccrualSuspenseReverseForRepayment(final Loan loan, final LoanTransaction repaymentTransaction) {
+        BigDecimal interestPortion = repaymentTransaction.getInterestPortion();
+        BigDecimal feePortion = repaymentTransaction.getFeeChargesPortion();
+        BigDecimal penaltyPortion = repaymentTransaction.getPenaltyChargesPortion();
+
+        // Calculate available ACCRUAL_SUSPENSE balance to ensure we don't reverse more than available
+        BigDecimal availableSuspenseInterest = BigDecimal.ZERO;
+        BigDecimal availableSuspenseFee = BigDecimal.ZERO;
+        BigDecimal availableSuspensePenalty = BigDecimal.ZERO;
+
+        for (LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (transaction.isNotReversed()) {
+                LoanTransactionType type = transaction.getTypeOf();
+                if (type.equals(LoanTransactionType.ACCRUAL_SUSPENSE)) {
+                    availableSuspenseInterest = availableSuspenseInterest.add(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    availableSuspenseFee = availableSuspenseFee.add(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    availableSuspensePenalty = availableSuspensePenalty.add(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                } else if (type.equals(LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE)) {
+                    availableSuspenseInterest = availableSuspenseInterest.subtract(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    availableSuspenseFee = availableSuspenseFee.subtract(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    availableSuspensePenalty = availableSuspensePenalty
+                            .subtract(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                }
+            }
+        }
+
+        // Cap reverse amounts to available suspense balance (for partial payments)
+        interestPortion = capAmountToAvailable(interestPortion, availableSuspenseInterest);
+        feePortion = capAmountToAvailable(feePortion, availableSuspenseFee);
+        penaltyPortion = capAmountToAvailable(penaltyPortion, availableSuspensePenalty);
+
+        // Only create reverse transaction if there are non-zero interest/fee/penalty portions
+        BigDecimal totalAmount = MathUtil.add(interestPortion, feePortion, penaltyPortion);
+        if (MathUtil.isGreaterThanZero(totalAmount)) {
+
+            LoanTransaction suspenseReverseTransaction = LoanTransaction.accrualSuspenseReverseTransaction(loan, loan.getOffice(),
+                    repaymentTransaction.getTransactionDate(), totalAmount, interestPortion, feePortion, penaltyPortion,
+                    externalIdFactory.create());
+
+            // Copy charge payment mappings from repayment transaction for proper journal entry accounting
+            // This ensures charge-specific GL account mappings are used
+            if (repaymentTransaction.getLoanChargesPaid() != null && !repaymentTransaction.getLoanChargesPaid().isEmpty()) {
+                for (LoanChargePaidBy originalChargePaidBy : repaymentTransaction.getLoanChargesPaid()) {
+                    LoanCharge loanCharge = originalChargePaidBy.getLoanCharge();
+                    BigDecimal chargeAmount = originalChargePaidBy.getAmount();
+                    Integer installmentNumber = originalChargePaidBy.getInstallmentNumber();
+
+                    // Only copy charges that match the fee/penalty portions being reversed
+                    boolean isPenaltyCharge = loanCharge.isPenaltyCharge();
+                    boolean hasMatchingPortion = (isPenaltyCharge && MathUtil.isGreaterThanZero(penaltyPortion))
+                            || (!isPenaltyCharge && MathUtil.isGreaterThanZero(feePortion));
+
+                    if (hasMatchingPortion) {
+                        LoanChargePaidBy newChargePaidBy = new LoanChargePaidBy(suspenseReverseTransaction, loanCharge, chargeAmount,
+                                installmentNumber);
+                        suspenseReverseTransaction.getLoanChargesPaid().add(newChargePaidBy);
+                    }
+                }
+            }
+
+            // Create repayment schedule mappings proportional to capped amounts
+            // This ensures mappings reflect only the suspense balance being reversed, not the full repayment
+            if (repaymentTransaction.getLoanTransactionToRepaymentScheduleMappings() != null
+                    && !repaymentTransaction.getLoanTransactionToRepaymentScheduleMappings().isEmpty()) {
+                List<LoanTransactionToRepaymentScheduleMapping> newMappings = new ArrayList<>();
+                MonetaryCurrency currency = loan.getCurrency();
+
+                // Calculate total portions from repayment to distribute capped amounts proportionally
+                BigDecimal totalRepaymentInterest = BigDecimal.ZERO;
+                BigDecimal totalRepaymentFee = BigDecimal.ZERO;
+                BigDecimal totalRepaymentPenalty = BigDecimal.ZERO;
+                for (LoanTransactionToRepaymentScheduleMapping originalMapping : repaymentTransaction
+                        .getLoanTransactionToRepaymentScheduleMappings()) {
+                    totalRepaymentInterest = totalRepaymentInterest.add(MathUtil.nullToZero(originalMapping.getInterestPortion()));
+                    totalRepaymentFee = totalRepaymentFee.add(MathUtil.nullToZero(originalMapping.getFeeChargesPortion()));
+                    totalRepaymentPenalty = totalRepaymentPenalty.add(MathUtil.nullToZero(originalMapping.getPenaltyChargesPortion()));
+                }
+
+                for (LoanTransactionToRepaymentScheduleMapping originalMapping : repaymentTransaction
+                        .getLoanTransactionToRepaymentScheduleMappings()) {
+                    LoanRepaymentScheduleInstallment installment = originalMapping.getLoanRepaymentScheduleInstallment();
+                    Money principalPortion = Money.zero(currency); // No principal in reverse suspense
+
+                    // Calculate proportional amounts based on capped values
+                    Money interestPortionMoney = Money.zero(currency);
+                    Money feeChargesPortion = Money.zero(currency);
+                    Money penaltyChargesPortion = Money.zero(currency);
+
+                    // Proportionally distribute capped interest portion
+                    if (totalRepaymentInterest.compareTo(BigDecimal.ZERO) > 0 && interestPortion != null
+                            && interestPortion.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal originalInterest = MathUtil.nullToZero(originalMapping.getInterestPortion());
+                        if (originalInterest.compareTo(BigDecimal.ZERO) > 0) {
+                            // Calculate proportional share: (originalInterest / totalRepaymentInterest) *
+                            // cappedInterestPortion
+                            BigDecimal proportionalInterest = originalInterest.multiply(interestPortion).divide(totalRepaymentInterest, 6,
+                                    java.math.RoundingMode.HALF_UP);
+                            interestPortionMoney = Money.of(currency, proportionalInterest);
+                        }
+                    }
+
+                    // Proportionally distribute capped fee portion
+                    if (totalRepaymentFee.compareTo(BigDecimal.ZERO) > 0 && feePortion != null
+                            && feePortion.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal originalFee = MathUtil.nullToZero(originalMapping.getFeeChargesPortion());
+                        if (originalFee.compareTo(BigDecimal.ZERO) > 0) {
+                            BigDecimal proportionalFee = originalFee.multiply(feePortion).divide(totalRepaymentFee, 6,
+                                    java.math.RoundingMode.HALF_UP);
+                            feeChargesPortion = Money.of(currency, proportionalFee);
+                        }
+                    }
+
+                    // Proportionally distribute capped penalty portion
+                    if (totalRepaymentPenalty.compareTo(BigDecimal.ZERO) > 0 && penaltyPortion != null
+                            && penaltyPortion.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal originalPenalty = MathUtil.nullToZero(originalMapping.getPenaltyChargesPortion());
+                        if (originalPenalty.compareTo(BigDecimal.ZERO) > 0) {
+                            BigDecimal proportionalPenalty = originalPenalty.multiply(penaltyPortion).divide(totalRepaymentPenalty, 6,
+                                    java.math.RoundingMode.HALF_UP);
+                            penaltyChargesPortion = Money.of(currency, proportionalPenalty);
+                        }
+                    }
+
+                    // Only create mapping if the total amount is non-zero to avoid NOT NULL constraint violation
+                    Money totalMappingAmount = MathUtil.plus(principalPortion, interestPortionMoney, feeChargesPortion,
+                            penaltyChargesPortion);
+                    if (totalMappingAmount != null && totalMappingAmount.isGreaterThanZero()) {
+                        newMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(suspenseReverseTransaction, installment,
+                                principalPortion, interestPortionMoney, feeChargesPortion, penaltyChargesPortion));
+                    }
+                }
+
+                if (!newMappings.isEmpty()) {
+                    suspenseReverseTransaction.addLoanTransactionToRepaymentScheduleMappings(newMappings);
+                }
+            }
+
+            LoanTransaction savedSuspenseReverseTransaction = loanTransactionRepository.save(suspenseReverseTransaction);
+            loanTransactionRepository.flush(); // Flush to ensure ID is available for journal entry posting
+            loan.addLoanTransaction(savedSuspenseReverseTransaction);
+
+            // Post journal entries for ACCRUAL_SUSPENSE_REVERSE transaction
+            journalEntryPoster.postJournalEntriesForLoanTransaction(savedSuspenseReverseTransaction, false, false);
+            return savedSuspenseReverseTransaction;
+        }
+        return null;
+    }
+
     private void handleForeClosureTransactions(final Loan loan, final LoanTransaction repaymentTransaction,
             final ScheduleGeneratorDTO scheduleGeneratorDTO) {
         loan.setLoanSubStatus(LoanSubStatus.FORECLOSED);
         loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, repaymentTransaction, null, scheduleGeneratorDTO);
+    }
+
+    @Override
+    public void createAndSaveLoanScheduleArchive(Loan loan) {
+        final LoanRescheduleRequest loanRescheduleRequest = null;
+        final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
+        this.loanScheduleHistoryWritePlatformService.createAndSaveLoanScheduleArchive(installments, loan, loanRescheduleRequest);
+    }
+
+    /**
+     * Caps an amount to the available balance. Returns zero if amount is null, zero, or available balance is zero.
+     */
+    private BigDecimal capAmountToAvailable(BigDecimal amount, BigDecimal availableBalance) {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        if (availableBalance.compareTo(BigDecimal.ZERO) > 0) {
+            return amount.min(availableBalance);
+        }
+        return BigDecimal.ZERO;
     }
 
 }

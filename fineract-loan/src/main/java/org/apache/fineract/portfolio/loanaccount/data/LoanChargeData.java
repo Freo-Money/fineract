@@ -30,6 +30,7 @@ import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.portfolio.charge.data.ChargeData;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
+import org.apache.fineract.portfolio.tax.data.TaxDetailsData;
 
 /**
  * Immutable data object for loan charge data.
@@ -62,7 +63,7 @@ public class LoanChargeData {
     private final BigDecimal amountWaived;
     private final BigDecimal amountWrittenOff;
 
-    private final BigDecimal amountOutstanding;
+    private BigDecimal amountOutstanding;
 
     private final BigDecimal amountOrPercentage;
 
@@ -94,9 +95,14 @@ public class LoanChargeData {
 
     private final ExternalId externalLoanId;
 
+    private final Long taxGroupId;
+    private final BigDecimal amountSansTax;
+    private final BigDecimal taxAmount;
+    private final List<TaxDetailsData> taxDetails;
+
     public static LoanChargeData template(final List<ChargeData> chargeOptions) {
         return new LoanChargeData(null, null, null, null, null, null, null, null, chargeOptions, false, null, false, false, null,
-                ExternalId.empty(), null, null, null, null, ExternalId.empty());
+                ExternalId.empty(), null, null, null, null, ExternalId.empty(), null, null, null, null);
     }
 
     /**
@@ -107,7 +113,7 @@ public class LoanChargeData {
             final EnumOptionData chargeCalculationType, final boolean penalty, final EnumOptionData chargePaymentMode,
             final BigDecimal minCap, final BigDecimal maxCap, final ExternalId externalId) {
         return new LoanChargeData(null, chargeId, name, currency, amount, percentage, chargeTimeType, chargeCalculationType, null, penalty,
-                chargePaymentMode, false, false, null, ExternalId.empty(), minCap, maxCap, null, null, externalId);
+                chargePaymentMode, false, false, null, ExternalId.empty(), minCap, maxCap, null, null, externalId, null, null, null, null);
     }
 
     public LoanChargeData(final Long id, final Long chargeId, final String name, final CurrencyData currency, final BigDecimal amount,
@@ -116,7 +122,8 @@ public class LoanChargeData {
             final LocalDate dueDate, final EnumOptionData chargeCalculationType, final BigDecimal percentage,
             final BigDecimal amountPercentageAppliedTo, final boolean penalty, final EnumOptionData chargePaymentMode, final boolean paid,
             final boolean waived, final Long loanId, final ExternalId externalLoanId, final BigDecimal minCap, final BigDecimal maxCap,
-            final BigDecimal amountOrPercentage, List<LoanInstallmentChargeData> installmentChargeData, final ExternalId externalId) {
+            final BigDecimal amountOrPercentage, List<LoanInstallmentChargeData> installmentChargeData, final ExternalId externalId,
+            final Long taxGroupId, final BigDecimal amountSansTax, final BigDecimal taxAmount, final List<TaxDetailsData> taxDetails) {
         this.id = id;
         this.chargeId = chargeId;
         this.name = name;
@@ -156,13 +163,18 @@ public class LoanChargeData {
         this.amountUnrecognized = null;
         this.externalId = externalId;
         this.externalLoanId = externalLoanId;
+        this.taxGroupId = taxGroupId;
+        this.amountSansTax = amountSansTax;
+        this.taxAmount = taxAmount;
+        this.taxDetails = taxDetails;
     }
 
     private LoanChargeData(final Long id, final Long chargeId, final String name, final CurrencyData currency, final BigDecimal amount,
             final BigDecimal percentage, final EnumOptionData chargeTimeType, final EnumOptionData chargeCalculationType,
             final List<ChargeData> chargeOptions, final boolean penalty, final EnumOptionData chargePaymentMode, final boolean paid,
             final boolean waived, final Long loanId, final ExternalId externalLoanId, final BigDecimal minCap, final BigDecimal maxCap,
-            final BigDecimal amountOrPercentage, List<LoanInstallmentChargeData> installmentChargeData, final ExternalId externalId) {
+            final BigDecimal amountOrPercentage, List<LoanInstallmentChargeData> installmentChargeData, final ExternalId externalId,
+            final Long taxGroupId, final BigDecimal amountSansTax, final BigDecimal taxAmount, final List<TaxDetailsData> taxDetails) {
         this.id = id;
         this.chargeId = chargeId;
         this.name = name;
@@ -203,11 +215,16 @@ public class LoanChargeData {
         this.amountAccrued = null;
         this.amountUnrecognized = null;
         this.externalId = externalId;
+        this.taxGroupId = taxGroupId;
+        this.amountSansTax = amountSansTax;
+        this.taxAmount = taxAmount;
+        this.taxDetails = taxDetails;
     }
 
     public LoanChargeData(final Long id, final LocalDate dueAsOfDate, final LocalDate submittedOnDate, final BigDecimal amountOutstanding,
             EnumOptionData chargeTimeType, final Long loanId, final ExternalId externalLoanId,
-            List<LoanInstallmentChargeData> installmentChargeData, final ExternalId externalId) {
+            List<LoanInstallmentChargeData> installmentChargeData, final ExternalId externalId, final Long taxGroupId,
+            final BigDecimal amountSansTax, final BigDecimal taxAmount, final List<TaxDetailsData> taxDetails) {
         this.id = id;
         this.chargeId = null;
         this.name = null;
@@ -238,6 +255,10 @@ public class LoanChargeData {
         this.amountUnrecognized = null;
         this.externalId = externalId;
         this.externalLoanId = externalLoanId;
+        this.taxGroupId = taxGroupId;
+        this.amountSansTax = amountSansTax;
+        this.taxAmount = taxAmount;
+        this.taxDetails = taxDetails;
     }
 
     public LoanChargeData(final Long id, final Long chargeId, final LocalDate dueAsOfDate, final LocalDate submittedOnDate,
@@ -273,6 +294,10 @@ public class LoanChargeData {
         this.amountAccrued = amountAccrued;
         this.amountUnrecognized = null;
         this.externalId = externalId;
+        this.taxGroupId = null;
+        this.amountSansTax = null;
+        this.taxAmount = null;
+        this.taxDetails = null;
     }
 
     public LoanChargeData(final BigDecimal amountUnrecognized, final LoanChargeData chargeData) {
@@ -306,6 +331,10 @@ public class LoanChargeData {
         this.amountAccrued = chargeData.amountAccrued;
         this.amountUnrecognized = amountUnrecognized;
         this.externalId = chargeData.externalId;
+        this.taxGroupId = chargeData.taxGroupId;
+        this.amountSansTax = chargeData.amountSansTax;
+        this.taxAmount = chargeData.taxAmount;
+        this.taxDetails = chargeData.taxDetails;
     }
 
     public LoanChargeData(LoanChargeData chargeData, List<LoanInstallmentChargeData> installmentChargeData) {
@@ -339,6 +368,10 @@ public class LoanChargeData {
         this.amountAccrued = chargeData.amountAccrued;
         this.amountUnrecognized = chargeData.amountUnrecognized;
         this.externalId = chargeData.externalId;
+        this.taxGroupId = chargeData.taxGroupId;
+        this.amountSansTax = chargeData.amountSansTax;
+        this.taxAmount = chargeData.taxAmount;
+        this.taxDetails = chargeData.taxDetails;
     }
 
     public LoanChargeData(final Long id, final LocalDate dueAsOfDate, final BigDecimal amount, final EnumOptionData chargeCalculationType,
@@ -373,6 +406,10 @@ public class LoanChargeData {
         this.amountAccrued = null;
         this.amountUnrecognized = null;
         this.externalId = ExternalId.empty();
+        this.taxGroupId = null;
+        this.amountSansTax = null;
+        this.taxAmount = null;
+        this.taxDetails = null;
     }
 
     public LoanChargeData(final Long id, final LocalDate dueAsOfDate, final BigDecimal amountOrPercentage) {
@@ -406,6 +443,10 @@ public class LoanChargeData {
         this.amountAccrued = null;
         this.amountUnrecognized = null;
         this.externalId = ExternalId.empty();
+        this.taxGroupId = null;
+        this.amountSansTax = null;
+        this.taxAmount = null;
+        this.taxDetails = null;
     }
 
     public boolean isChargePayable() {
@@ -426,5 +467,9 @@ public class LoanChargeData {
 
     public void updateAmountAccrued(BigDecimal amountAccrued) {
         this.amountAccrued = amountAccrued;
+    }
+
+    public void setAmountOutstanding(BigDecimal oustandingAmount) {
+        this.amountOutstanding = oustandingAmount;
     }
 }

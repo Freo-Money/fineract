@@ -497,6 +497,11 @@ public class ProgressiveLoanTransactionValidatorImpl implements ProgressiveLoanT
     }
 
     @Override
+    public void validateLoanForeclosureChargePercentages(Loan loan, Map<Long, BigDecimal> chargePercentages) {
+        loanTransactionValidator.validateLoanForeclosureChargePercentages(loan, chargePercentages);
+    }
+
+    @Override
     public void validateLoanClientIsActive(Loan loan) {
         loanTransactionValidator.validateLoanClientIsActive(loan);
     }
@@ -592,6 +597,12 @@ public class ProgressiveLoanTransactionValidatorImpl implements ProgressiveLoanT
     public void validateClassificationCodeValue(final String codeName, final Long transactionClassificationId,
             DataValidatorBuilder baseDataValidator) {
         loanTransactionValidator.validateClassificationCodeValue(codeName, transactionClassificationId, baseDataValidator);
+    }
+
+    @Override
+    public void validateAccrualSuspenseReverseForRepayment(final Loan loan, final LoanTransaction suspenseReverseTransaction,
+            final LoanTransaction repaymentTransaction) {
+        loanTransactionValidator.validateAccrualSuspenseReverseForRepayment(loan, suspenseReverseTransaction, repaymentTransaction);
     }
 
     private Set<String> getCapitalizedIncomeParameters() {
