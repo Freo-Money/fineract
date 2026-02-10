@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.accounting.closure.domain.GLClosure;
 import org.apache.fineract.accounting.closure.domain.GLClosureRepository;
@@ -79,6 +80,7 @@ import org.apache.fineract.portfolio.shareaccounts.data.ShareAccountTransactionE
 import org.springframework.dao.DataAccessException;
 
 @RequiredArgsConstructor
+@Slf4j
 public class AccountingProcessorHelper {
 
     public static final String LOAN_TRANSACTION_IDENTIFIER = "L";
@@ -440,6 +442,23 @@ public class AccountingProcessorHelper {
         }
 
         if (totalAmount.compareTo(totalCreditedAmount) != 0) {
+            BigDecimal difference = totalCreditedAmount.subtract(totalAmount);
+            List<String> chargeBreakdown = chargePaymentDTOs == null ? List.of("null") : chargePaymentDTOs.stream().map(cp -> {
+                BigDecimal amt = cp.getAmountSansTax() != null ? cp.getAmountSansTax() : cp.getAmount();
+                return String.format("chargeId=%s loanChargeId=%s amount=%s", cp.getChargeId(), cp.getLoanChargeId(), amt);
+            }).toList();
+            int chargeCount = chargePaymentDTOs == null ? 0 : chargePaymentDTOs.size();
+            String chargeBreakdownStr = String.join(", ", chargeBreakdown);
+            String creditsMsg = String.format(
+                    "Sum of charge credits (%s) does not equal transaction total (%s) for loan %s, transaction %s, date=%s, "
+                            + "officeId=%s, loanProductId=%s, accountTypes debit=%s credit=%s. Difference=%s. "
+                            + "Charge count=%s. Charges: %s. "
+                            + "To investigate: SELECT lcpb.*, lc.charge_id, lc.is_penalty FROM m_loan_charge_paid_by lcpb "
+                            + "JOIN m_loan_charge lc ON lcpb.loan_charge_id=lc.id WHERE lcpb.loan_transaction_id=%s",
+                    totalCreditedAmount, totalAmount, loanId, transactionId, transactionDate, office != null ? office.getId() : null,
+                    loanProductId, accountTypeToBeDebited, accountTypeToBeCredited, difference, chargeCount, chargeBreakdownStr,
+                    transactionId);
+            log.warn("Sum of charge credits does not equal transaction total (see placeholder): {}", creditsMsg);
             throw new PlatformDataIntegrityException(
                     "Meltdown in advanced accounting...sum of all charge credits does not equal the total transaction amount",
                     "Sum of charge credits (" + totalCreditedAmount + ") does not equal transaction total (" + totalAmount + ") for loan "
@@ -448,6 +467,18 @@ public class AccountingProcessorHelper {
         }
 
         if (totalAmount.compareTo(totalDebitedAmount) != 0) {
+            BigDecimal difference = totalDebitedAmount.subtract(totalAmount);
+            List<String> chargeBreakdown = chargePaymentDTOs == null ? List.of("null") : chargePaymentDTOs.stream().map(cp -> {
+                BigDecimal amt = cp.getAmountSansTax() != null ? cp.getAmountSansTax() : cp.getAmount();
+                return String.format("chargeId=%s loanChargeId=%s amount=%s", cp.getChargeId(), cp.getLoanChargeId(), amt);
+            }).toList();
+            String chargeBreakdownStr = String.join(", ", chargeBreakdown);
+            String debitsMsg = String.format(
+                    "Sum of charge debits (%s) does not equal transaction total (%s) for loan %s, transaction %s, date=%s, "
+                            + "officeId=%s, loanProductId=%s. Difference=%s. Charges: %s",
+                    totalDebitedAmount, totalAmount, loanId, transactionId, transactionDate, office != null ? office.getId() : null,
+                    loanProductId, difference, chargeBreakdownStr);
+            log.warn("Sum of charge debits does not equal transaction total (see placeholder): {}", debitsMsg);
             throw new PlatformDataIntegrityException(
                     "Meltdown in advanced accounting...sum of all charge debits does not equal the total transaction amount",
                     "Sum of charge debits (" + totalDebitedAmount + ") does not equal transaction total (" + totalAmount + ") for loan "
