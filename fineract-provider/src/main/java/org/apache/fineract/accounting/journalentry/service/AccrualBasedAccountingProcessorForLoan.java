@@ -25,7 +25,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.accounting.closure.domain.GLClosure;
 import org.apache.fineract.accounting.common.AccountingConstants.AccrualAccountsForLoan;
 import org.apache.fineract.accounting.common.AccountingConstants.FinancialActivity;
@@ -46,6 +48,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class AccrualBasedAccountingProcessorForLoan implements AccountingProcessorForLoan {
 
     private final AccountingProcessorHelper helper;
@@ -2060,6 +2063,18 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
     }
 
+    private static String formatChargePaymentsForLog(final List<ChargePaymentDTO> payments) {
+        if (payments == null) {
+            return "null";
+        }
+        if (payments.isEmpty()) {
+            return "[]";
+        }
+        return "size=" + payments.size() + " "
+                + payments.stream().map(cp -> String.format("(chargeId=%s,loanChargeId=%s,amount=%s,amountSansTax=%s)", cp.getChargeId(),
+                        cp.getLoanChargeId(), cp.getAmount(), cp.getAmountSansTax())).collect(Collectors.joining(" "));
+    }
+
     /**
      * Create a single Debit to fund source and a single credit to "Income from Recovery"
      */
@@ -2127,6 +2142,21 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
 
         BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
         BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
+
+        if (log.isDebugEnabled()) {
+            final String feePaymentsStr = formatChargePaymentsForLog(loanTransactionDTO.getFeePayments());
+            final String penaltyPaymentsStr = formatChargePaymentsForLog(loanTransactionDTO.getPenaltyPayments());
+            final String taxPaymentsStr = loanTransactionDTO.getTaxPayments() == null ? "null"
+                    : String.format("size=%s", loanTransactionDTO.getTaxPayments().size());
+            final String msg = String.format(
+                    "loanId=%s transactionId=%s transactionDate=%s transactionType=%s "
+                            + "feesAmountSansTax=%s penaltiesAmountSansTax=%s taxResult(feesTax=%s,penaltiesTax=%s) "
+                            + "loanTxn(amount=%s,interest=%s,fees=%s,penalties=%s) feePayments=%s penaltyPayments=%s taxPayments=%s",
+                    loanId, transactionId, transactionDate, transactionType != null ? transactionType.getCode() : null, feesAmountSansTax,
+                    penaltiesAmountSansTax, taxResult.feesTaxAmount, taxResult.penaltiesTaxAmount, loanTransactionDTO.getAmount(),
+                    interestAmount, feesAmount, penaltiesAmount, feePaymentsStr, penaltyPaymentsStr, taxPaymentsStr);
+            log.debug("Accrual charge journal details: {}", msg);
+        }
 
         // create journal entries for the fees application (using amount sans tax)
         if (MathUtil.isGreaterThanZero(feesAmountSansTax)) {
