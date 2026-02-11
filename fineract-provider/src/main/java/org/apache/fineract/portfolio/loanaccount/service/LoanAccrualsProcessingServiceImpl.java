@@ -652,7 +652,6 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         }
         final AccrualChargeData chargeData = new AccrualChargeData(loanCharge.getId(), installmentChargeId, loanCharge.isPenaltyCharge())
                 .setChargeAmount(chargeAmount);
-        chargeData.setChargeAccruable(MathUtil.minusToZero(chargeAmount, waived));
 
         final Money unrecognizedWaived = MathUtil
                 .toMoney(loanTransactionRepository.findChargeUnrecognizedWaivedAmount(loanCharge, tillDate), currency);
@@ -666,6 +665,10 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         } else {
             transactionAccrued = MathUtil.toMoney(loanTransactionRepository.findChargeAccrualAmount(loanCharge), currency);
         }
+
+        // When charge was accrued and then waived, do not subtract waived from accruable
+        final boolean accruedThenWaived = MathUtil.isGreaterThanZero(transactionAccrued) && MathUtil.isGreaterThanZero(waived);
+        chargeData.setChargeAccruable(accruedThenWaived ? chargeAmount : MathUtil.minusToZero(chargeAmount, waived));
 
         chargeData.setTransactionAccrued(transactionAccrued);
         chargeData.setChargeAccrued(MathUtil.minusToZero(transactionAccrued, transactionWaived));
