@@ -27,6 +27,8 @@ import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.ws.rs.BeanParam;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
@@ -65,6 +67,8 @@ import org.apache.fineract.infrastructure.core.service.CommandParameterUtil;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
+import org.apache.fineract.portfolio.loanaccount.api.request.ReAgePreviewRequest;
+import org.apache.fineract.portfolio.loanaccount.api.request.ReAmortizationPreviewRequest;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRepaymentScheduleInstallmentData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionBasicData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTransactionData;
@@ -73,6 +77,7 @@ import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanTransactio
 import org.apache.fineract.portfolio.loanaccount.exception.LoanNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanTransactionNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleData;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargePaidByReadService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionReadService;
@@ -820,4 +825,48 @@ public class LoanTransactionsApiResource {
             @PathParam("externalId") @Parameter(description = "External ID of the loan transaction", required = true) final String externalId) {
         return loanTransactionReadService.retrieveTransactionByExternalId(externalId);
     }
+
+    @GET
+    @Path("{loanId}/transactions/reage-preview")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Preview Re-Age Schedule", description = "Generates a preview of the re-aged loan schedule based on the provided parameters without creating any transactions or modifying the loan.")
+    public LoanScheduleData previewReAgeSchedule(@PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
+            @Valid @BeanParam final ReAgePreviewRequest reAgePreviewRequest) {
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        return loanReAgingService.previewReAge(loanId, null, reAgePreviewRequest);
+    }
+
+    @GET
+    @Path("external-id/{loanExternalId}/transactions/reage-preview")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Preview Re-Age Schedule", description = "Generates a preview of the re-aged loan schedule based on the provided parameters without creating any transactions or modifying the loan.")
+    public LoanScheduleData previewReAgeSchedule(
+            @PathParam("loanExternalId") @Parameter(description = "loanExternalId", required = true) final String loanExternalId,
+            @Valid @BeanParam final ReAgePreviewRequest reAgePreviewRequest) {
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        return loanReAgingService.previewReAge(null, loanExternalId, reAgePreviewRequest);
+    }
+
+    @GET
+    @Path("{loanId}/transactions/reamortization-preview")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Preview Re-Amortized Schedule", description = "Generates a preview of the re-amortized loan schedule based on the provided parameters without creating any transactions or modifying the loan.")
+    public LoanScheduleData previewReAmortizationSchedule(
+            @PathParam("loanId") @Parameter(description = "loanId", required = true) final Long loanId,
+            @Valid @BeanParam final ReAmortizationPreviewRequest reAmortizationPreviewRequest) {
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        return loanReAmortizationService.previewReAmortization(loanId, null, reAmortizationPreviewRequest);
+    }
+
+    @GET
+    @Path("external-id/{loanExternalId}/transactions/reamortization-preview")
+    @Produces({ MediaType.APPLICATION_JSON })
+    @Operation(summary = "Preview Re-amortized Schedule", description = "Generates a preview of the re-amortized loan schedule based on the provided parameters without creating any transactions or modifying the loan.")
+    public LoanScheduleData previewReAmortizationSchedule(
+            @PathParam("loanExternalId") @Parameter(description = "loanExternalId", required = true) final String loanExternalId,
+            @Valid @BeanParam final ReAmortizationPreviewRequest reAmortizationPreviewRequest) {
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        return loanReAmortizationService.previewReAmortization(null, loanExternalId, reAmortizationPreviewRequest);
+    }
+
 }
