@@ -158,6 +158,8 @@ dependencies {
     implementation('org.apache.commons:commons-csv'){}
     implementation ('software.amazon.awssdk:s3') {
     }
+    implementation ('software.amazon.awssdk:sqs') {
+    }
     implementation ('software.amazon.awssdk:auth') {
     }
 

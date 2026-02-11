@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.infrastructure.core.condition;
 
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
 
@@ -26,7 +27,7 @@ public class FineractRemoteJobMessageHandlerCondition extends PropertiesConditio
 
     @Override
     protected boolean matches(FineractProperties properties) {
-        boolean isSpringEventsEnabled = properties.getRemoteJobMessageHandler().getSpringEvents().isEnabled();
+        boolean isSpringEventsEnabled = isSpringEventsEnabled(properties);
 
         boolean conditionFails = false;
         if (isAnyMessageHandlerConfigured(properties) && isBatchInstance(properties)) {
@@ -42,15 +43,31 @@ public class FineractRemoteJobMessageHandlerCondition extends PropertiesConditio
     }
 
     private boolean isOnlyOneMessageHandlerEnabled(FineractProperties properties) {
-        boolean isSpringEventsEnabled = properties.getRemoteJobMessageHandler().getSpringEvents().isEnabled();
-        boolean isJmsEnabled = properties.getRemoteJobMessageHandler().getJms().isEnabled();
-        return isSpringEventsEnabled ^ isJmsEnabled;
+        long enabledCount = Stream
+                .of(isSpringEventsEnabled(properties), isJmsEnabled(properties), isKafkaEnabled(properties), isSqsEnabled(properties))
+                .filter(Boolean::booleanValue).count();
+        return enabledCount == 1;
     }
 
     private boolean isAnyMessageHandlerConfigured(FineractProperties properties) {
-        boolean isSpringEventsEnabled = properties.getRemoteJobMessageHandler().getSpringEvents().isEnabled();
-        boolean isJmsEnabled = properties.getRemoteJobMessageHandler().getJms().isEnabled();
-        return isSpringEventsEnabled || isJmsEnabled;
+        return isSpringEventsEnabled(properties) || isJmsEnabled(properties) || isKafkaEnabled(properties) || isSqsEnabled(properties);
+    }
+
+    private boolean isSpringEventsEnabled(FineractProperties properties) {
+        return properties.getRemoteJobMessageHandler().getSpringEvents() != null
+                && properties.getRemoteJobMessageHandler().getSpringEvents().isEnabled();
+    }
+
+    private boolean isJmsEnabled(FineractProperties properties) {
+        return properties.getRemoteJobMessageHandler().getJms() != null && properties.getRemoteJobMessageHandler().getJms().isEnabled();
+    }
+
+    private boolean isKafkaEnabled(FineractProperties properties) {
+        return properties.getRemoteJobMessageHandler().getKafka() != null && properties.getRemoteJobMessageHandler().getKafka().isEnabled();
+    }
+
+    private boolean isSqsEnabled(FineractProperties properties) {
+        return properties.getRemoteJobMessageHandler().getSqs() != null && properties.getRemoteJobMessageHandler().getSqs().isEnabled();
     }
 
     private boolean isBatchInstance(FineractProperties properties) {
