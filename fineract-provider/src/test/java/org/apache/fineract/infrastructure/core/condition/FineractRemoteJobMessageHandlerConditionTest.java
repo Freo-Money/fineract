@@ -54,8 +54,7 @@ class FineractRemoteJobMessageHandlerConditionTest {
     @Test
     public void testMatchesShouldReturnFalseWhenSpringEventsIsEnabledAndManagerAndWorker() {
         // given
-        environment.withProperty("fineract.remote-job-message-handler.spring-events.enabled", "true");
-        environment.withProperty("fineract.remote-job-message-handler.jms.enabled", "false");
+        setMessageHandlers(true, false, false, false);
         environment.withProperty("fineract.mode.batch-manager-enabled", "true");
         environment.withProperty("fineract.mode.batch-worker-enabled", "true");
         // when
@@ -67,8 +66,7 @@ class FineractRemoteJobMessageHandlerConditionTest {
     @Test
     public void testMatchesShouldReturnTrueWhenSpringEventsIsEnabledAndManagerOnly() {
         // given
-        environment.withProperty("fineract.remote-job-message-handler.spring-events.enabled", "true");
-        environment.withProperty("fineract.remote-job-message-handler.jms.enabled", "false");
+        setMessageHandlers(true, false, false, false);
         environment.withProperty("fineract.mode.batch-manager-enabled", "true");
         environment.withProperty("fineract.mode.batch-worker-enabled", "false");
         // when
@@ -80,8 +78,7 @@ class FineractRemoteJobMessageHandlerConditionTest {
     @Test
     public void testMatchesShouldReturnTrueWhenSpringEventsIsEnabledAndWorkerOnly() {
         // given
-        environment.withProperty("fineract.remote-job-message-handler.spring-events.enabled", "true");
-        environment.withProperty("fineract.remote-job-message-handler.jms.enabled", "false");
+        setMessageHandlers(true, false, false, false);
         environment.withProperty("fineract.mode.batch-manager-enabled", "false");
         environment.withProperty("fineract.mode.batch-worker-enabled", "true");
         // when
@@ -93,8 +90,7 @@ class FineractRemoteJobMessageHandlerConditionTest {
     @Test
     public void testMatchesShouldReturnFalseWhenJmsIsEnabledAndManagerAndWorker() {
         // given
-        environment.withProperty("fineract.remote-job-message-handler.spring-events.enabled", "false");
-        environment.withProperty("fineract.remote-job-message-handler.jms.enabled", "true");
+        setMessageHandlers(false, true, false, false);
         environment.withProperty("fineract.mode.batch-manager-enabled", "true");
         environment.withProperty("fineract.mode.batch-worker-enabled", "true");
         // when
@@ -106,8 +102,7 @@ class FineractRemoteJobMessageHandlerConditionTest {
     @Test
     public void testMatchesShouldReturnFalseWhenJmsIsEnabledAndManagerOnly() {
         // given
-        environment.withProperty("fineract.remote-job-message-handler.spring-events.enabled", "false");
-        environment.withProperty("fineract.remote-job-message-handler.jms.enabled", "true");
+        setMessageHandlers(false, true, false, false);
         environment.withProperty("fineract.mode.batch-manager-enabled", "true");
         environment.withProperty("fineract.mode.batch-worker-enabled", "false");
         // when
@@ -119,8 +114,7 @@ class FineractRemoteJobMessageHandlerConditionTest {
     @Test
     public void testMatchesShouldReturnFalseWhenJmsIsEnabledAndWorkerOnly() {
         // given
-        environment.withProperty("fineract.remote-job-message-handler.spring-events.enabled", "false");
-        environment.withProperty("fineract.remote-job-message-handler.jms.enabled", "true");
+        setMessageHandlers(false, true, false, false);
         environment.withProperty("fineract.mode.batch-manager-enabled", "false");
         environment.withProperty("fineract.mode.batch-worker-enabled", "true");
         // when
@@ -132,8 +126,7 @@ class FineractRemoteJobMessageHandlerConditionTest {
     @Test
     public void testMatchesShouldReturnTrueWhenSpringEventsIsEnabledAndJmsIsEnabled() {
         // given
-        environment.withProperty("fineract.remote-job-message-handler.spring-events.enabled", "true");
-        environment.withProperty("fineract.remote-job-message-handler.jms.enabled", "true");
+        setMessageHandlers(true, true, false, false);
         environment.withProperty("fineract.mode.batch-manager-enabled", "true");
         environment.withProperty("fineract.mode.batch-worker-enabled", "true");
         // when
@@ -145,13 +138,55 @@ class FineractRemoteJobMessageHandlerConditionTest {
     @Test
     public void testMatchesShouldReturnFalseWhenNoMessagingIsConfiguredAndNotManagerOrWorker() {
         // given
-        environment.withProperty("fineract.remote-job-message-handler.spring-events.enabled", "false");
-        environment.withProperty("fineract.remote-job-message-handler.jms.enabled", "false");
+        setMessageHandlers(false, false, false, false);
         environment.withProperty("fineract.mode.batch-manager-enabled", "false");
         environment.withProperty("fineract.mode.batch-worker-enabled", "false");
         // when
         boolean result = underTest.matches(conditionContext, metadata);
         // then
         assertThat(result).isFalse();
+    }
+
+    @Test
+    public void testMatchesShouldReturnFalseWhenKafkaIsEnabledAndManagerAndWorker() {
+        // given
+        setMessageHandlers(false, false, true, false);
+        environment.withProperty("fineract.mode.batch-manager-enabled", "true");
+        environment.withProperty("fineract.mode.batch-worker-enabled", "true");
+        // when
+        boolean result = underTest.matches(conditionContext, metadata);
+        // then
+        assertThat(result).isFalse();
+    }
+
+    @Test
+    public void testMatchesShouldReturnFalseWhenSqsIsEnabledAndManagerAndWorker() {
+        // given
+        setMessageHandlers(false, false, false, true);
+        environment.withProperty("fineract.mode.batch-manager-enabled", "true");
+        environment.withProperty("fineract.mode.batch-worker-enabled", "true");
+        // when
+        boolean result = underTest.matches(conditionContext, metadata);
+        // then
+        assertThat(result).isFalse();
+    }
+
+    @Test
+    public void testMatchesShouldReturnTrueWhenKafkaAndSqsAreEnabledTogether() {
+        // given
+        setMessageHandlers(false, false, true, true);
+        environment.withProperty("fineract.mode.batch-manager-enabled", "true");
+        environment.withProperty("fineract.mode.batch-worker-enabled", "true");
+        // when
+        boolean result = underTest.matches(conditionContext, metadata);
+        // then
+        assertThat(result).isTrue();
+    }
+
+    private void setMessageHandlers(boolean springEventsEnabled, boolean jmsEnabled, boolean kafkaEnabled, boolean sqsEnabled) {
+        environment.withProperty("fineract.remote-job-message-handler.spring-events.enabled", String.valueOf(springEventsEnabled));
+        environment.withProperty("fineract.remote-job-message-handler.jms.enabled", String.valueOf(jmsEnabled));
+        environment.withProperty("fineract.remote-job-message-handler.kafka.enabled", String.valueOf(kafkaEnabled));
+        environment.withProperty("fineract.remote-job-message-handler.sqs.enabled", String.valueOf(sqsEnabled));
     }
 }
