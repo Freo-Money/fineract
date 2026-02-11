@@ -163,7 +163,9 @@ import org.apache.fineract.portfolio.paymenttype.service.PaymentTypeReadPlatform
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowMapper;
@@ -391,7 +393,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
              * TODO Vishwas: Remove references to "Contra" from the codebase
              ***/
             final String sql = "select " + rm.loanPaymentsSchema() + " where tr.loan_id = ? and tr.transaction_type_enum not in (0, 3) "
-                    + " and (tr.is_reversed=false or tr.manually_adjusted_or_reversed = true)  order by tr.transaction_date, tr.created_on_utc, tr.id ";
+                    + " and (tr.is_reversed=false or tr.manually_adjusted_or_reversed = true)  order by tr.transaction_date DESC, tr.created_on_utc DESC, tr.id DESC ";
             Collection<LoanTransactionData> loanTransactionData = this.jdbcTemplate.query(sql, rm, loanId); // NOSONAR
             // TODO: would worth to rework in the future. It is not nice to fetch relations one by one... might worth to
             // give a try to get rid of native queries
@@ -854,6 +856,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     @Override
     public org.springframework.data.domain.Page<LoanTransactionData> retrieveLoanTransactions(
             @jakarta.validation.constraints.NotNull Long loanId, Set<LoanTransactionType> excludedTransactionTypes, Pageable pageable) {
+        // Default to latest first (desc) when no sort specified
+        final Pageable pageableWithSort = pageable.getSort().isUnsorted() ? PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(),
+                Sort.by(Sort.Order.desc("dateOf"), Sort.Order.desc("createdDate"), Sort.Order.desc("id"))) : pageable;
         final org.springframework.data.domain.Page<LoanTransaction> transactionPage = loanTransactionRepository
                 .findAll((root, query, builder) -> {
                     List<Predicate> predicates = new ArrayList<>();
@@ -866,7 +871,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                         predicates.add(builder.not(root.get("typeOf").in(excludedTransactionTypeValues)));
                     }
                     return builder.and(predicates.toArray(new Predicate[] {}));
-                }, pageable);
+                }, pageableWithSort);
 
         return transactionPage.map(loanTransactionMapper::mapLoanTransaction);
     }
