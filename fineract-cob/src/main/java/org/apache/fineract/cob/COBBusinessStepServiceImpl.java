@@ -74,6 +74,15 @@ public class COBBusinessStepServiceImpl implements COBBusinessStepService {
                     item = reloaderService.reload(item);
                     item = businessStepBean.execute(item);
                 } catch (Exception e) {
+                    Throwable rootCause = getRootCause(e);
+                    String rootCauseLocation = getRootCauseLocation(rootCause);
+                    String fullStackTrace = getFullStackTrace(e);
+                    log.error("COB Business step [{}] failed for item id [{}]. Root cause: {}. Exception occurred at: {}", businessStep,
+                            item.getId(), getRootCauseMessage(e), rootCauseLocation);
+                    if (rootCause instanceof NullPointerException) {
+                        log.error("NullPointerException tip: add JVM flag -XX:+ShowCodeDetailsInExceptionMessages (Java 14+)");
+                    }
+                    log.error("Full stack trace for item id [{}]:\n{}", item.getId(), fullStackTrace);
                     throw new BusinessStepException("Error happened during business step execution", e);
                 } finally {
                     // Fallback to COB action context after each business step
@@ -107,5 +116,65 @@ public class COBBusinessStepServiceImpl implements COBBusinessStepService {
                     batchBusinessStep -> executionMap.add(new BusinessStepNameAndOrder(businessStep, batchBusinessStep.getStepOrder())));
         }
         return executionMap;
+    }
+
+    private static Throwable getRootCause(Throwable t) {
+        Throwable root = t;
+        while (root.getCause() != null) {
+            root = root.getCause();
+        }
+        return root;
+    }
+
+    private static String getRootCauseMessage(Throwable t) {
+        Throwable root = getRootCause(t);
+        return root.getClass().getName() + ": " + root.getMessage();
+    }
+
+    /**
+     * Returns the exact file and line where the root cause (e.g. NPE) occurred. Format:
+     * className.methodName(fileName:lineNumber)
+     */
+    private static String getRootCauseLocation(Throwable rootCause) {
+        if (rootCause == null) {
+            return "unknown";
+        }
+        StackTraceElement[] stackTrace = rootCause.getStackTrace();
+        if (stackTrace == null || stackTrace.length == 0) {
+            return "no stack trace available";
+        }
+        StackTraceElement top = stackTrace[0];
+        return String.format("%s.%s(%s:%d)", top.getClassName(), top.getMethodName(), top.getFileName(), top.getLineNumber());
+    }
+
+    /**
+     * Returns full stack trace including all causes (Caused by: ...) as string.
+     */
+    private static String getFullStackTrace(Throwable t) {
+        StringBuilder sb = new StringBuilder(256);
+        appendThrowable(sb, t);
+        return sb.toString();
+    }
+
+    private static void appendThrowable(StringBuilder sb, Throwable t) {
+        if (t == null) {
+            sb.append("null throwable");
+            return;
+        }
+
+        sb.append(t);
+
+        StackTraceElement[] stackTraceElements = t.getStackTrace();
+        if (stackTraceElements != null) {
+            for (StackTraceElement element : stackTraceElements) {
+                sb.append("\n\tat ").append(element);
+            }
+        }
+
+        Throwable cause = t.getCause();
+        if (cause != null && cause != t) {
+            sb.append("\nCaused by: ");
+            appendThrowable(sb, cause);
+        }
     }
 }
