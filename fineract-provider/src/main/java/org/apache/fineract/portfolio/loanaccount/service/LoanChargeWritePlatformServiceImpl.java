@@ -1194,11 +1194,13 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         if (feeFrequency == null) {
             scheduleDates.put(frequencyNumber++, startDate.minusDays(diff));
         } else {
+            // feeInterval may be null for legacy charges; use 1 (every period) as default
+            final int feeInterval = chargeDefinition.feeInterval() != null ? chargeDefinition.feeInterval() : 1;
             while (!DateUtils.isDateInTheFuture(startDate)) {
                 scheduleDates.put(frequencyNumber++, startDate.minusDays(diff));
 
-                startDate = scheduledDateGenerator.getRepaymentPeriodDate(PeriodFrequencyType.fromInt(feeFrequency),
-                        chargeDefinition.feeInterval(), startDate);
+                startDate = scheduledDateGenerator.getRepaymentPeriodDate(PeriodFrequencyType.fromInt(feeFrequency), feeInterval,
+                        startDate);
             }
         }
 
@@ -1282,28 +1284,50 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     }
 
     private void addInstallmentIfPenaltyAppliedAfterLastDueDate(Loan loan, LocalDate lastChargeDate) {
-        if (lastChargeDate != null) {
-            List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
-            LoanRepaymentScheduleInstallment lastInstallment = loan.fetchRepaymentScheduleInstallment(installments.size());
-            if (DateUtils.isAfter(lastChargeDate, lastInstallment.getDueDate())) {
-                log.info(
-                        "addInstallmentIfPenaltyAppliedAfterLastDueDate: loanId={}, adding installment (lastChargeDate={}, lastDueDate={})",
-                        loan.getId(), lastChargeDate, lastInstallment.getDueDate());
-                if (lastInstallment.isRecalculatedInterestComponent()) {
-                    installments.remove(lastInstallment);
-                    lastInstallment = loan.fetchRepaymentScheduleInstallment(installments.size());
-                }
-                boolean recalculatedInterestComponent = true;
-                BigDecimal principal = BigDecimal.ZERO;
-                BigDecimal interest = BigDecimal.ZERO;
-                BigDecimal feeCharges = BigDecimal.ZERO;
-                BigDecimal penaltyCharges = BigDecimal.ONE;
-                final Set<LoanInterestRecalcualtionAdditionalDetails> compoundingDetails = null;
-                LoanRepaymentScheduleInstallment newEntry = new LoanRepaymentScheduleInstallment(loan, installments.size() + 1,
-                        lastInstallment.getDueDate(), lastChargeDate, principal, interest, feeCharges, penaltyCharges,
-                        recalculatedInterestComponent, compoundingDetails);
-                loan.addLoanRepaymentScheduleInstallment(newEntry);
+        if (lastChargeDate == null) {
+            return;
+        }
+        List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
+        if (installments.isEmpty()) {
+            return;
+        }
+        // Do NOT use fetchRepaymentScheduleInstallment(installments.size()) - installment numbers often don't
+        // match list size (e.g. down payment #0 + periods #1-11 = 12 items, so there is no installment #12)
+        LoanRepaymentScheduleInstallment lastInstallment = null;
+        for (int i = installments.size() - 1; i >= 0; i--) {
+            LoanRepaymentScheduleInstallment inst = installments.get(i);
+            if (!inst.isRecalculatedInterestComponent()) {
+                lastInstallment = inst;
+                break;
             }
+        }
+        if (lastInstallment == null || lastInstallment.getDueDate() == null) {
+            return;
+        }
+        if (DateUtils.isAfter(lastChargeDate, lastInstallment.getDueDate())) {
+            log.info("addInstallmentIfPenaltyAppliedAfterLastDueDate: loanId={}, adding installment (lastChargeDate={}, lastDueDate={})",
+                    loan.getId(), lastChargeDate, lastInstallment.getDueDate());
+            // Remove trailing recalculated installments before adding the new one
+            while (!installments.isEmpty() && installments.get(installments.size() - 1).isRecalculatedInterestComponent()) {
+                installments.remove(installments.size() - 1);
+            }
+            if (installments.isEmpty()) {
+                return;
+            }
+            lastInstallment = installments.get(installments.size() - 1);
+            if (lastInstallment.getDueDate() == null) {
+                return;
+            }
+            boolean recalculatedInterestComponent = true;
+            BigDecimal principal = BigDecimal.ZERO;
+            BigDecimal interest = BigDecimal.ZERO;
+            BigDecimal feeCharges = BigDecimal.ZERO;
+            BigDecimal penaltyCharges = BigDecimal.ONE;
+            final Set<LoanInterestRecalcualtionAdditionalDetails> compoundingDetails = null;
+            LoanRepaymentScheduleInstallment newEntry = new LoanRepaymentScheduleInstallment(loan, installments.size() + 1,
+                    lastInstallment.getDueDate(), lastChargeDate, principal, interest, feeCharges, penaltyCharges,
+                    recalculatedInterestComponent, compoundingDetails);
+            loan.addLoanRepaymentScheduleInstallment(newEntry);
         }
     }
 
