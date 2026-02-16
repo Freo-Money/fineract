@@ -534,7 +534,9 @@ public class Calendar extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         }
         if (frequencyType.isMonthly()) {
             if (repeatsOnNthDayOfMonth != null && (repeatsOnDay == null || repeatsOnDay.equals(CalendarWeekDaysType.INVALID.getValue()))) {
-                if (repeatsOnNthDayOfMonth >= -1 && repeatsOnNthDayOfMonth <= 28) {
+                // -1 = last day; 1-31 = on that day (if not in month, last day of that month is used when generating
+                // dates)
+                if (repeatsOnNthDayOfMonth >= -1 && repeatsOnNthDayOfMonth <= 31) {
                     recurrenceBuilder.append(";BYMONTHDAY=");
                     recurrenceBuilder.append(repeatsOnNthDayOfMonth);
                 }
