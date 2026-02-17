@@ -26,6 +26,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoField;
+import java.time.temporal.ChronoUnit;
 import java.time.temporal.Temporal;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -107,7 +108,50 @@ public final class CalendarUtils {
         return nextRecDate == null ? null : LocalDateTime.ofInstant(nextRecDate.toInstant(), DateUtils.getDateTimeZoneOfTenant());
     }
 
+    /**
+     * When repaymentFrequencyNthDayType is ONDAY (-2) and repeatsOnDayOfMonth is 29/30/31, use that day if present in
+     * the month, otherwise the last day of that month. ical4j with BYMONTHDAY=31 skips months with fewer days, so we
+     * generate the next date manually for this case.
+     */
+    private static Integer getMonthlyOnDayForLastDayFallback(final Recur recur) {
+        if (recur == null) {
+            return null;
+        }
+        NumberList monthDays = recur.getMonthDayList();
+        if (monthDays.isEmpty() || monthDays.size() > 1) {
+            return null;
+        }
+        int day = monthDays.get(0);
+        if (day < 29 || day > 31) {
+            return null;
+        }
+        if (!recur.getFrequency().equals(Recur.Frequency.MONTHLY) || !recur.getDayList().isEmpty() || !recur.getSetPosList().isEmpty()) {
+            return null;
+        }
+        return day;
+    }
+
+    private static LocalDate occurrenceDateInMonth(final YearMonth month, final int requestedDay) {
+        return month.atDay(Math.min(requestedDay, month.lengthOfMonth()));
+    }
+
+    private static LocalDate getNextRecurringDateForMonthlyOnDay(final int monthDay, final Recur recur, final LocalDate seedDate,
+            final LocalDate startDate) {
+        int interval = Math.max(1, recur.getInterval());
+        YearMonth seedMonth = YearMonth.from(seedDate);
+        YearMonth startMonth = YearMonth.from(startDate);
+        long monthsDiff = ChronoUnit.MONTHS.between(seedMonth, startMonth);
+        int k = monthsDiff <= 0 ? 0 : (int) ((monthsDiff + interval - 1) / interval);
+        YearMonth occurrenceMonth = seedMonth.plusMonths((long) k * interval);
+        LocalDate candidate = occurrenceDateInMonth(occurrenceMonth, monthDay);
+        return !candidate.isBefore(startDate) ? candidate : occurrenceDateInMonth(occurrenceMonth.plusMonths(interval), monthDay);
+    }
+
     private static LocalDate getNextRecurringDate(final Recur recur, final LocalDate seedDate, final LocalDate startDate) {
+        Integer onDay = getMonthlyOnDayForLastDayFallback(recur);
+        if (onDay != null) {
+            return getNextRecurringDateForMonthlyOnDay(onDay, recur, seedDate, startDate);
+        }
         final DateTime periodStart = new DateTime(java.util.Date.from(startDate.atStartOfDay(ZoneId.systemDefault()).toInstant()));
         final Date seed = convertToiCal4JCompatibleDate(seedDate.atStartOfDay());
         final Date nextRecDate = recur.getNextDate(seed, periodStart);
@@ -161,6 +205,12 @@ public final class CalendarUtils {
         if (recur == null) {
             return null;
         }
+        Integer onDay = getMonthlyOnDayForLastDayFallback(recur);
+        if (onDay != null) {
+            Collection<LocalDate> dates = getRecurringDatesForMonthlyOnDay(onDay, recur, seedDate, periodStartDate, periodEndDate,
+                    maxCount);
+            return convertToLocalDateListForMonthlyOnDay(dates, isSkippMeetingOnFirstDay, numberOfDays);
+        }
         final Date seed = convertToiCal4JCompatibleDate(seedDate.atStartOfDay());
         final DateTime periodStart = new DateTime(java.util.Date.from(periodStartDate.atStartOfDay(ZoneId.systemDefault()).toInstant()));
         final DateTime periodEnd = new DateTime(java.util.Date.from(periodEndDate.atStartOfDay(ZoneId.systemDefault()).toInstant()));
@@ -169,6 +219,34 @@ public final class CalendarUtils {
         final DateList recurringDates = recur.getDates(seed, periodStart, periodEnd, value, maxCount);
         return convertToLocalDateList(recurringDates, seedDate, getMeetingPeriodFrequencyType(recur), isSkippMeetingOnFirstDay,
                 numberOfDays);
+    }
+
+    private static Collection<LocalDate> getRecurringDatesForMonthlyOnDay(final int monthDay, final Recur recur, final LocalDate seedDate,
+            final LocalDate periodStartDate, final LocalDate periodEndDate, final int maxCount) {
+        int interval = Math.max(1, recur.getInterval());
+        YearMonth seedMonth = YearMonth.from(seedDate);
+        YearMonth startMonth = YearMonth.from(periodStartDate);
+        YearMonth endMonth = YearMonth.from(periodEndDate);
+        long monthsDiff = ChronoUnit.MONTHS.between(seedMonth, startMonth);
+        int k = monthsDiff <= 0 ? 0 : (int) ((monthsDiff + interval - 1) / interval);
+        YearMonth occurrenceMonth = seedMonth.plusMonths((long) k * interval);
+        List<LocalDate> dates = new ArrayList<>(maxCount);
+        while (dates.size() < maxCount && !occurrenceMonth.isAfter(endMonth)) {
+            LocalDate candidate = occurrenceDateInMonth(occurrenceMonth, monthDay);
+            if (!candidate.isBefore(periodStartDate) && !candidate.isAfter(periodEndDate)) {
+                dates.add(candidate);
+            }
+            occurrenceMonth = occurrenceMonth.plusMonths(interval);
+        }
+        return dates;
+    }
+
+    private static Collection<LocalDate> convertToLocalDateListForMonthlyOnDay(final Collection<LocalDate> dates,
+            boolean isSkippMeetingOnFirstDay, final Integer numberOfDays) {
+        if (isSkippMeetingOnFirstDay) {
+            return skipMeetingOnFirstdayOfMonth(dates, numberOfDays);
+        }
+        return dates;
     }
 
     static Collection<LocalDate> convertToLocalDateList(final DateList dates, final LocalDate seedDate,
@@ -767,8 +845,9 @@ public final class CalendarUtils {
                 final Integer repeatsOnDayOfMonth = fromApiJsonHelper
                         .extractIntegerSansLocaleNamed(CalendarSupportedParameters.REPEATS_ON_DAY_OF_MONTH.getValue(), element);
 
+                // Allow 1-31: if the date is not present in a month (e.g. 31 in Feb), last day of that month is used
                 baseDataValidator.reset().parameter(CalendarSupportedParameters.REPEATS_ON_DAY_OF_MONTH.getValue())
-                        .value(repeatsOnDayOfMonth).notNull().inMinMaxRange(1, 28);
+                        .value(repeatsOnDayOfMonth).notNull().inMinMaxRange(1, 31);
             }
         }
     }
