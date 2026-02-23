@@ -289,8 +289,10 @@ public final class LoanApplicationValidator {
 
         final Long clientId = this.fromApiJsonHelper.extractLongNamed(LoanApiConstants.clientIdParameterName, element);
         final Long groupId = this.fromApiJsonHelper.extractLongNamed(LoanApiConstants.groupIdParameterName, element);
-        final Client client = clientId != null ? this.clientRepository.findOneWithNotFoundDetection(clientId) : null;
-        final Group group = groupId != null ? this.groupRepository.findOneWithNotFoundDetection(groupId) : null;
+        final boolean clientProvided = isIdProvided(clientId);
+        final boolean groupProvided = isIdProvided(groupId);
+        final Client client = clientProvided ? this.clientRepository.findOneWithNotFoundDetection(clientId) : null;
+        final Group group = groupProvided ? this.groupRepository.findOneWithNotFoundDetection(groupId) : null;
 
         validateClientOrGroup(client, group, productId);
         Validator.validateOrThrow("loan", baseDataValidator -> {
@@ -304,15 +306,19 @@ public final class LoanApplicationValidator {
                 if (loanType.isIndividualAccount()) {
                     baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(clientId).ignoreIfNull()
                             .longGreaterThanZero();
-                    baseDataValidator.reset().parameter(LoanApiConstants.groupIdParameterName).value(groupId)
-                            .mustBeBlankWhenParameterProvided(LoanApiConstants.clientIdParameterName, clientId);
+                    if (clientProvided) {
+                        baseDataValidator.reset().parameter(LoanApiConstants.groupIdParameterName).value(groupId)
+                                .mustBeBlankWhenParameterProvided(LoanApiConstants.clientIdParameterName, clientId);
+                    }
                 }
 
                 if (loanType.isGroupAccount()) {
                     baseDataValidator.reset().parameter(LoanApiConstants.groupIdParameterName).value(groupId).notNull()
                             .longGreaterThanZero();
-                    baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(clientId)
-                            .mustBeBlankWhenParameterProvided(LoanApiConstants.groupIdParameterName, groupId);
+                    if (groupProvided) {
+                        baseDataValidator.reset().parameter(LoanApiConstants.clientIdParameterName).value(clientId)
+                                .mustBeBlankWhenParameterProvided(LoanApiConstants.groupIdParameterName, groupId);
+                    }
                 }
 
                 if (loanType.isJLGAccount()) {
@@ -778,7 +784,9 @@ public final class LoanApplicationValidator {
             // validate if disbursement date is a holiday or a non-working day
             validateDisbursementDateIsOnNonWorkingDay(expectedDisbursementDate);
             Long officeId = resolveOfficeId(client, group);
-            validateDisbursementDateIsOnHoliday(expectedDisbursementDate, officeId);
+            if (officeId != null) {
+                validateDisbursementDateIsOnHoliday(expectedDisbursementDate, officeId);
+            }
             final Integer recurringMoratoriumOnPrincipalPeriods = this.fromApiJsonHelper
                     .extractIntegerWithLocaleNamed("recurringMoratoriumOnPrincipalPeriods", element);
 
@@ -1516,6 +1524,13 @@ public final class LoanApplicationValidator {
         });
     }
 
+    /**
+     * Returns true if the id is provided (non-null and non-zero). Treats 0 as "not provided" for form/default values.
+     */
+    private static boolean isIdProvided(Long id) {
+        return id != null && id != 0;
+    }
+
     private void validateClientOrGroup(Client client, Group group, Long productId) {
         Validator.validateOrThrow("loan", baseDataValidator -> {
             if (client == null && group == null) {
@@ -1902,10 +1917,13 @@ public final class LoanApplicationValidator {
         final Long groupId = this.fromApiJsonHelper.extractLongNamed(LoanApiConstants.groupIdParameterName, element);
         final Long clientId = this.fromApiJsonHelper.extractLongNamed(LoanApiConstants.clientIdParameterName, element);
 
-        if (groupId != null) {
+        if (isIdProvided(groupId)) {
             activeLoansLoanProductIds = this.loanRepositoryWrapper.findActiveLoansLoanProductIdsByGroup(groupId, LoanStatus.ACTIVE);
-        } else {
+        } else if (isIdProvided(clientId)) {
             activeLoansLoanProductIds = this.loanRepositoryWrapper.findActiveLoansLoanProductIdsByClient(clientId, LoanStatus.ACTIVE);
+        } else {
+            // No client or group - cannot check product mix; treat as no active loans
+            activeLoansLoanProductIds = List.of();
         }
         checkForProductMixRestrictions(activeLoansLoanProductIds, productId);
     }
