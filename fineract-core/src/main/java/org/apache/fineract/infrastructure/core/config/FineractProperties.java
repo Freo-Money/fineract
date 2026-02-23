@@ -547,6 +547,8 @@ public class FineractProperties {
         private FineractTransactionProcessorItemProperties overdueDueInterestPrincipalOverdueDuePenaltiesFees;
         private FineractTransactionProcessorItemProperties overdueDuePrincipalInterestOverdueDueFeesPenalties;
         private FineractTransactionProcessorItemProperties overdueDueInterestPrincipalOverdueDueFeesPenalties;
+        private FineractTransactionProcessorItemProperties allPrincipalAllInterestThenFeesPenalties;
+        private FineractTransactionProcessorItemProperties allPrincipalAllInterestThenPenaltiesFees;
         private FineractTransactionProcessorItemProperties duePenaltyFeeInterestPrincipalInAdvancePrincipalPenaltyFeeInterest;
         private FineractTransactionProcessorItemProperties duePenaltyInterestPrincipalFeeInAdvancePenaltyInterestPrincipalFee;
         private FineractTransactionProcessorItemProperties advancedPaymentStrategy;
