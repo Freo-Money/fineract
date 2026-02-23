@@ -38,7 +38,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class LoanNpaUpdateServiceImpl implements LoanNpaUpdateService {
 
-    private static final String SELECT_OVERDUE_SINCE = "SELECT overdue_since_date_derived FROM m_loan_arrears_aging WHERE loan_id = ?";
+    private static final String SELECT_OVERDUE_SINCE = "SELECT overdue_since_date_derived FROM m_loan_arrears_aging WHERE loan_id = ? ";
 
     private final RoutingDataSourceServiceFactory dataSourceServiceFactory;
     private final LoanAccrualsProcessingService loanAccrualsProcessingService;
