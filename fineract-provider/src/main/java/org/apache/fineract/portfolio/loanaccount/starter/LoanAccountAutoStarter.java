@@ -25,6 +25,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.LoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.AdvancedPaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.AllPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.AllPrincipalAllInterestThenPenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.CreocoreLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.DuePenFeeIntPriInAdvancePriPenFeeIntLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.DuePenIntPriFeeInAdvancePenIntPriFeeLoanRepaymentScheduleTransactionProcessor;
@@ -144,6 +146,24 @@ public class LoanAccountAutoStarter {
             final ExternalIdFactory externalIdFactory, final LoanChargeValidator loanChargeValidator,
             final LoanBalanceService loanBalanceService) {
         return new OverdueDueInterestPrincipalOverdueDueFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor(externalIdFactory,
+                loanChargeValidator, loanBalanceService);
+    }
+
+    @Bean
+    @Conditional(AllPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessorCondition.class)
+    public AllPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor allPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor(
+            final ExternalIdFactory externalIdFactory, final LoanChargeValidator loanChargeValidator,
+            final LoanBalanceService loanBalanceService) {
+        return new AllPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor(externalIdFactory,
+                loanChargeValidator, loanBalanceService);
+    }
+
+    @Bean
+    @Conditional(AllPrincipalAllInterestThenPenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessorCondition.class)
+    public AllPrincipalAllInterestThenPenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor allPrincipalAllInterestThenPenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor(
+            final ExternalIdFactory externalIdFactory, final LoanChargeValidator loanChargeValidator,
+            final LoanBalanceService loanBalanceService) {
+        return new AllPrincipalAllInterestThenPenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor(externalIdFactory,
                 loanChargeValidator, loanBalanceService);
     }
 
