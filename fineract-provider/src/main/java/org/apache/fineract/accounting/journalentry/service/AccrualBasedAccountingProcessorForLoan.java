@@ -1133,7 +1133,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
 
         TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
-                penaltiesAmount, loanTransactionDTO.getTaxPayments(), true);
+                penaltiesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getPenaltyPayments(), loanTransactionDTO.getTaxPayments(),
+                true);
 
         // handle fees payment
         if (MathUtil.isGreaterThanZero(feesAmount)) {
@@ -1483,7 +1484,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
 
         TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
-                penaltiesAmount, loanTransactionDTO.getTaxPayments(), true);
+                penaltiesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getPenaltyPayments(), loanTransactionDTO.getTaxPayments(),
+                true);
 
         // handle fees payment
         if (MathUtil.isGreaterThanZero(feesAmount)) {
@@ -1671,7 +1673,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
 
         TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
-                penaltiesAmount, loanTransactionDTO.getTaxPayments(), false);
+                penaltiesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getPenaltyPayments(), loanTransactionDTO.getTaxPayments(),
+                false);
 
         // handle fees payment
         if (MathUtil.isGreaterThanZero(feesAmount)) {
@@ -1775,7 +1778,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
 
         TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
-                penaltiesAmount, loanTransactionDTO.getTaxPayments(), !isIncomeFromFee);
+                penaltiesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getPenaltyPayments(), loanTransactionDTO.getTaxPayments(),
+                !isIncomeFromFee);
 
         // handle fees payment
         if (MathUtil.isGreaterThanZero(feesAmount)) {
@@ -1936,7 +1940,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
 
         TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
-                penaltiesAmount, loanTransactionDTO.getTaxPayments(), false);
+                penaltiesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getPenaltyPayments(), loanTransactionDTO.getTaxPayments(),
+                false);
 
         // handle fees payment of writeOff
         if (MathUtil.isGreaterThanZero(feesAmount)) {
@@ -2026,16 +2031,16 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
 
     private TaxCalculationResult calculateAndHandleTax(final Office office, final String currencyCode, final Long loanId,
             final String transactionId, final LocalDate transactionDate, final BigDecimal feesAmount, final BigDecimal penaltiesAmount,
-            final List<TaxPaymentDTO> taxPayments, final boolean createTaxCreditEntries) {
+            final List<ChargePaymentDTO> feePayments, final List<ChargePaymentDTO> penaltyPayments, final List<TaxPaymentDTO> taxPayments,
+            final boolean createTaxCreditEntries) {
         BigDecimal feesTaxAmount = BigDecimal.ZERO;
         BigDecimal penaltiesTaxAmount = BigDecimal.ZERO;
         BigDecimal feesAmountSansTax = feesAmount != null ? feesAmount : BigDecimal.ZERO;
         BigDecimal penaltiesAmountSansTax = penaltiesAmount != null ? penaltiesAmount : BigDecimal.ZERO;
 
         if (taxPayments != null && !taxPayments.isEmpty()) {
-            BigDecimal[] taxAmounts = this.helper.calculateTaxAmountsForCharges(feesAmount, penaltiesAmount, taxPayments);
-            feesTaxAmount = taxAmounts[0];
-            penaltiesTaxAmount = taxAmounts[1];
+            feesTaxAmount = sumTaxFromChargePayments(feePayments);
+            penaltiesTaxAmount = sumTaxFromChargePayments(penaltyPayments);
             feesAmountSansTax = feesAmountSansTax.subtract(feesTaxAmount);
             penaltiesAmountSansTax = penaltiesAmountSansTax.subtract(penaltiesTaxAmount);
 
@@ -2045,6 +2050,23 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
 
         return new TaxCalculationResult(feesTaxAmount, penaltiesTaxAmount, feesAmountSansTax, penaltiesAmountSansTax);
+    }
+
+    private static BigDecimal sumTaxFromChargePayments(List<ChargePaymentDTO> payments) {
+        if (payments == null || payments.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal sum = BigDecimal.ZERO;
+        for (ChargePaymentDTO cp : payments) {
+            if (cp == null) {
+                continue;
+            }
+            BigDecimal tax = cp.getTaxAmount();
+            if (tax != null && tax.compareTo(BigDecimal.ZERO) > 0) {
+                sum = sum.add(tax);
+            }
+        }
+        return sum;
     }
 
     private static class TaxCalculationResult {
@@ -2138,7 +2160,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
             }
         }
         TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
-                penaltiesAmount, loanTransactionDTO.getTaxPayments(), false);
+                penaltiesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getPenaltyPayments(), loanTransactionDTO.getTaxPayments(),
+                false);
 
         BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
         BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
@@ -2250,7 +2273,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
 
         TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
-                penaltiesAmount, loanTransactionDTO.getTaxPayments(), false);
+                penaltiesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getPenaltyPayments(), loanTransactionDTO.getTaxPayments(),
+                false);
 
         BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
         BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
@@ -2350,7 +2374,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
 
         TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
-                penaltiesAmount, loanTransactionDTO.getTaxPayments(), false);
+                penaltiesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getPenaltyPayments(), loanTransactionDTO.getTaxPayments(),
+                false);
 
         BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
         BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
@@ -2456,7 +2481,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
 
         TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
-                penaltiesAmount, loanTransactionDTO.getTaxPayments(), false);
+                penaltiesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getPenaltyPayments(), loanTransactionDTO.getTaxPayments(),
+                false);
 
         BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
         BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;

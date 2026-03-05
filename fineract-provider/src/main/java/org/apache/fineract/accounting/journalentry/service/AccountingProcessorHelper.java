@@ -1484,45 +1484,6 @@ public class AccountingProcessorHelper {
     }
 
     /**
-     * Calculates tax amounts for fees and penalties by aggregating tax payments and splitting proportionally. Uses the
-     * provided tax payments list to calculate total tax and splits it based on fees vs penalties amounts.
-     */
-
-    public BigDecimal[] calculateTaxAmountsForCharges(final BigDecimal feesAmount, final BigDecimal penaltiesAmount,
-            final List<TaxPaymentDTO> taxPayments) {
-        BigDecimal feesTaxAmount = BigDecimal.ZERO;
-        BigDecimal penaltiesTaxAmount = BigDecimal.ZERO;
-        BigDecimal totalTaxAmount = BigDecimal.ZERO;
-
-        if (taxPayments != null && !taxPayments.isEmpty()) {
-            for (TaxPaymentDTO taxPayment : taxPayments) {
-                if (taxPayment.getAmount() != null && taxPayment.getAmount().compareTo(BigDecimal.ZERO) > 0) {
-                    totalTaxAmount = totalTaxAmount.add(taxPayment.getAmount());
-                }
-            }
-
-            final BigDecimal safeFeesAmount = feesAmount != null ? feesAmount : BigDecimal.ZERO;
-            final BigDecimal safePenaltiesAmount = penaltiesAmount != null ? penaltiesAmount : BigDecimal.ZERO;
-            final BigDecimal totalChargeAmount = safeFeesAmount.add(safePenaltiesAmount);
-            if (MathUtil.isGreaterThanZero(totalChargeAmount) && MathUtil.isGreaterThanZero(totalTaxAmount)) {
-                int scale = Math.max(Math.max(safeFeesAmount.scale(), safePenaltiesAmount.scale()), totalTaxAmount.scale());
-                if (MathUtil.isGreaterThanZero(safeFeesAmount)) {
-                    feesTaxAmount = totalTaxAmount.multiply(safeFeesAmount)
-                            .divide(totalChargeAmount, scale + 2, java.math.RoundingMode.HALF_UP)
-                            .setScale(scale, java.math.RoundingMode.HALF_UP);
-                }
-                if (MathUtil.isGreaterThanZero(safePenaltiesAmount)) {
-                    penaltiesTaxAmount = totalTaxAmount.multiply(safePenaltiesAmount)
-                            .divide(totalChargeAmount, scale + 2, java.math.RoundingMode.HALF_UP)
-                            .setScale(scale, java.math.RoundingMode.HALF_UP);
-                }
-            }
-        }
-
-        return new BigDecimal[] { feesTaxAmount, penaltiesTaxAmount, totalTaxAmount };
-    }
-
-    /**
      * Creates tax credit journal entries for all tax payments (credits tax payable accounts).
      *
      */

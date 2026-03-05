@@ -134,12 +134,12 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
                 !isChargeOnDueDate());
         List<Throwable> errors = new ArrayList<>();
 
-        // Process each loan in its own isolated transaction
-        // This ensures that if one loan fails, others can still be processed
         for (Loan loan : loans) {
             final Long loanId = loan.getId();
-            executeInIsolatedTransaction(() -> addPeriodicAccruals(tillDate, loan),
-                    e -> log.error("Failed to add accrual for loan {}", loanId, e), errors);
+            executeInIsolatedTransaction(() -> {
+                Loan loanInTx = loanRepositoryWrapper.findOneWithNotFoundDetection(loanId);
+                addPeriodicAccruals(tillDate, loanInTx);
+            }, e -> log.error("Failed to add accrual for loan {}", loanId, e), errors);
         }
 
         if (!errors.isEmpty()) {
