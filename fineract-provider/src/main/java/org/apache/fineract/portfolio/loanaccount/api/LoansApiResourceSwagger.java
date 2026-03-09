@@ -1149,6 +1149,10 @@ final class LoansApiResourceSwagger {
         public String loanProductName;
         @Schema(example = "Typical Kampala loan product with cash accounting enabled for testing.")
         public String loanProductDescription;
+        @Schema(example = "1")
+        public Long fundId;
+        @Schema(example = "Kampala Fund")
+        public String fundName;
         @Schema(example = "22")
         public Long loanPurposeId;
         @Schema(example = "option.HousingImprovement")
