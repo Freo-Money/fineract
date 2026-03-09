@@ -2188,7 +2188,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             }
         }
 
-        final Long penaltyWaitPeriod = configurationDomainService.retrievePenaltyWaitPeriod();
+        final Integer graceOnArrearsAgeing = loan.getLoanProductRelatedDetail().getGraceOnArrearsAgeing();
+        final Long penaltyWaitPeriod = graceOnArrearsAgeing != null && graceOnArrearsAgeing > 0 ? graceOnArrearsAgeing.longValue() + 1L
+                : configurationDomainService.retrievePenaltyWaitPeriod();
         final boolean backdatePenalties = configurationDomainService.isBackdatePenaltiesEnabled();
 
         for (LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {

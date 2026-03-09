@@ -1185,11 +1185,19 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             return new LoanOverdueDTO(loan, runInterestRecalculation, DateUtils.getBusinessLocalDate(), dueDate,
                     remainingCumulativePenaltyCap);
         }
-        long diff = penaltyWaitPeriodValue + 1 - penaltyPostingWaitPeriodValue;
-        if (diff < 1) {
+        final Integer graceOnArrears = loan.getLoanProductRelatedDetail().getGraceOnArrearsAgeing();
+        long diff;
+        LocalDate startDate;
+        if (graceOnArrears != null && graceOnArrears > 0) {
             diff = 1L;
+            startDate = dueDate.plusDays(1L);
+        } else {
+            diff = penaltyWaitPeriodValue + 1 - penaltyPostingWaitPeriodValue;
+            if (diff < 1) {
+                diff = 1L;
+            }
+            startDate = dueDate.plusDays(penaltyWaitPeriodValue + 1L);
         }
-        LocalDate startDate = dueDate.plusDays(penaltyWaitPeriodValue + 1L);
         int frequencyNumber = 1;
         if (feeFrequency == null) {
             scheduleDates.put(frequencyNumber++, startDate.minusDays(diff));
