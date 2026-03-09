@@ -481,4 +481,56 @@ public interface LoanTransactionRepository extends JpaRepository<LoanTransaction
             """)
     CodeValue fetchClassificationCodeValueByTransactionId(@Param("transactionId") Long transactionId);
 
+    @Query("""
+            SELECT lt.dateOf, lt.unrecognizedIncomePortion
+            FROM LoanTransaction lt
+            WHERE lt.loan = :loan
+                AND lt.typeOf = org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.WAIVE_INTEREST
+                AND lt.reversed = false
+                AND lt.dateOf <= :maxDate
+            ORDER BY lt.dateOf
+            """)
+    List<Object[]> findUnrecognizedIncomeWaiverTransactions(@Param("loan") Loan loan, @Param("maxDate") LocalDate maxDate);
+
+    // --- Batch methods for COB accrual optimization ---
+
+    @Query("""
+            SELECT lcpb.loanCharge.id, COALESCE(SUM(lt.unrecognizedIncomePortion), 0)
+            FROM LoanChargePaidBy lcpb
+            JOIN lcpb.loanTransaction lt
+            WHERE lcpb.loanCharge IN :loanCharges
+                AND lt.reversed = false
+                AND lt.typeOf = org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.WAIVE_CHARGES
+                AND lt.dateOf <= :tillDate
+            GROUP BY lcpb.loanCharge.id
+            """)
+    List<Object[]> findChargeUnrecognizedWaivedAmountBatch(@Param("loanCharges") Collection<LoanCharge> loanCharges,
+            @Param("tillDate") LocalDate tillDate);
+
+    @Query("""
+            SELECT lcpb.loanCharge.id, COALESCE(SUM(CASE WHEN lt.typeOf = org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.ACCRUAL THEN lcpb.amount
+                 WHEN lt.typeOf = org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.ACCRUAL_ADJUSTMENT THEN -lcpb.amount
+                 ELSE 0 END), 0)
+            FROM LoanChargePaidBy lcpb
+            JOIN lcpb.loanTransaction lt
+            WHERE lcpb.loanCharge IN :loanCharges
+                AND lt.reversed = false
+            GROUP BY lcpb.loanCharge.id
+            """)
+    List<Object[]> findChargeAccrualAmountBatch(@Param("loanCharges") Collection<LoanCharge> loanCharges);
+
+    @Query("""
+            SELECT lcpb.loanCharge.id, lcpb.installmentNumber,
+                COALESCE(SUM(CASE WHEN lt.typeOf = org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.ACCRUAL THEN lcpb.amount
+                     WHEN lt.typeOf = org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType.ACCRUAL_ADJUSTMENT THEN -lcpb.amount
+                     ELSE 0 END), 0)
+            FROM LoanChargePaidBy lcpb
+            JOIN lcpb.loanTransaction lt
+            WHERE lcpb.loanCharge IN :loanCharges
+                AND lcpb.installmentNumber IS NOT NULL
+                AND lt.reversed = false
+            GROUP BY lcpb.loanCharge.id, lcpb.installmentNumber
+            """)
+    List<Object[]> findChargeAccrualAmountByInstallmentBatch(@Param("loanCharges") Collection<LoanCharge> loanCharges);
+
 }

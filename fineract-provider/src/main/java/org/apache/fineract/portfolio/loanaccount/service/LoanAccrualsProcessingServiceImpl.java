@@ -499,11 +499,87 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         final List<LoanRepaymentScheduleInstallment> installments = isFinal ? loan.getRepaymentScheduleInstallments()
                 : getInstallmentsToAccrue(loan, interestCalculationTillDate, periodic, chargeOnDueDate);
         final AccrualPeriodsData accrualPeriods = AccrualPeriodsData.create(installments, firstInstallmentNumber, currency);
+
+        final Collection<LoanCharge> allActiveCharges = collectAllActiveCharges(loan, tillDate, installments, chargeOnDueDate,
+                firstInstallmentNumber);
+        final Map<Long, BigDecimal> chargeUnrecognizedWaivedMap = prefetchChargeUnrecognizedWaivedAmounts(allActiveCharges, tillDate);
+        final Map<Long, BigDecimal> chargeAccrualMap = prefetchChargeAccrualAmounts(allActiveCharges);
+        final Map<String, BigDecimal> chargeAccrualByInstallmentMap = prefetchChargeAccrualAmountsByInstallment(allActiveCharges);
+
+        final BigDecimal cachedTotalInterestAccrued = isProgressiveAccrual(loan)
+                ? loanTransactionRepository.findTotalInterestAccruedAmount(loan)
+                : null;
+
+        final LocalDate waiverMaxDate = DateUtils.isAfter(interestCalculationTillDate, tillDate) ? interestCalculationTillDate : tillDate;
+        final List<Object[]> waiverTransactions = loanTransactionRepository.findUnrecognizedIncomeWaiverTransactions(loan, waiverMaxDate);
+
         for (LoanRepaymentScheduleInstallment installment : installments) {
-            addInterestAccrual(loan, interestCalculationTillDate, scheduleGenerator, installment, accrualPeriods);
-            addChargeAccrual(loan, tillDate, chargeOnDueDate, installment, accrualPeriods);
+            addInterestAccrual(loan, interestCalculationTillDate, scheduleGenerator, installment, accrualPeriods,
+                    cachedTotalInterestAccrued, waiverTransactions);
+            addChargeAccrual(loan, tillDate, chargeOnDueDate, installment, accrualPeriods, chargeUnrecognizedWaivedMap, chargeAccrualMap,
+                    chargeAccrualByInstallmentMap);
         }
         return accrualPeriods;
+    }
+
+    @NonNull
+    private Collection<LoanCharge> collectAllActiveCharges(@NonNull final Loan loan, @NonNull final LocalDate tillDate,
+            @NonNull final List<LoanRepaymentScheduleInstallment> installments, final boolean chargeOnDueDate,
+            final int firstInstallmentNumber) {
+        final Set<Long> seen = new java.util.HashSet<>();
+        final List<LoanCharge> allCharges = new ArrayList<>();
+        final AccrualPeriodsData tempAccrualPeriods = AccrualPeriodsData.create(installments, firstInstallmentNumber,
+                loan.getLoanProductRelatedDetail().getCurrency());
+        for (LoanRepaymentScheduleInstallment installment : installments) {
+            final AccrualPeriodData period = tempAccrualPeriods.getPeriodByInstallmentNumber(installment.getInstallmentNumber());
+            final LocalDate dueDate = installment.getDueDate();
+            final Collection<LoanCharge> loanCharges = loan
+                    .getLoanCharges(lc -> !lc.isDueAtDisbursement() && (lc.isInstalmentFee() ? !DateUtils.isBefore(tillDate, dueDate)
+                            : isChargeDue(lc, tillDate, chargeOnDueDate, installment, period.isFirstPeriod())));
+            for (LoanCharge lc : loanCharges) {
+                if (lc.isActive() && seen.add(lc.getId())) {
+                    allCharges.add(lc);
+                }
+            }
+        }
+        return allCharges;
+    }
+
+    @NonNull
+    private Map<Long, BigDecimal> prefetchChargeUnrecognizedWaivedAmounts(@NonNull final Collection<LoanCharge> allCharges,
+            @NonNull final LocalDate tillDate) {
+        if (allCharges.isEmpty()) {
+            return Map.of();
+        }
+        final Map<Long, BigDecimal> map = new HashMap<>();
+        for (Object[] row : loanTransactionRepository.findChargeUnrecognizedWaivedAmountBatch(allCharges, tillDate)) {
+            map.put((Long) row[0], (BigDecimal) row[1]);
+        }
+        return map;
+    }
+
+    @NonNull
+    private Map<Long, BigDecimal> prefetchChargeAccrualAmounts(@NonNull final Collection<LoanCharge> allCharges) {
+        if (allCharges.isEmpty()) {
+            return Map.of();
+        }
+        final Map<Long, BigDecimal> map = new HashMap<>();
+        for (Object[] row : loanTransactionRepository.findChargeAccrualAmountBatch(allCharges)) {
+            map.put((Long) row[0], (BigDecimal) row[1]);
+        }
+        return map;
+    }
+
+    @NonNull
+    private Map<String, BigDecimal> prefetchChargeAccrualAmountsByInstallment(@NonNull final Collection<LoanCharge> allCharges) {
+        if (allCharges.isEmpty()) {
+            return Map.of();
+        }
+        final Map<String, BigDecimal> map = new HashMap<>();
+        for (Object[] row : loanTransactionRepository.findChargeAccrualAmountByInstallmentBatch(allCharges)) {
+            map.put(row[0] + "_" + row[1], (BigDecimal) row[2]);
+        }
+        return map;
     }
 
     @NonNull
@@ -519,7 +595,8 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
     private void addInterestAccrual(@NonNull final Loan loan, @NonNull final LocalDate tillDate,
             final LoanScheduleGenerator scheduleGenerator, @NonNull final LoanRepaymentScheduleInstallment installment,
-            @NonNull final AccrualPeriodsData accrualPeriods) {
+            @NonNull final AccrualPeriodsData accrualPeriods, final BigDecimal cachedTotalInterestAccrued,
+            @NonNull final List<Object[]> waiverTransactions) {
         if (installment.isAdditional() || installment.isReAged()) {
             return;
         }
@@ -540,9 +617,8 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         Money transactionWaived = null;
         if (!MathUtil.isEmpty(interest)) {
             transactionWaived = MathUtil.toMoney(calcInterestTransactionWaivedAmount(installment, tillDate), currency);
-            Money unrecognizedWaived = MathUtil.toMoney(calcInterestUnrecognizedWaivedAmount(installment, accrualPeriods, tillDate),
-                    currency);
-            // unrecognized maximum is the waived portion which is not covered by waiver transactions
+            Money unrecognizedWaived = MathUtil.toMoney(
+                    calcInterestUnrecognizedWaivedAmount(installment, accrualPeriods, tillDate, waiverTransactions), currency);
             unrecognizedWaived = MathUtil.min(unrecognizedWaived,
                     MathUtil.minusToZero(installment.getInterestWaived(currency), transactionWaived), false);
             period.setUnrecognizedWaive(unrecognizedWaived);
@@ -551,7 +627,8 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
             accruable = MathUtil.minusToZero(period.getInterestAmount(), waived);
         }
         period.setInterestAccruable(accruable);
-        final Money transactionAccrued = MathUtil.toMoney(calcInterestAccruedAmount(installment, accrualPeriods, tillDate), currency);
+        final Money transactionAccrued = MathUtil.toMoney(
+                calcInterestAccruedAmount(installment, accrualPeriods, tillDate, cachedTotalInterestAccrued), currency);
         period.setTransactionAccrued(transactionAccrued);
         final Money accrued = MathUtil.minusToZero(transactionAccrued, transactionWaived);
         period.setInterestAccrued(accrued);
@@ -569,32 +646,35 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
     @NonNull
     private BigDecimal calcInterestUnrecognizedWaivedAmount(@NonNull LoanRepaymentScheduleInstallment installment,
-            @NonNull AccrualPeriodsData accrualPeriods, @NonNull LocalDate tillDate) {
-        // unrecognized amount of the transaction is not mapped to installments
+            @NonNull AccrualPeriodsData accrualPeriods, @NonNull LocalDate tillDate,
+            @NonNull final List<Object[]> waiverTransactions) {
         LocalDate dueDate = installment.getDueDate();
         LocalDate toDate = DateUtils.isBefore(dueDate, tillDate) ? dueDate : tillDate;
-        Loan loan = installment.getLoan();
-        BigDecimal totalUnrecognized = loanTransactionRepository.findTotalUnrecognizedIncomeFromInterestWaiverByLoanAndDate(loan, toDate);
-        // total unrecognized amount from previous periods
+        BigDecimal totalUnrecognized = BigDecimal.ZERO;
+        for (Object[] row : waiverTransactions) {
+            LocalDate txnDate = (LocalDate) row[0];
+            if (!DateUtils.isAfter(txnDate, toDate)) {
+                totalUnrecognized = MathUtil.add(totalUnrecognized, (BigDecimal) row[1]);
+            }
+        }
         BigDecimal prevUnrecognized = accrualPeriods.getPeriods().stream()
                 .filter(p -> p.getInstallmentNumber() < installment.getInstallmentNumber())
                 .map(p -> MathUtil.toBigDecimal(p.getUnrecognizedWaive())).reduce(BigDecimal.ZERO, MathUtil::add);
-        // unrecognized amount left for this period (and maybe more)
         return MathUtil.min(installment.getInterestWaived(), MathUtil.subtractToZero(totalUnrecognized, prevUnrecognized), false);
     }
 
     @NonNull
     private BigDecimal calcInterestAccruedAmount(@NonNull LoanRepaymentScheduleInstallment installment,
-            @NonNull AccrualPeriodsData accrualPeriods, @NonNull LocalDate tillDate) {
+            @NonNull AccrualPeriodsData accrualPeriods, @NonNull LocalDate tillDate, final BigDecimal cachedTotalInterestAccrued) {
         Loan loan = installment.getLoan();
         BigDecimal accruedFromTransactions;
         if (isProgressiveAccrual(loan)) {
-            BigDecimal totalAccrued = loanTransactionRepository.findTotalInterestAccruedAmount(loan);
+            BigDecimal totalAccrued = cachedTotalInterestAccrued != null ? cachedTotalInterestAccrued
+                    : loanTransactionRepository.findTotalInterestAccruedAmount(loan);
             BigDecimal prevAccrued = accrualPeriods.getPeriods().stream()
                     .filter(p -> p.getInstallmentNumber() < installment.getInstallmentNumber())
                     .map(p -> MathUtil.toBigDecimal(p.getTransactionAccrued())).reduce(BigDecimal.ZERO, MathUtil::add);
             accruedFromTransactions = MathUtil.subtractToZero(totalAccrued, prevAccrued);
-            // if this is the current-last period, all the remaining accrued amount is added
             accruedFromTransactions = isInPeriod(tillDate, installment, false) ? accruedFromTransactions
                     : MathUtil.min(installment.getInterestAccrued(), accruedFromTransactions, false);
         } else {
@@ -606,7 +686,9 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
     }
 
     private void addChargeAccrual(@NonNull final Loan loan, @NonNull final LocalDate tillDate, final boolean chargeOnDueDate,
-            @NonNull final LoanRepaymentScheduleInstallment installment, @NonNull final AccrualPeriodsData accrualPeriods) {
+            @NonNull final LoanRepaymentScheduleInstallment installment, @NonNull final AccrualPeriodsData accrualPeriods,
+            @NonNull final Map<Long, BigDecimal> chargeUnrecognizedWaivedMap, @NonNull final Map<Long, BigDecimal> chargeAccrualMap,
+            @NonNull final Map<String, BigDecimal> chargeAccrualByInstallmentMap) {
         final AccrualPeriodData period = accrualPeriods.getPeriodByInstallmentNumber(installment.getInstallmentNumber());
         final LocalDate dueDate = installment.getDueDate();
         final Collection<LoanCharge> loanCharges = loan
@@ -614,13 +696,16 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
                         : isChargeDue(lc, tillDate, chargeOnDueDate, installment, period.isFirstPeriod())));
         for (LoanCharge loanCharge : loanCharges) {
             if (loanCharge.isActive()) {
-                addChargeAccrual(loanCharge, tillDate, chargeOnDueDate, installment, accrualPeriods);
+                addChargeAccrual(loanCharge, tillDate, chargeOnDueDate, installment, accrualPeriods, chargeUnrecognizedWaivedMap,
+                        chargeAccrualMap, chargeAccrualByInstallmentMap);
             }
         }
     }
 
     private void addChargeAccrual(@NonNull final LoanCharge loanCharge, @NonNull final LocalDate tillDate, final boolean chargeOnDueDate,
-            @NonNull final LoanRepaymentScheduleInstallment installment, @NonNull final AccrualPeriodsData accrualPeriods) {
+            @NonNull final LoanRepaymentScheduleInstallment installment, @NonNull final AccrualPeriodsData accrualPeriods,
+            @NonNull final Map<Long, BigDecimal> chargeUnrecognizedWaivedMap, @NonNull final Map<Long, BigDecimal> chargeAccrualMap,
+            @NonNull final Map<String, BigDecimal> chargeAccrualByInstallmentMap) {
         final MonetaryCurrency currency = accrualPeriods.getCurrency();
         final Integer firstInstallmentNumber = accrualPeriods.getFirstInstallmentNumber();
         final boolean installmentFee = loanCharge.isInstalmentFee();
@@ -653,20 +738,18 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         final AccrualChargeData chargeData = new AccrualChargeData(loanCharge.getId(), installmentChargeId, loanCharge.isPenaltyCharge())
                 .setChargeAmount(chargeAmount);
 
-        final Money unrecognizedWaived = MathUtil
-                .toMoney(loanTransactionRepository.findChargeUnrecognizedWaivedAmount(loanCharge, tillDate), currency);
+        final BigDecimal unrecognizedWaivedAmount = chargeUnrecognizedWaivedMap.getOrDefault(loanCharge.getId(), BigDecimal.ZERO);
+        final Money unrecognizedWaived = MathUtil.toMoney(unrecognizedWaivedAmount, currency);
         final Money transactionWaived = MathUtil.minusToZero(waived, unrecognizedWaived);
-        // For installment fees, use installment-specific accrual amount
+
         Money transactionAccrued;
         if (installmentFee && installmentChargeId != null) {
-            transactionAccrued = MathUtil.toMoney(
-                    loanTransactionRepository.findChargeAccrualAmountByInstallment(loanCharge, dueInstallment.getInstallmentNumber()),
-                    currency);
+            final String key = loanCharge.getId() + "_" + dueInstallment.getInstallmentNumber();
+            transactionAccrued = MathUtil.toMoney(chargeAccrualByInstallmentMap.getOrDefault(key, BigDecimal.ZERO), currency);
         } else {
-            transactionAccrued = MathUtil.toMoney(loanTransactionRepository.findChargeAccrualAmount(loanCharge), currency);
+            transactionAccrued = MathUtil.toMoney(chargeAccrualMap.getOrDefault(loanCharge.getId(), BigDecimal.ZERO), currency);
         }
 
-        // When charge was accrued and then waived, do not subtract waived from accruable
         final boolean accruedThenWaived = MathUtil.isGreaterThanZero(transactionAccrued) && MathUtil.isGreaterThanZero(waived);
         chargeData.setChargeAccruable(accruedThenWaived ? chargeAmount : MathUtil.minusToZero(chargeAmount, waived));
 
