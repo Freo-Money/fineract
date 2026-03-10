@@ -320,7 +320,7 @@ public final class ClientDataValidator {
                 .notExceedingLengthOf(50);
 
         final String lastnameParamName = this.fromApiJsonHelper.extractStringNamed(ClientApiConstants.lastnameParamName, element);
-        baseDataValidator.reset().parameter(ClientApiConstants.lastnameParamName).value(lastnameParamName).notBlank()
+        baseDataValidator.reset().parameter(ClientApiConstants.lastnameParamName).value(lastnameParamName).ignoreIfNull()
                 .notExceedingLengthOf(50);
     }
 

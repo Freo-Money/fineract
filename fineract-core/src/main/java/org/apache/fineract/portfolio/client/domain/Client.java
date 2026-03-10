@@ -419,7 +419,7 @@ public class Client extends AbstractAuditableWithUTCDateTimeCustom<Long> {
                     .notExceedingLengthOf(50);
             baseDataValidator.reset().parameter(ClientApiConstants.middlenameParamName).value(this.middlename).ignoreIfNull()
                     .notExceedingLengthOf(50);
-            baseDataValidator.reset().parameter(ClientApiConstants.lastnameParamName).value(this.lastname).notBlank()
+            baseDataValidator.reset().parameter(ClientApiConstants.lastnameParamName).value(this.lastname).ignoreIfNull()
                     .notExceedingLengthOf(50);
         }
     }
