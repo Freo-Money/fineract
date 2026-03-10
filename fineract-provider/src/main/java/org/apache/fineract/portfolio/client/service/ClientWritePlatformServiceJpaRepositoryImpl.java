@@ -260,7 +260,7 @@ public class ClientWritePlatformServiceJpaRepositoryImpl implements ClientWriteP
             final String emailAddress = command.stringValueOfParameterNamed(ClientApiConstants.emailAddressParamName);
             final String firstname = command.stringValueOfParameterNamed(ClientApiConstants.firstnameParamName);
             final String middlename = command.stringValueOfParameterNamed(ClientApiConstants.middlenameParamName);
-            final String lastname = command.stringValueOfParameterNamed(ClientApiConstants.lastnameParamName);
+            final String lastname = command.stringValueOfParameterNamedAllowingNull(ClientApiConstants.lastnameParamName);
             final String fullname = command.stringValueOfParameterNamed(ClientApiConstants.fullnameParamName);
             final boolean isStaff = command.booleanPrimitiveValueOfParameterNamed(ClientApiConstants.isStaffParamName);
             final LocalDate dataOfBirth = command.localDateValueOfParameterNamed(ClientApiConstants.dateOfBirthParamName);
