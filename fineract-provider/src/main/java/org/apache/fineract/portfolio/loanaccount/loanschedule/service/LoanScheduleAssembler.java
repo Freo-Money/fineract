@@ -39,6 +39,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import lombok.RequiredArgsConstructor;
@@ -373,11 +374,9 @@ public class LoanScheduleAssembler {
         final LocalDate interestChargedFromDate = this.fromApiJsonHelper.extractLocalDateNamed("interestChargedFromDate", element);
         final Boolean isInterestChargedFromDateSameAsDisbursalDateEnabled = this.configurationDomainService
                 .isInterestChargedFromDateSameAsDisbursementDate();
-
-        final Integer graceOnArrearsAgeing = allowOverridingGraceOnArrearsAging
+        final Integer graceOnArrearsAgeing = Objects.requireNonNullElse(allowOverridingGraceOnArrearsAging
                 ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed(LoanProductConstants.GRACE_ON_ARREARS_AGEING_PARAMETER_NAME, element)
-                : loanProduct.getLoanProductRelatedDetail().getGraceOnArrearsAgeing();
-
+                : null, loanProduct.getLoanProductRelatedDetail().getGraceOnArrearsAgeing());
         // other
         final BigDecimal inArrearsTolerance = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed("inArrearsTolerance", element);
         final Money inArrearsToleranceMoney = allowOverridingArrearsTolerance ? Money.of(currency, inArrearsTolerance)
