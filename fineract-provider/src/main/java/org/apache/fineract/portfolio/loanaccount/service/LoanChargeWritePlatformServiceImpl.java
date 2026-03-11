@@ -1176,7 +1176,6 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         Integer feeFrequency = chargeDefinition.feeFrequency();
         final ScheduledDateGenerator scheduledDateGenerator = new DefaultScheduledDateGenerator();
         Map<Integer, LocalDate> scheduleDates = new HashMap<>();
-        final Long penaltyWaitPeriodValue = this.configurationDomainService.retrievePenaltyWaitPeriod();
         final Long penaltyPostingWaitPeriodValue = this.configurationDomainService.retrieveGraceOnPenaltyPostingPeriod();
         final LocalDate dueDate = command.localDateValueOfParameterNamed("dueDate");
         if (remainingCumulativePenaltyCap != null && remainingCumulativePenaltyCap.compareTo(BigDecimal.ZERO) <= 0) {
@@ -1185,19 +1184,18 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             return new LoanOverdueDTO(loan, runInterestRecalculation, DateUtils.getBusinessLocalDate(), dueDate,
                     remainingCumulativePenaltyCap);
         }
-        long diff = penaltyWaitPeriodValue + 1 - penaltyPostingWaitPeriodValue;
-        if (diff < 1) {
-            diff = 1L;
-        }
-        LocalDate startDate = dueDate.plusDays(penaltyWaitPeriodValue + 1L);
+        // penalty-wait-period controls WHEN we pick up the loan (eligibility). grace-on-penalty-posting delays
+        // the first penalty date: first penalty = dueDate + 1 + grace (grace=0 -> 6th, grace=1 -> 7th, grace=2 -> 8th).
+        LocalDate startDate = dueDate.plusDays(1L + penaltyPostingWaitPeriodValue);
         int frequencyNumber = 1;
         if (feeFrequency == null) {
-            scheduleDates.put(frequencyNumber++, startDate.minusDays(diff));
+            scheduleDates.put(frequencyNumber++, startDate);
         } else {
             // feeInterval may be null for legacy charges; use 1 (every period) as default
             final int feeInterval = chargeDefinition.feeInterval() != null ? chargeDefinition.feeInterval() : 1;
-            while (!DateUtils.isDateInTheFuture(startDate)) {
-                scheduleDates.put(frequencyNumber++, startDate.minusDays(diff));
+            // Apply penalties only up to yesterday: continue while schedule date < business date
+            while (!DateUtils.isAfterBusinessDate(startDate)) {
+                scheduleDates.put(frequencyNumber++, startDate);
 
                 startDate = scheduledDateGenerator.getRepaymentPeriodDate(PeriodFrequencyType.fromInt(feeFrequency), feeInterval,
                         startDate);
