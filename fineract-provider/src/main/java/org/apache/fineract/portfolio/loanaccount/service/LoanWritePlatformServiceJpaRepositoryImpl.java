@@ -423,7 +423,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
             disburseLoan(command, isPaymentTypeApplicableForDisbursementCharge, paymentDetail, loan, currentUser, changes,
                     scheduleGeneratorDTO);
-            loan.adjustNetDisbursalAmount(amountToDisburse.getAmount());
+            // amountToDisburse is already principal minus disbursement charges (and BPI); set net directly to avoid
+            // double deduction
+            loan.setNetDisbursalAmount(amountToDisburse.getAmount());
 
             loanAccrualsProcessingService.reprocessExistingAccruals(loan, true);
 
