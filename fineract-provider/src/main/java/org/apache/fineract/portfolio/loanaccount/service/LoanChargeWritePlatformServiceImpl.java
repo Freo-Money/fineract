@@ -1644,7 +1644,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             throw new GeneralPlatformDomainRuleException("error.msg.loan.charge.payment.amount.invalid",
                     "Transaction amount must be provided and greater than zero", remainingAmount);
         }
-        final ExternalId externalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
+        final ExternalId requestExternalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
         final PaymentDetail paymentDetail = paymentDetailWritePlatformService.createPaymentDetail(command, null);
         final String noteText = command.stringValueOfParameterNamedAllowingNull("note");
         // Note: isAccountTransfer is always false in payByChargeId as per requirements
@@ -1679,6 +1679,12 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         final List<LoanTransaction> transactions = new ArrayList<>();
         BigDecimal totalPaidAmount = BigDecimal.ZERO;
 
+        // When request has externalId and we create multiple transactions, each must have a unique external_id
+        // (DB unique constraint). First transaction keeps the request externalId; subsequent get suffix "-2", "-3", ...
+        // so recon can find all via prefix match (external_id LIKE requestExternalId%).
+        final int maxExternalIdLength = 100;
+        int transactionIndex = 0;
+
         // Process each charge using the same logic as payLoanCharge (reuse business logic)
         // Create transactions in memory first, then batch process - optimized for DB calls
         for (LoanCharge loanCharge : matchingCharges) {
@@ -1710,10 +1716,13 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             BigDecimal amountToPay = remainingAmount.min(chargeOutstanding);
             paymentAmount = Money.of(loan.getCurrency(), amountToPay);
 
+            // Assign unique externalId per transaction when request provided one (avoids unique constraint violation)
+            final ExternalId transactionExternalId = resolveTransactionExternalId(requestExternalId, transactionIndex, maxExternalIdLength);
+
             // Create transaction using same logic as makeChargePayment (CHARGE_PAYMENT type)
             final LoanTransactionType loanTransactionType = LoanTransactionType.CHARGE_PAYMENT;
             LoanTransaction chargePaymentTransaction = LoanTransaction.loanPayment(null, loan.getOffice(), paymentAmount, paymentDetail,
-                    transactionDate, externalId, loanTransactionType);
+                    transactionDate, transactionExternalId, loanTransactionType);
 
             // Use loanChargeService.makeChargePayment to handle proper processing logic
             // This ensures same business logic as payLoanCharge is applied (transaction processing, allocation, etc.)
@@ -1723,6 +1732,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             remainingAmount = remainingAmount.subtract(amountToPay);
             totalPaidAmount = totalPaidAmount.add(amountToPay);
             paidChargeIds.add(loanCharge.getId());
+            transactionIndex++;
         }
         if (remainingAmount.compareTo(BigDecimal.ZERO) > 0) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.charge.payment.amount.greater.than.total.outstanding",
@@ -1779,6 +1789,28 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(chargeId)
                 .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
                 .with(changes).build();
+    }
+
+    /**
+     * When a single request creates multiple charge-payment transactions and the request provides an externalId, each
+     * transaction must have a unique external_id (DB unique constraint). The first transaction keeps the request
+     * externalId; subsequent ones get a suffix "-2", "-3", etc. Recon can find all via prefix match (external_id LIKE
+     * requestExternalId%).
+     */
+    private ExternalId resolveTransactionExternalId(final ExternalId requestExternalId, final int transactionIndex,
+            final int maxExternalIdLength) {
+        if (requestExternalId == null || requestExternalId.isEmpty()) {
+            return requestExternalId != null ? requestExternalId : ExternalId.empty();
+        }
+        if (transactionIndex == 0) {
+            return requestExternalId;
+        }
+        final String base = requestExternalId.getValue();
+        final String suffix = "-" + (transactionIndex + 1);
+        if (base.length() + suffix.length() > maxExternalIdLength) {
+            return ExternalId.generate();
+        }
+        return new ExternalId(base + suffix);
     }
 
     @Override
