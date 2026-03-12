@@ -201,8 +201,10 @@ public class LoanScheduleAssembler {
         final PeriodFrequencyType loanTermPeriodFrequencyType = PeriodFrequencyType.fromInt(loanTermFrequencyType);
 
         final Integer numberOfRepayments = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("numberOfRepayments", element);
-        final Integer repaymentEvery = allowOverridingRepaymentEvery
+        final Integer repaymentEveryFromPayload = allowOverridingRepaymentEvery
                 ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed("repaymentEvery", element)
+                : null;
+        final Integer repaymentEvery = repaymentEveryFromPayload != null ? repaymentEveryFromPayload
                 : loanProduct.getLoanProductRelatedDetail().getRepayEvery();
         final Integer repaymentFrequencyType = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("repaymentFrequencyType", element);
         final PeriodFrequencyType repaymentPeriodFrequencyType = PeriodFrequencyType.fromInt(repaymentFrequencyType);
@@ -212,16 +214,24 @@ public class LoanScheduleAssembler {
         final Integer repeatsOnDayOfMonth = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("repeatsOnDayOfMonth", element);
 
         final Integer amortizationType = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("amortizationType", element);
-        final AmortizationMethod amortizationMethod = allowOverridingAmortization ? AmortizationMethod.fromInt(amortizationType)
+        final AmortizationMethod amortizationMethod = (allowOverridingAmortization && amortizationType != null)
+                ? AmortizationMethod.fromInt(amortizationType)
                 : loanProduct.getLoanProductRelatedDetail().getAmortizationMethod();
 
-        boolean isEqualAmortization = false;
+        boolean isEqualAmortization;
         if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.isEqualAmortizationParam, element)) {
-            isEqualAmortization = this.fromApiJsonHelper.extractBooleanNamed(LoanApiConstants.isEqualAmortizationParam, element);
+            final Boolean isEqualAmortizationFromPayload = this.fromApiJsonHelper
+                    .extractBooleanNamed(LoanApiConstants.isEqualAmortizationParam, element);
+            isEqualAmortization = Boolean.TRUE.equals(isEqualAmortizationFromPayload);
+        } else {
+            isEqualAmortization = loanProduct.getLoanProductRelatedDetail().isEqualAmortization();
         }
 
         BigDecimal fixedPrincipalPercentagePerInstallment = this.fromApiJsonHelper
                 .extractBigDecimalWithLocaleNamed(LoanApiConstants.fixedPrincipalPercentagePerInstallmentParamName, element);
+        if (fixedPrincipalPercentagePerInstallment == null) {
+            fixedPrincipalPercentagePerInstallment = loanProduct.getFixedPrincipalPercentagePerInstallment();
+        }
 
         /**
          * Interest recalculation settings copy from product definition
@@ -239,14 +249,14 @@ public class LoanScheduleAssembler {
 
         // interest terms
         final Integer interestType = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("interestType", element);
-        final InterestMethod interestMethod = allowOverridingInterestMethod ? InterestMethod.fromInt(interestType)
+        final InterestMethod interestMethod = (allowOverridingInterestMethod && interestType != null) ? InterestMethod.fromInt(interestType)
                 : loanProduct.getLoanProductRelatedDetail().getInterestMethod();
 
         final Integer interestCalculationPeriodType = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("interestCalculationPeriodType",
                 element);
-        final InterestCalculationPeriodMethod interestCalculationPeriodMethod = allowOverridingInterestCalcPeriod
-                ? InterestCalculationPeriodMethod.fromInt(interestCalculationPeriodType)
-                : loanProduct.getLoanProductRelatedDetail().getInterestCalculationPeriodMethod();
+        final InterestCalculationPeriodMethod interestCalculationPeriodMethod = (allowOverridingInterestCalcPeriod
+                && interestCalculationPeriodType != null) ? InterestCalculationPeriodMethod.fromInt(interestCalculationPeriodType)
+                        : loanProduct.getLoanProductRelatedDetail().getInterestCalculationPeriodMethod();
         Boolean allowPartialPeriodInterestCalcualtion = this.fromApiJsonHelper
                 .extractBooleanNamed(LoanProductConstants.ALLOW_PARTIAL_PERIOD_INTEREST_CALCUALTION_PARAM_NAME, element);
         if (allowPartialPeriodInterestCalcualtion == null) {
@@ -361,26 +371,37 @@ public class LoanScheduleAssembler {
         }
 
         // grace details
-        final Integer graceOnPrincipalPayment = allowOverridingGraceOnPrincipalAndInterestPayment
+        final Integer graceOnPrincipalFromPayload = allowOverridingGraceOnPrincipalAndInterestPayment
                 ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed("graceOnPrincipalPayment", element)
+                : null;
+        final Integer graceOnPrincipalPayment = graceOnPrincipalFromPayload != null ? graceOnPrincipalFromPayload
                 : loanProduct.getLoanProductRelatedDetail().getGraceOnPrincipalPayment();
-        final Integer recurringMoratoriumOnPrincipalPeriods = this.fromApiJsonHelper
+        final Integer recurringMoratoriumFromPayload = this.fromApiJsonHelper
                 .extractIntegerWithLocaleNamed("recurringMoratoriumOnPrincipalPeriods", element);
-        final Integer graceOnInterestPayment = allowOverridingGraceOnPrincipalAndInterestPayment
+        final Integer recurringMoratoriumOnPrincipalPeriods = recurringMoratoriumFromPayload != null ? recurringMoratoriumFromPayload
+                : loanProduct.getLoanProductRelatedDetail().getRecurringMoratoriumOnPrincipalPeriods();
+        final Integer graceOnInterestFromPayload = allowOverridingGraceOnPrincipalAndInterestPayment
                 ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed("graceOnInterestPayment", element)
+                : null;
+        final Integer graceOnInterestPayment = graceOnInterestFromPayload != null ? graceOnInterestFromPayload
                 : loanProduct.getLoanProductRelatedDetail().getGraceOnInterestPayment();
-        final Integer graceOnInterestCharged = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("graceOnInterestCharged", element);
+        final Integer graceOnInterestChargedFromPayload = this.fromApiJsonHelper.extractIntegerWithLocaleNamed("graceOnInterestCharged",
+                element);
+        final Integer graceOnInterestCharged = graceOnInterestChargedFromPayload != null ? graceOnInterestChargedFromPayload
+                : loanProduct.getLoanProductRelatedDetail().getGraceOnInterestCharged();
         final LocalDate interestChargedFromDate = this.fromApiJsonHelper.extractLocalDateNamed("interestChargedFromDate", element);
         final Boolean isInterestChargedFromDateSameAsDisbursalDateEnabled = this.configurationDomainService
                 .isInterestChargedFromDateSameAsDisbursementDate();
-
-        final Integer graceOnArrearsAgeing = allowOverridingGraceOnArrearsAging
+        final Integer graceOnArrearsFromPayload = allowOverridingGraceOnArrearsAging
                 ? this.fromApiJsonHelper.extractIntegerWithLocaleNamed(LoanProductConstants.GRACE_ON_ARREARS_AGEING_PARAMETER_NAME, element)
+                : null;
+        final Integer graceOnArrearsAgeing = graceOnArrearsFromPayload != null ? graceOnArrearsFromPayload
                 : loanProduct.getLoanProductRelatedDetail().getGraceOnArrearsAgeing();
-
         // other
-        final BigDecimal inArrearsTolerance = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed("inArrearsTolerance", element);
-        final Money inArrearsToleranceMoney = allowOverridingArrearsTolerance ? Money.of(currency, inArrearsTolerance)
+        final BigDecimal inArrearsTolerance = allowOverridingArrearsTolerance
+                ? this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed("inArrearsTolerance", element)
+                : null;
+        final Money inArrearsToleranceMoney = inArrearsTolerance != null ? Money.of(currency, inArrearsTolerance)
                 : loanProduct.getLoanProductRelatedDetail().getInArrearsTolerance();
 
         final BigDecimal emiAmount = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(LoanApiConstants.fixedEmiAmountParameterName,
