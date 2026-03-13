@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.tax.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
@@ -33,28 +34,13 @@ import org.apache.fineract.portfolio.tax.domain.TaxGroupMappings;
 public final class TaxUtils {
 
     private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
+    private static final double HUNDRED_DOUBLE = 100.0;
 
     private TaxUtils() {}
 
     public static Map<TaxComponent, BigDecimal> splitTax(final BigDecimal amount, final LocalDate date,
             final Set<TaxGroupMappings> taxGroupMappings, final int scale) {
-        Map<TaxComponent, BigDecimal> map = new HashMap<>(3);
-        if (amount != null) {
-            final double amountVal = amount.doubleValue();
-            double cent_percentage = Double.parseDouble("100.0");
-            for (TaxGroupMappings groupMappings : taxGroupMappings) {
-                if (groupMappings.occursOnDayFromAndUpToAndIncluding(date)) {
-                    TaxComponent component = groupMappings.getTaxComponent();
-                    BigDecimal percentage = component.getApplicablePercentage(date);
-                    if (percentage != null) {
-                        double percentageVal = percentage.doubleValue();
-                        double tax = amountVal * percentageVal / cent_percentage;
-                        map.put(component, BigDecimal.valueOf(tax).setScale(scale, MoneyHelper.getRoundingMode()));
-                    }
-                }
-            }
-        }
-        return map;
+        return splitTaxWithRoundingMode(amount, date, taxGroupMappings, scale, MoneyHelper.getRoundingMode());
     }
 
     public static Map<TaxComponentData, BigDecimal> splitTaxData(final BigDecimal amount, final LocalDate date,
@@ -62,14 +48,13 @@ public final class TaxUtils {
         Map<TaxComponentData, BigDecimal> map = new HashMap<>(3);
         if (amount != null) {
             final double amountVal = amount.doubleValue();
-            double cent_percentage = Double.parseDouble("100.0");
             for (TaxGroupMappingsData groupMappings : taxGroupMappings) {
                 if (groupMappings.occursOnDayFromAndUpToAndIncluding(date)) {
                     TaxComponentData component = groupMappings.getTaxComponent();
                     BigDecimal percentage = component.getApplicablePercentage(date);
                     if (percentage != null) {
                         double percentageVal = percentage.doubleValue();
-                        double tax = amountVal * percentageVal / cent_percentage;
+                        double tax = amountVal * percentageVal / HUNDRED_DOUBLE;
                         map.put(component, BigDecimal.valueOf(tax).setScale(scale, MoneyHelper.getRoundingMode()));
                     }
                 }
@@ -120,6 +105,21 @@ public final class TaxUtils {
 
     public static BigDecimal extractBaseAmountFromTaxInclusive(final BigDecimal taxInclusiveAmount, final LocalDate date,
             final Set<TaxGroupMappings> taxGroupMappings, final int scale) {
+        return extractBaseAmountFromTaxInclusive(taxInclusiveAmount, date, taxGroupMappings, scale, MoneyHelper.getRoundingMode());
+    }
+
+    public static Map<TaxComponent, BigDecimal> splitTaxForLoanCharge(final BigDecimal taxInclusiveAmount, final LocalDate date,
+            final Set<TaxGroupMappings> taxGroupMappings, final int scale) {
+        return splitTaxForLoanCharge(taxInclusiveAmount, date, taxGroupMappings, scale, MoneyHelper.getRoundingMode());
+    }
+
+    /**
+     * Variant of extractBaseAmountFromTaxInclusive that allows callers to specify a custom rounding mode for tax
+     * calculations (for example, always rounding up for tax components), while keeping existing behaviour unchanged for
+     * other callers.
+     */
+    public static BigDecimal extractBaseAmountFromTaxInclusive(final BigDecimal taxInclusiveAmount, final LocalDate date,
+            final Set<TaxGroupMappings> taxGroupMappings, final int scale, final RoundingMode roundingMode) {
         if (taxInclusiveAmount == null || taxInclusiveAmount.compareTo(BigDecimal.ZERO) <= 0) {
             return taxInclusiveAmount;
         }
@@ -127,17 +127,44 @@ public final class TaxUtils {
         if (totalPercentage.compareTo(BigDecimal.ZERO) <= 0) {
             return taxInclusiveAmount;
         }
-        return taxInclusiveAmount.multiply(HUNDRED).divide(HUNDRED.add(totalPercentage), scale + 4, MoneyHelper.getRoundingMode())
-                .setScale(scale, MoneyHelper.getRoundingMode());
+        return taxInclusiveAmount.multiply(HUNDRED).divide(HUNDRED.add(totalPercentage), scale + 4, roundingMode).setScale(scale,
+                roundingMode);
     }
 
+    /**
+     * Variant of splitTaxForLoanCharge that allows callers to specify a custom rounding mode for tax calculations (for
+     * example, always rounding up for tax components), while keeping existing behaviour unchanged for other callers.
+     */
     public static Map<TaxComponent, BigDecimal> splitTaxForLoanCharge(final BigDecimal taxInclusiveAmount, final LocalDate date,
-            final Set<TaxGroupMappings> taxGroupMappings, final int scale) {
+            final Set<TaxGroupMappings> taxGroupMappings, final int scale, final RoundingMode roundingMode) {
         if (taxInclusiveAmount == null || taxInclusiveAmount.compareTo(BigDecimal.ZERO) <= 0) {
             return new HashMap<>();
         }
-        BigDecimal baseAmount = extractBaseAmountFromTaxInclusive(taxInclusiveAmount, date, taxGroupMappings, scale);
-        return splitTax(baseAmount, date, taxGroupMappings, scale);
+        BigDecimal baseAmount = extractBaseAmountFromTaxInclusive(taxInclusiveAmount, date, taxGroupMappings, scale, roundingMode);
+        return splitTaxWithRoundingMode(baseAmount, date, taxGroupMappings, scale, roundingMode);
+    }
+
+    /**
+     * Variant of splitTax that allows callers to specify a custom rounding mode for tax calculations.
+     */
+    private static Map<TaxComponent, BigDecimal> splitTaxWithRoundingMode(final BigDecimal amount, final LocalDate date,
+            final Set<TaxGroupMappings> taxGroupMappings, final int scale, final RoundingMode roundingMode) {
+        Map<TaxComponent, BigDecimal> map = new HashMap<>(3);
+        if (amount != null) {
+            final double amountVal = amount.doubleValue();
+            for (TaxGroupMappings groupMappings : taxGroupMappings) {
+                if (groupMappings.occursOnDayFromAndUpToAndIncluding(date)) {
+                    TaxComponent component = groupMappings.getTaxComponent();
+                    BigDecimal percentage = component.getApplicablePercentage(date);
+                    if (percentage != null) {
+                        double percentageVal = percentage.doubleValue();
+                        double tax = amountVal * percentageVal / HUNDRED_DOUBLE;
+                        map.put(component, BigDecimal.valueOf(tax).setScale(scale, roundingMode));
+                    }
+                }
+            }
+        }
+        return map;
     }
 
     private static BigDecimal getTotalPercentage(final LocalDate date, final Iterable<TaxGroupMappings> taxGroupMappings) {

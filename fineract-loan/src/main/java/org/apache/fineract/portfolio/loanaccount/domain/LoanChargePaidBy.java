@@ -27,10 +27,12 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.portfolio.tax.domain.TaxComponent;
 import org.apache.fineract.portfolio.tax.service.TaxUtils;
@@ -76,8 +78,10 @@ public class LoanChargePaidBy extends AbstractPersistableCustom<Long> {
     private void createTaxDetailsPaidBy(LocalDate transactionDate) {
         if (this.loanCharge.getTaxGroup() != null && this.amount.compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal incomeAmount = BigDecimal.ZERO;
+            int scale = this.loanCharge.getLoan().getCurrency().getDigitsAfterDecimal();
+            RoundingMode taxRoundingMode = TemporaryConfigurationServiceContainer.getTaxRoundingMode();
             Map<TaxComponent, BigDecimal> taxComponents = TaxUtils.splitTaxForLoanCharge(this.amount, transactionDate,
-                    this.loanCharge.getTaxGroup().getTaxGroupMappings(), this.amount.scale());
+                    this.loanCharge.getTaxGroup().getTaxGroupMappings(), scale, taxRoundingMode);
             BigDecimal totalTaxAmount = TaxUtils.totalTaxAmount(taxComponents);
             if (totalTaxAmount.compareTo(BigDecimal.ZERO) > 0) {
                 incomeAmount = this.amount;

@@ -19,6 +19,7 @@
 package org.apache.fineract.infrastructure.configuration.domain;
 
 import jakarta.validation.constraints.NotNull;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -230,6 +231,24 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
             return value;
         }
         return defaultValue;
+    }
+
+    @Override
+    public RoundingMode getTaxRoundingMode() {
+        RoundingMode defaultMode = RoundingMode.CEILING;
+        final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(GlobalConfigurationConstants.TAX_ROUNDING_MODE);
+        if (property.isEnabled()) {
+            final Long valueLong = property.getValue();
+            if (valueLong == null) {
+                return defaultMode;
+            }
+            int value = valueLong.intValue();
+            if (value < 0 || value > 6) {
+                return defaultMode;
+            }
+            return RoundingMode.valueOf(value);
+        }
+        return defaultMode;
     }
 
     @Override

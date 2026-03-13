@@ -19,9 +19,11 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.Set;
+import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
@@ -71,16 +73,18 @@ public final class LoanChargeTaxUtils {
 
     private static void calculateAndApplyTax(final LoanCharge loanCharge, final TaxGroup taxGroup, final BigDecimal taxInclusiveAmount,
             final LocalDate transactionDate) {
-        int scale = taxInclusiveAmount.scale();
+        int scale = loanCharge.getLoan().getCurrency().getDigitsAfterDecimal();
         Set<TaxGroupMappings> taxGroupMappings = taxGroup.getTaxGroupMappings();
 
-        BigDecimal amountSansTax = TaxUtils.extractBaseAmountFromTaxInclusive(taxInclusiveAmount, transactionDate, taxGroupMappings, scale);
-        Map<TaxComponent, BigDecimal> taxSplit = TaxUtils.splitTax(amountSansTax, transactionDate, taxGroupMappings, scale);
+        RoundingMode taxRoundingMode = TemporaryConfigurationServiceContainer.getTaxRoundingMode();
+
+        Map<TaxComponent, BigDecimal> taxSplit = TaxUtils.splitTaxForLoanCharge(taxInclusiveAmount, transactionDate, taxGroupMappings,
+                scale, taxRoundingMode);
         BigDecimal totalTaxAmount = TaxUtils.totalTaxAmount(taxSplit);
 
         if (totalTaxAmount.compareTo(BigDecimal.ZERO) > 0) {
-            loanCharge.setAmountSansTax(amountSansTax);
             loanCharge.setTaxAmount(totalTaxAmount);
+            loanCharge.setAmountSansTax(taxInclusiveAmount.subtract(totalTaxAmount));
             createTaxDetails(loanCharge, taxSplit);
         } else {
             loanCharge.setAmountSansTax(taxInclusiveAmount);

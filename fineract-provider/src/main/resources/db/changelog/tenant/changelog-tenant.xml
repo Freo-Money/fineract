@@ -242,4 +242,5 @@
     <include file="parts/1041_add_update_npa_business_step.xml" relativeToChangelogFile="true" />
     <include file="parts/1042_add_overdue_due_fees_penalties_order_strategies.xml" relativeToChangelogFile="true" />
     <include file="parts/1043_add_all_principal_all_interest_then_charges_order_strategies.xml" relativeToChangelogFile="true" />
+    <include file="parts/1044_add_tax_rounding_mode_configuration.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

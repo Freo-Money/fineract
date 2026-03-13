@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.infrastructure.configuration.domain;
 
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
 import org.apache.fineract.infrastructure.cache.domain.CacheType;
@@ -69,6 +70,8 @@ public interface ConfigurationDomainService {
     boolean isMeetingMandatoryForJLGLoans();
 
     int getRoundingMode();
+
+    RoundingMode getTaxRoundingMode();
 
     boolean isBackdatePenaltiesEnabled();
 
