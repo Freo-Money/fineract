@@ -29,9 +29,11 @@ import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
+import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.tax.domain.TaxComponent;
 import org.apache.fineract.portfolio.tax.service.TaxUtils;
 
@@ -76,9 +78,23 @@ public class LoanChargePaidBy extends AbstractPersistableCustom<Long> {
     private void createTaxDetailsPaidBy(LocalDate transactionDate) {
         if (this.loanCharge.getTaxGroup() != null && this.amount.compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal incomeAmount = BigDecimal.ZERO;
-            Map<TaxComponent, BigDecimal> taxComponents = TaxUtils.splitTaxForLoanCharge(this.amount, transactionDate,
+            int currencyScale = this.loanCharge.getLoan() != null && this.loanCharge.getLoan().getCurrency() != null
+                    ? this.loanCharge.getLoan().getCurrency().getDigitsAfterDecimal()
+                    : this.amount.scale();
+            Map<TaxComponent, BigDecimal> taxComponentsRaw = TaxUtils.splitTaxForLoanCharge(this.amount, transactionDate,
                     this.loanCharge.getTaxGroup().getTaxGroupMappings(), this.amount.scale());
-            BigDecimal totalTaxAmount = TaxUtils.totalTaxAmount(taxComponents);
+            Map<TaxComponent, BigDecimal> taxComponents = new HashMap<>(taxComponentsRaw.size());
+            BigDecimal totalTaxAmount = BigDecimal.ZERO;
+            for (Map.Entry<TaxComponent, BigDecimal> entry : taxComponentsRaw.entrySet()) {
+                if (entry.getValue() == null) {
+                    continue;
+                }
+                BigDecimal rounded = entry.getValue().setScale(currencyScale, MoneyHelper.getRoundingMode());
+                if (rounded.compareTo(BigDecimal.ZERO) > 0) {
+                    taxComponents.put(entry.getKey(), rounded);
+                    totalTaxAmount = totalTaxAmount.add(rounded);
+                }
+            }
             if (totalTaxAmount.compareTo(BigDecimal.ZERO) > 0) {
                 incomeAmount = this.amount;
                 for (Map.Entry<TaxComponent, BigDecimal> entry : taxComponents.entrySet()) {

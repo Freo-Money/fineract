@@ -233,6 +233,16 @@ public class LoanChargeAssembler {
             }
         }
 
+        final int currencyDigits = loanProduct.getCurrency().getDigitsAfterDecimal();
+        for (final LoanCharge loanCharge : loanCharges) {
+            if (loanCharge.getCharge() != null) {
+                LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(), loanCharge.getDueLocalDate(),
+                        currencyDigits);
+            } else {
+                LoanChargeTaxUtils.roundChargeAmountToCurrency(loanCharge, currencyDigits);
+            }
+        }
+
         return loanCharges;
     }
 
@@ -350,19 +360,23 @@ public class LoanChargeAssembler {
     }
 
     public Set<LoanChargeData> convertLoanChargesToData(Set<LoanCharge> loanCharges) {
+        return convertLoanChargesToData(loanCharges, null);
+    }
+
+    public Set<LoanChargeData> convertLoanChargesToData(Set<LoanCharge> loanCharges, CurrencyData loanCurrency) {
         if (loanCharges == null || loanCharges.isEmpty()) {
             return new LinkedHashSet<>();
         }
-        return loanCharges.stream().map(this::mapToLoanChargeData).collect(Collectors.toCollection(LinkedHashSet::new));
+        return loanCharges.stream().map(lc -> mapToLoanChargeData(lc, loanCurrency)).collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
-    private LoanChargeData mapToLoanChargeData(LoanCharge loanCharge) {
+    private LoanChargeData mapToLoanChargeData(LoanCharge loanCharge, CurrencyData loanCurrency) {
         Charge chargeDefinition = loanCharge.getCharge();
         if (chargeDefinition == null) {
             return loanCharge.toData();
         }
 
-        CurrencyData currency = chargeDefinition.toData().getCurrency();
+        CurrencyData currency = loanCurrency != null ? loanCurrency : chargeDefinition.toData().getCurrency();
         EnumOptionData chargeTimeType = ChargeEnumerations.chargeTimeType(chargeDefinition.getChargeTimeType());
         EnumOptionData chargeCalculationType = ChargeEnumerations.chargeCalculationType(chargeDefinition.getChargeCalculation());
         EnumOptionData chargePaymentMode = ChargeEnumerations.chargePaymentMode(chargeDefinition.getChargePaymentMode());
