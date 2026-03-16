@@ -19,6 +19,7 @@
 package org.apache.fineract.infrastructure.configuration.service;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import java.math.RoundingMode;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.springframework.beans.factory.InitializingBean;
@@ -44,6 +45,10 @@ public class TemporaryConfigurationServiceContainer implements InitializingBean 
 
     public static String getAccrualDateConfigForCharge() {
         return TemporaryConfigurationServiceContainer.STATIC_REF_CONFIGURATION_SERVICE.getAccrualDateConfigForCharge();
+    }
+
+    public static RoundingMode getTaxRoundingMode() {
+        return TemporaryConfigurationServiceContainer.STATIC_REF_CONFIGURATION_SERVICE.getTaxRoundingMode();
     }
 
     @SuppressFBWarnings("ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD")
