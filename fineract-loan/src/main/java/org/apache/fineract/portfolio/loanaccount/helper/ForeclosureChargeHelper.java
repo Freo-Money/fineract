@@ -288,7 +288,7 @@ public class ForeclosureChargeHelper {
 
         LoanTransaction payment = LoanTransaction.repayment(loan.getOffice(), totalPaymentAmount, null, foreClosureDate, externalId);
         TransactionMetaData transactionMetaData = new TransactionMetaData("FORECLOSURE");
-        payment.updateTransactionMetaData(transactionMetaData.toString());
+        payment.updateTransactionMetaData(GSON.toJson(transactionMetaData));
         return payment;
     }
 
