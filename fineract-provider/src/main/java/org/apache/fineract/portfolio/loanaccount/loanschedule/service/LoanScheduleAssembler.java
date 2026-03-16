@@ -778,7 +778,8 @@ public class LoanScheduleAssembler {
             List<LoanDisbursementDetails> disbursementDetails, final Boolean includeLoanChargeDetails) {
 
         Set<LoanCharge> loanCharges = this.loanChargeAssembler.fromParsedJson(element, disbursementDetails);
-        Set<LoanChargeData> loanChargeData = this.loanChargeAssembler.convertLoanChargesToData(loanCharges);
+        Set<LoanChargeData> loanChargeData = this.loanChargeAssembler.convertLoanChargesToData(loanCharges,
+                loanApplicationTerms.getCurrency());
         final Set<LoanCharge> nonCompoundingCharges = validateDisbursementPercentageCharges(loanCharges);
         loanCharges.removeAll(nonCompoundingCharges);
 

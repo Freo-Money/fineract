@@ -392,6 +392,7 @@ public class LoanChargeService {
             }
             if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
                 LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(), loanCharge.getDueLocalDate());
+                roundChargeAmountIfLoanAttached(loanCharge);
             }
         }
         return actualChanges;
@@ -526,6 +527,7 @@ public class LoanChargeService {
         populateDerivedFields(loanCharge, loanPrincipal, chargeAmount, numberOfRepayments, loanChargeAmount);
 
         LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, chargeDefinition, dueDate);
+        roundChargeAmountIfLoanAttached(loanCharge);
 
         loanCharge.setPaid(loanCharge.determineIfFullyPaid());
         loanCharge.setExternalId(externalId);
@@ -825,6 +827,7 @@ public class LoanChargeService {
             }
             if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
                 LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(), loanCharge.getDueLocalDate());
+                roundChargeAmountIfLoanAttached(loanCharge);
             }
         }
     }
@@ -870,6 +873,7 @@ public class LoanChargeService {
             if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
                 LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(),
                         transactionDate != null ? transactionDate : loanCharge.getDueLocalDate());
+                roundChargeAmountIfLoanAttached(loanCharge);
             }
         }
     }
@@ -905,6 +909,12 @@ public class LoanChargeService {
         };
         return Money.zero(loan.getCurrency()) //
                 .plus(LoanCharge.percentageOf(percentOf.getAmount(), percentage));
+    }
+
+    private static void roundChargeAmountIfLoanAttached(final LoanCharge loanCharge) {
+        if (loanCharge.getLoan() != null && loanCharge.getLoan().getCurrency() != null) {
+            LoanChargeTaxUtils.roundChargeAmountToCurrency(loanCharge, loanCharge.getLoan().getCurrency().getDigitsAfterDecimal());
+        }
     }
 
     private BigDecimal getDerivedAmountForCharge(final Loan loan, final LoanCharge loanCharge) {
