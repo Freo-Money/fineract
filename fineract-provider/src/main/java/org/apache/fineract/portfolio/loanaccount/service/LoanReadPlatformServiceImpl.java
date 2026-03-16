@@ -21,7 +21,6 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import static java.lang.Boolean.TRUE;
 import static org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations.interestType;
 
-import com.google.gson.Gson;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Predicate;
 import java.math.BigDecimal;
@@ -1999,17 +1998,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             }
 
             // Deserialize transactionMetaData from JSON string
-            TransactionMetaData transactionMetaData = null;
-            String transactionMetaDataJson = rs.getString("transactionMetaData");
-            if (StringUtils.isNotBlank(transactionMetaDataJson)) {
-                try {
-                    Gson gson = new Gson();
-                    transactionMetaData = gson.fromJson(transactionMetaDataJson, TransactionMetaData.class);
-                } catch (Exception e) {
-                    // If deserialization fails, log and continue with null
-                    // transactionMetaData will remain null
-                }
-            }
+            TransactionMetaData transactionMetaData = TransactionMetaData.deserialize(rs.getString("transactionMetaData"));
 
             return LoanTransactionData.builder().id(id).officeId(officeId).officeName(officeName).type(transactionType)
                     .paymentDetailData(paymentDetailData).currency(currencyData).date(date).amount(totalAmount)
