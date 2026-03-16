@@ -89,8 +89,7 @@ public class LoanChargePaidBy extends AbstractPersistableCustom<Long> {
                 if (entry.getValue() == null) {
                     continue;
                 }
-                BigDecimal rounded = entry.getValue().setScale(currencyScale,
-                        TemporaryConfigurationServiceContainer.getTaxRoundingMode());
+                BigDecimal rounded = entry.getValue().setScale(currencyScale, TemporaryConfigurationServiceContainer.getTaxRoundingMode());
                 if (rounded.compareTo(BigDecimal.ZERO) > 0) {
                     taxComponents.put(entry.getKey(), rounded);
                     totalTaxAmount = totalTaxAmount.add(rounded);
