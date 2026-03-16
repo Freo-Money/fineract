@@ -118,8 +118,7 @@ public final class LoanChargeTaxUtils {
             if (entry.getValue() == null) {
                 continue;
             }
-            BigDecimal rounded = entry.getValue().setScale(currencyDigits,
-                    TemporaryConfigurationServiceContainer.getTaxRoundingMode());
+            BigDecimal rounded = entry.getValue().setScale(currencyDigits, TemporaryConfigurationServiceContainer.getTaxRoundingMode());
             if (rounded.compareTo(BigDecimal.ZERO) > 0) {
                 taxSplitRounded.put(entry.getKey(), rounded);
                 totalTaxAmount = totalTaxAmount.add(rounded);

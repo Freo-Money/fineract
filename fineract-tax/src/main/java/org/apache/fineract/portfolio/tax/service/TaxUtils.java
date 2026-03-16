@@ -116,8 +116,8 @@ public final class TaxUtils {
         if (totalPercentage.compareTo(BigDecimal.ZERO) <= 0) {
             return amount;
         }
-        BigDecimal taxInclusiveMultiplier = HUNDRED.add(totalPercentage)
-                .divide(HUNDRED, scale + 2, TemporaryConfigurationServiceContainer.getTaxRoundingMode());
+        BigDecimal taxInclusiveMultiplier = HUNDRED.add(totalPercentage).divide(HUNDRED, scale + 2,
+                TemporaryConfigurationServiceContainer.getTaxRoundingMode());
         return amount.multiply(taxInclusiveMultiplier).setScale(scale, TemporaryConfigurationServiceContainer.getTaxRoundingMode());
     }
 
