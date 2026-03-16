@@ -22,6 +22,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 
 @Getter
 @Setter
@@ -29,6 +30,22 @@ import lombok.Setter;
 @NoArgsConstructor
 public class TransactionMetaData {
 
+    private static final FromJsonHelper JSON_HELPER = new FromJsonHelper();
+
     private String transactionSubType;
 
+    public String serialize() {
+        return JSON_HELPER.toJson(this);
+    }
+
+    public static TransactionMetaData deserialize(String json) {
+        if (json == null || json.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return JSON_HELPER.fromJson(json, TransactionMetaData.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 }
