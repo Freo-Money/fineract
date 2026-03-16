@@ -32,8 +32,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
-import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.tax.domain.TaxComponent;
 import org.apache.fineract.portfolio.tax.service.TaxUtils;
 
@@ -89,7 +89,8 @@ public class LoanChargePaidBy extends AbstractPersistableCustom<Long> {
                 if (entry.getValue() == null) {
                     continue;
                 }
-                BigDecimal rounded = entry.getValue().setScale(currencyScale, MoneyHelper.getRoundingMode());
+                BigDecimal rounded = entry.getValue().setScale(currencyScale,
+                        TemporaryConfigurationServiceContainer.getTaxRoundingMode());
                 if (rounded.compareTo(BigDecimal.ZERO) > 0) {
                     taxComponents.put(entry.getKey(), rounded);
                     totalTaxAmount = totalTaxAmount.add(rounded);

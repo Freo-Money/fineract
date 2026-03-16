@@ -24,7 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
+import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.portfolio.tax.data.TaxComponentData;
 import org.apache.fineract.portfolio.tax.data.TaxGroupMappingsData;
 import org.apache.fineract.portfolio.tax.domain.TaxComponent;
@@ -49,7 +49,8 @@ public final class TaxUtils {
                     if (percentage != null) {
                         double percentageVal = percentage.doubleValue();
                         double tax = amountVal * percentageVal / cent_percentage;
-                        map.put(component, BigDecimal.valueOf(tax).setScale(scale, MoneyHelper.getRoundingMode()));
+                        map.put(component,
+                                BigDecimal.valueOf(tax).setScale(scale, TemporaryConfigurationServiceContainer.getTaxRoundingMode()));
                     }
                 }
             }
@@ -70,7 +71,8 @@ public final class TaxUtils {
                     if (percentage != null) {
                         double percentageVal = percentage.doubleValue();
                         double tax = amountVal * percentageVal / cent_percentage;
-                        map.put(component, BigDecimal.valueOf(tax).setScale(scale, MoneyHelper.getRoundingMode()));
+                        map.put(component,
+                                BigDecimal.valueOf(tax).setScale(scale, TemporaryConfigurationServiceContainer.getTaxRoundingMode()));
                     }
                 }
             }
@@ -114,8 +116,9 @@ public final class TaxUtils {
         if (totalPercentage.compareTo(BigDecimal.ZERO) <= 0) {
             return amount;
         }
-        BigDecimal taxInclusiveMultiplier = HUNDRED.add(totalPercentage).divide(HUNDRED, scale + 2, MoneyHelper.getRoundingMode());
-        return amount.multiply(taxInclusiveMultiplier).setScale(scale, MoneyHelper.getRoundingMode());
+        BigDecimal taxInclusiveMultiplier = HUNDRED.add(totalPercentage)
+                .divide(HUNDRED, scale + 2, TemporaryConfigurationServiceContainer.getTaxRoundingMode());
+        return amount.multiply(taxInclusiveMultiplier).setScale(scale, TemporaryConfigurationServiceContainer.getTaxRoundingMode());
     }
 
     public static BigDecimal extractBaseAmountFromTaxInclusive(final BigDecimal taxInclusiveAmount, final LocalDate date,
@@ -127,8 +130,9 @@ public final class TaxUtils {
         if (totalPercentage.compareTo(BigDecimal.ZERO) <= 0) {
             return taxInclusiveAmount;
         }
-        return taxInclusiveAmount.multiply(HUNDRED).divide(HUNDRED.add(totalPercentage), scale + 4, MoneyHelper.getRoundingMode())
-                .setScale(scale, MoneyHelper.getRoundingMode());
+        return taxInclusiveAmount.multiply(HUNDRED)
+                .divide(HUNDRED.add(totalPercentage), scale + 4, TemporaryConfigurationServiceContainer.getTaxRoundingMode())
+                .setScale(scale, TemporaryConfigurationServiceContainer.getTaxRoundingMode());
     }
 
     public static Map<TaxComponent, BigDecimal> splitTaxForLoanCharge(final BigDecimal taxInclusiveAmount, final LocalDate date,

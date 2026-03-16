@@ -23,8 +23,8 @@ import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
-import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeTaxDetails;
@@ -69,7 +69,8 @@ public final class LoanChargeTaxUtils {
 
     public static void roundChargeAmountToCurrency(final LoanCharge loanCharge, final int currencyDigits) {
         if (loanCharge.getAmount() != null) {
-            loanCharge.setAmount(loanCharge.getAmount().setScale(currencyDigits, MoneyHelper.getRoundingMode()));
+            loanCharge.setAmount(
+                    loanCharge.getAmount().setScale(currencyDigits, TemporaryConfigurationServiceContainer.getTaxRoundingMode()));
             loanCharge.setAmountOutstanding(loanCharge.calculateOutstanding());
         }
     }
@@ -117,14 +118,16 @@ public final class LoanChargeTaxUtils {
             if (entry.getValue() == null) {
                 continue;
             }
-            BigDecimal rounded = entry.getValue().setScale(currencyDigits, MoneyHelper.getRoundingMode());
+            BigDecimal rounded = entry.getValue().setScale(currencyDigits,
+                    TemporaryConfigurationServiceContainer.getTaxRoundingMode());
             if (rounded.compareTo(BigDecimal.ZERO) > 0) {
                 taxSplitRounded.put(entry.getKey(), rounded);
                 totalTaxAmount = totalTaxAmount.add(rounded);
             }
         }
 
-        BigDecimal inclusiveRounded = taxInclusiveAmount.setScale(currencyDigits, MoneyHelper.getRoundingMode());
+        BigDecimal inclusiveRounded = taxInclusiveAmount.setScale(currencyDigits,
+                TemporaryConfigurationServiceContainer.getTaxRoundingMode());
         BigDecimal amountSansTaxRounded = inclusiveRounded.subtract(totalTaxAmount);
 
         loanCharge.setAmount(inclusiveRounded);
