@@ -103,7 +103,6 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanEvent;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanInterestRecalcualtionAdditionalDetails;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanOverdueInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
@@ -1289,8 +1288,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         if (installments.isEmpty()) {
             return;
         }
-        // Do NOT use fetchRepaymentScheduleInstallment(installments.size()) - installment numbers often don't
-        // match list size (e.g. down payment #0 + periods #1-11 = 12 items, so there is no installment #12)
+        // Find the last non-recalculated, non-downpayment installment
         LoanRepaymentScheduleInstallment lastInstallment = null;
         for (int i = installments.size() - 1; i >= 0; i--) {
             LoanRepaymentScheduleInstallment inst = installments.get(i);
@@ -1303,7 +1301,22 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             return;
         }
         if (DateUtils.isAfter(lastChargeDate, lastInstallment.getDueDate())) {
-            log.info("addInstallmentIfPenaltyAppliedAfterLastDueDate: loanId={}, adding installment (lastChargeDate={}, lastDueDate={})",
+            if (lastInstallment.isAdditional()) {
+                log.info(
+                        "addInstallmentIfPenaltyAppliedAfterLastDueDate: loanId={}, extending additional installment dueDate from {} to {}",
+                        loan.getId(), lastInstallment.getDueDate(), lastChargeDate);
+                lastInstallment.updateDueDate(lastChargeDate);
+                // Remove any trailing recalculated installments that were created before this fix.
+                // The extended additional installment now covers the full post-maturity period, making
+                // the recalculated tails redundant. Charges will be redistributed during reprocessTransactions.
+                while (!installments.isEmpty() && installments.get(installments.size() - 1).isRecalculatedInterestComponent()) {
+                    installments.remove(installments.size() - 1);
+                }
+                return;
+            }
+
+            log.info(
+                    "addInstallmentIfPenaltyAppliedAfterLastDueDate: loanId={}, adding additional installment (lastChargeDate={}, lastDueDate={})",
                     loan.getId(), lastChargeDate, lastInstallment.getDueDate());
             // Remove trailing recalculated installments before adding the new one
             while (!installments.isEmpty() && installments.get(installments.size() - 1).isRecalculatedInterestComponent()) {
@@ -1316,15 +1329,12 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             if (lastInstallment.getDueDate() == null) {
                 return;
             }
-            boolean recalculatedInterestComponent = true;
-            BigDecimal principal = BigDecimal.ZERO;
-            BigDecimal interest = BigDecimal.ZERO;
-            BigDecimal feeCharges = BigDecimal.ZERO;
-            BigDecimal penaltyCharges = BigDecimal.ONE;
-            final Set<LoanInterestRecalcualtionAdditionalDetails> compoundingDetails = null;
+            // Create an additional installment as the single post-maturity bucket for penalty amounts.
+            // Actual amounts are populated during the subsequent reprocessTransactions call.
             LoanRepaymentScheduleInstallment newEntry = new LoanRepaymentScheduleInstallment(loan, installments.size() + 1,
-                    lastInstallment.getDueDate(), lastChargeDate, principal, interest, feeCharges, penaltyCharges,
-                    recalculatedInterestComponent, compoundingDetails);
+                    lastInstallment.getDueDate(), lastChargeDate, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, false,
+                    null);
+            newEntry.markAsAdditional();
             loan.addLoanRepaymentScheduleInstallment(newEntry);
         }
     }

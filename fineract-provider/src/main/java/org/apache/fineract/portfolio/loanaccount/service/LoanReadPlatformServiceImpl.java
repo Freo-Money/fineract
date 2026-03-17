@@ -2135,7 +2135,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         sqlBuilder.append("select ").append(rm.schema())
                 .append(" where " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day") + " >= ls.duedate ")
                 .append(" and ls.completed_derived <> true and mc.charge_applies_to_enum =1 ")
-                .append(" and ls.recalculated_interest_component <> true ")
+                .append(" and ls.recalculated_interest_component <> true ").append(" and ls.is_additional <> true ")
                 .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 ")
                 .append(" and (mc.max_cumulative_penalty_cap IS NULL OR ")
                 .append("      COALESCE(penalty_summary.existing_penalty_amount, 0) < mc.max_cumulative_penalty_cap) ");
@@ -2181,7 +2181,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         final boolean backdatePenalties = configurationDomainService.isBackdatePenaltiesEnabled();
 
         for (LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
-            if (installment.isObligationsMet() || installment.isRecalculatedInterestComponent()) {
+            if (installment.isObligationsMet() || installment.isRecalculatedInterestComponent() || installment.isAdditional()) {
                 continue;
             }
 
