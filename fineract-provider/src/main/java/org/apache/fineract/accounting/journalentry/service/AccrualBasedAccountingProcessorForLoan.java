@@ -2272,6 +2272,7 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                     transactionDate, interestAmount);
         }
 
+        // Compute sans-tax amounts but do NOT create separate tax component entries for suspense
         TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
                 penaltiesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getPenaltyPayments(),
                 loanTransactionDTO.getTaxPayments(), false);
@@ -2279,74 +2280,47 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
         BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
 
-        // create journal entries for the fees application (using amount sans tax)
+        // create journal entries for fees (sans tax)
         if (MathUtil.isGreaterThanZero(feesAmountSansTax)) {
-            // Check if charge payment DTOs exist and match sans-tax amount
             if (loanTransactionDTO.getFeePayments() != null && !loanTransactionDTO.getFeePayments().isEmpty()) {
                 BigDecimal totalFeePayments = loanTransactionDTO.getFeePayments().stream().map(ChargePaymentDTO::getAmount)
                         .filter(Objects::nonNull).reduce(BigDecimal.ZERO, MathUtil::add);
                 if (MathUtil.isEqualTo(totalFeePayments, feesAmountSansTax)) {
-                    // Debit Income from Fees, Credit NPA Fees Suspense (Liability)
                     this.helper.createJournalEntriesForLoanCharges(office, currencyCode, AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(),
                             AccrualAccountsForLoan.NPA_FEES_SUSPENSE.getValue(), loanProductId, loanId, transactionId, transactionDate,
                             feesAmountSansTax, loanTransactionDTO.getFeePayments());
                 } else {
-                    // Fallback to generic method if amounts don't match
-                    // Debit Income from Fees, Credit NPA Fees Suspense (Liability)
                     this.helper.createJournalEntriesForLoan(office, currencyCode, AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(),
                             AccrualAccountsForLoan.NPA_FEES_SUSPENSE.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
                             transactionDate, feesAmountSansTax);
                 }
             } else {
-                // Debit Income from Fees, Credit NPA Fees Suspense (Liability)
                 this.helper.createJournalEntriesForLoan(office, currencyCode, AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(),
                         AccrualAccountsForLoan.NPA_FEES_SUSPENSE.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
                         transactionDate, feesAmountSansTax);
             }
         }
 
-        // create journal entries for the penalties application (using amount sans tax)
+        // create journal entries for penalties (sans tax)
         if (MathUtil.isGreaterThanZero(penaltiesAmountSansTax)) {
-            // Check if charge payment DTOs exist and match sans-tax amount
             if (loanTransactionDTO.getPenaltyPayments() != null && !loanTransactionDTO.getPenaltyPayments().isEmpty()) {
                 BigDecimal totalPenaltyPayments = loanTransactionDTO.getPenaltyPayments().stream().map(ChargePaymentDTO::getAmount)
                         .filter(Objects::nonNull).reduce(BigDecimal.ZERO, MathUtil::add);
                 if (MathUtil.isEqualTo(totalPenaltyPayments, penaltiesAmountSansTax)) {
-                    // Debit Income from Penalties, Credit NPA Penalties Suspense (Liability)
                     this.helper.createJournalEntriesForLoanCharges(office, currencyCode,
                             AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(),
                             AccrualAccountsForLoan.NPA_PENALTIES_SUSPENSE.getValue(), loanProductId, loanId, transactionId, transactionDate,
                             penaltiesAmountSansTax, loanTransactionDTO.getPenaltyPayments());
                 } else {
-                    // Fallback to generic method if amounts don't match
-                    // Debit Income from Penalties, Credit NPA Penalties Suspense (Liability)
                     this.helper.createJournalEntriesForLoan(office, currencyCode, AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(),
                             AccrualAccountsForLoan.NPA_PENALTIES_SUSPENSE.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
                             transactionDate, penaltiesAmountSansTax);
                 }
             } else {
-                // Debit Income from Penalties, Credit NPA Penalties Suspense (Liability)
                 this.helper.createJournalEntriesForLoan(office, currencyCode, AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(),
                         AccrualAccountsForLoan.NPA_PENALTIES_SUSPENSE.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
                         transactionDate, penaltiesAmountSansTax);
             }
-        }
-
-        // create journal entries for tax amounts during accrual suspense
-        // Note: Tax liability is recognized separately from charge accruals
-        if (loanTransactionDTO.getTaxPayments() != null && !loanTransactionDTO.getTaxPayments().isEmpty()) {
-            // For accrual suspense: Debit Receivables for tax portion, Credit Tax Payable
-            if (MathUtil.isGreaterThanZero(taxResult.feesTaxAmount)) {
-                this.helper.createDebitJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(),
-                        loanProductId, paymentTypeId, loanId, transactionId, transactionDate, taxResult.feesTaxAmount);
-            }
-            if (MathUtil.isGreaterThanZero(taxResult.penaltiesTaxAmount)) {
-                this.helper.createDebitJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(),
-                        loanProductId, paymentTypeId, loanId, transactionId, transactionDate, taxResult.penaltiesTaxAmount);
-            }
-            // Credit tax payable
-            this.helper.createTaxCreditJournalEntries(office, currencyCode, loanId, transactionId, transactionDate,
-                    loanTransactionDTO.getTaxPayments());
         }
     }
 
@@ -2373,6 +2347,7 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                     transactionDate, interestAmount);
         }
 
+        // Compute sans-tax amounts but do NOT create separate tax component entries for suspense reverse
         TaxCalculationResult taxResult = calculateAndHandleTax(office, currencyCode, loanId, transactionId, transactionDate, feesAmount,
                 penaltiesAmount, loanTransactionDTO.getFeePayments(), loanTransactionDTO.getPenaltyPayments(),
                 loanTransactionDTO.getTaxPayments(), false);
@@ -2380,79 +2355,46 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         BigDecimal feesAmountSansTax = taxResult.feesAmountSansTax;
         BigDecimal penaltiesAmountSansTax = taxResult.penaltiesAmountSansTax;
 
-        // create journal entries for reversing fees suspense
+        // create journal entries for reversing fees suspense (sans tax)
         if (MathUtil.isGreaterThanZero(feesAmountSansTax)) {
-            // Check if charge payment DTOs exist and match sans-tax amount
             if (loanTransactionDTO.getFeePayments() != null && !loanTransactionDTO.getFeePayments().isEmpty()) {
                 BigDecimal totalFeePayments = loanTransactionDTO.getFeePayments().stream().map(ChargePaymentDTO::getAmount)
                         .filter(Objects::nonNull).reduce(BigDecimal.ZERO, MathUtil::add);
                 if (MathUtil.isEqualTo(totalFeePayments, feesAmountSansTax)) {
-                    // Debit NPA Fees Suspense (reducing liability), Credit Income from Fees (reducing income)
                     this.helper.createJournalEntriesForLoanCharges(office, currencyCode,
                             AccrualAccountsForLoan.NPA_FEES_SUSPENSE.getValue(), AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(),
                             loanProductId, loanId, transactionId, transactionDate, feesAmountSansTax, loanTransactionDTO.getFeePayments());
                 } else {
-                    // Fallback to generic method if amounts don't match
-                    // Debit NPA Fees Suspense (reducing liability), Credit Income from Fees (reducing income)
                     this.helper.createJournalEntriesForLoan(office, currencyCode, AccrualAccountsForLoan.NPA_FEES_SUSPENSE.getValue(),
                             AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
                             transactionDate, feesAmountSansTax);
                 }
             } else {
-                // Debit NPA Fees Suspense (reducing liability), Credit Income from Fees (reducing income)
                 this.helper.createJournalEntriesForLoan(office, currencyCode, AccrualAccountsForLoan.NPA_FEES_SUSPENSE.getValue(),
                         AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
                         transactionDate, feesAmountSansTax);
             }
         }
 
-        // create journal entries for reversing penalties suspense
+        // create journal entries for reversing penalties suspense (sans tax)
         if (MathUtil.isGreaterThanZero(penaltiesAmountSansTax)) {
-            // Check if charge payment DTOs exist and match sans-tax amount
             if (loanTransactionDTO.getPenaltyPayments() != null && !loanTransactionDTO.getPenaltyPayments().isEmpty()) {
                 BigDecimal totalPenaltyPayments = loanTransactionDTO.getPenaltyPayments().stream().map(ChargePaymentDTO::getAmount)
                         .filter(Objects::nonNull).reduce(BigDecimal.ZERO, MathUtil::add);
                 if (MathUtil.isEqualTo(totalPenaltyPayments, penaltiesAmountSansTax)) {
-                    // Debit NPA Penalties Suspense (reducing liability), Credit Income from Penalties (reducing income)
                     this.helper.createJournalEntriesForLoanCharges(office, currencyCode,
                             AccrualAccountsForLoan.NPA_PENALTIES_SUSPENSE.getValue(),
                             AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(), loanProductId, loanId, transactionId, transactionDate,
                             penaltiesAmountSansTax, loanTransactionDTO.getPenaltyPayments());
                 } else {
-                    // Fallback to generic method if amounts don't match
-                    // Debit NPA Penalties Suspense (reducing liability), Credit Income from Penalties (reducing income)
                     this.helper.createJournalEntriesForLoan(office, currencyCode, AccrualAccountsForLoan.NPA_PENALTIES_SUSPENSE.getValue(),
                             AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
                             transactionDate, penaltiesAmountSansTax);
                 }
             } else {
-                // Debit NPA Penalties Suspense (reducing liability), Credit Income from Penalties (reducing income)
                 this.helper.createJournalEntriesForLoan(office, currencyCode, AccrualAccountsForLoan.NPA_PENALTIES_SUSPENSE.getValue(),
                         AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(), loanProductId, paymentTypeId, loanId, transactionId,
                         transactionDate, penaltiesAmountSansTax);
-            }
-        }
-
-        // create journal entries for tax amounts during accrual suspense reverse
-        // Note: Tax liability is reversed
-        if (loanTransactionDTO.getTaxPayments() != null && !loanTransactionDTO.getTaxPayments().isEmpty()) {
-            // Reverse accrual suspense: Credit Receivables for tax portion, Debit Tax Payable
-            if (MathUtil.isGreaterThanZero(taxResult.feesTaxAmount)) {
-                this.helper.createCreditJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(),
-                        loanProductId, paymentTypeId, loanId, transactionId, transactionDate, taxResult.feesTaxAmount);
-            }
-            if (MathUtil.isGreaterThanZero(taxResult.penaltiesTaxAmount)) {
-                this.helper.createCreditJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(),
-                        loanProductId, paymentTypeId, loanId, transactionId, transactionDate, taxResult.penaltiesTaxAmount);
-            }
-            // Debit tax payable (reverse) - create individual debit entries for each tax component
-            for (TaxPaymentDTO taxPayment : loanTransactionDTO.getTaxPayments()) {
-                if (taxPayment.getAmount() != null && taxPayment.getAmount().compareTo(BigDecimal.ZERO) > 0
-                        && taxPayment.getCreditAccountId() != null) {
-                    final GLAccount taxAccount = this.helper.getGLAccountById(taxPayment.getCreditAccountId());
-                    this.helper.createDebitJournalEntryForLoan(office, currencyCode, loanId, transactionId, transactionDate,
-                            taxPayment.getAmount(), taxAccount);
-                }
             }
         }
     }
