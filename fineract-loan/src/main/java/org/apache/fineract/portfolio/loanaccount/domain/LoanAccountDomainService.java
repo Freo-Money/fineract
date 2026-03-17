@@ -28,6 +28,7 @@ import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuild
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
 import org.apache.fineract.portfolio.delinquency.validator.LoanDelinquencyActionData;
 import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
+import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRefundRequestData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
@@ -49,6 +50,10 @@ public interface LoanAccountDomainService {
 
     LoanTransaction makeChargePayment(Loan loan, Long chargeId, LocalDate transactionDate, BigDecimal transactionAmount,
             PaymentDetail paymentDetail, String noteText, ExternalId txnExternalId, Integer transactionType, Integer installmentNumber,
+            boolean isAccountTransfer);
+
+    LoanTransaction makeMultiChargePayment(Loan loan, List<LoanChargePaidByData> allocations, LocalDate transactionDate,
+            BigDecimal totalTransactionAmount, PaymentDetail paymentDetail, String noteText, ExternalId txnExternalId,
             boolean isAccountTransfer);
 
     LoanTransaction makeDisburseTransaction(Long loanId, LocalDate transactionDate, BigDecimal transactionAmount,

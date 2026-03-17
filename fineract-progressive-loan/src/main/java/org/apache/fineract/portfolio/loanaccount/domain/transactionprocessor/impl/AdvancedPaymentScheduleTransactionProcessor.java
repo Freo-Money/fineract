@@ -43,6 +43,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -2039,6 +2040,10 @@ public class AdvancedPaymentScheduleTransactionProcessor extends AbstractLoanRep
     }
 
     private void handleChargePayment(LoanTransaction loanTransaction, TransactionCtx transactionCtx) {
+        if (loanTransaction.getLoanChargesPaid().size() > 1) {
+            handleMultiChargePayment(loanTransaction, transactionCtx);
+            return;
+        }
         Money zero = Money.zero(transactionCtx.getCurrency());
         Money feeChargesPortion = zero;
         Money penaltyChargesPortion = zero;
@@ -2082,6 +2087,63 @@ public class AdvancedPaymentScheduleTransactionProcessor extends AbstractLoanRep
                 loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
             }
         }
+
+        if (unprocessed.isGreaterThanZero()) {
+            processTransaction(loanTransaction, transactionCtx, unprocessed);
+        }
+    }
+
+    private void handleMultiChargePayment(LoanTransaction loanTransaction, TransactionCtx transactionCtx) {
+        Money zero = Money.zero(transactionCtx.getCurrency());
+        Money feeChargesPortion = zero;
+        Money penaltyChargesPortion = zero;
+        List<LoanTransactionToRepaymentScheduleMapping> transactionMappings = new ArrayList<>();
+        final boolean isPenalty = loanTransaction.isPenaltyPayment();
+        final Set<LoanChargePaidBy> newChargesPaid = new LinkedHashSet<>();
+
+        LocalDate startDate = loanTransaction.getLoan().getDisbursementDate();
+        int firstNormalInstallmentNumber = LoanRepaymentScheduleProcessingWrapper
+                .fetchFirstNormalInstallmentNumber(transactionCtx.getInstallments());
+
+        Money unprocessed = loanTransaction.getAmount(transactionCtx.getCurrency());
+
+        for (LoanChargePaidBy chargePaidBy : loanTransaction.getLoanChargesPaid()) {
+            LoanCharge loanCharge = chargePaidBy.getLoanCharge();
+            Money amountToBePaid = Money.of(transactionCtx.getCurrency(), chargePaidBy.getAmount());
+            if (loanCharge.getAmountOutstanding(transactionCtx.getCurrency()).isLessThan(amountToBePaid)) {
+                amountToBePaid = loanCharge.getAmountOutstanding(transactionCtx.getCurrency());
+            }
+
+            for (final LoanRepaymentScheduleInstallment installment : transactionCtx.getInstallments()) {
+                boolean isDue = loanCharge.isDueInPeriod(startDate, installment.getDueDate(),
+                        installment.getInstallmentNumber().equals(firstNormalInstallmentNumber));
+                if (isDue) {
+                    Integer installmentNumber = installment.getInstallmentNumber();
+                    Money paidAmount = loanCharge.updatePaidAmountBy(amountToBePaid, installmentNumber, zero);
+
+                    LoanTransactionToRepaymentScheduleMapping loanTransactionToRepaymentScheduleMapping = getTransactionMapping(
+                            transactionMappings, loanTransaction, installment, transactionCtx.getCurrency());
+
+                    if (isPenalty) {
+                        Money portion = installment.payPenaltyChargesComponent(loanTransaction.getTransactionDate(), paidAmount);
+                        penaltyChargesPortion = penaltyChargesPortion.plus(portion);
+                        addToTransactionMapping(loanTransactionToRepaymentScheduleMapping, zero, zero, zero, portion);
+                    } else {
+                        Money portion = installment.payFeeChargesComponent(loanTransaction.getTransactionDate(), paidAmount);
+                        feeChargesPortion = feeChargesPortion.plus(portion);
+                        addToTransactionMapping(loanTransactionToRepaymentScheduleMapping, zero, zero, portion, zero);
+                    }
+
+                    newChargesPaid.add(new LoanChargePaidBy(loanTransaction, loanCharge, paidAmount.getAmount(), installmentNumber));
+                    unprocessed = unprocessed.minus(paidAmount);
+                    break;
+                }
+            }
+        }
+
+        loanTransaction.setLoanChargesPaid(newChargesPaid);
+        loanTransaction.updateComponents(zero, zero, feeChargesPortion, penaltyChargesPortion);
+        loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
 
         if (unprocessed.isGreaterThanZero()) {
             processTransaction(loanTransaction, transactionCtx, unprocessed);

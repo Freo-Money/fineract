@@ -1618,7 +1618,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     @Override
     @Transactional
     public CommandProcessingResult payByChargeId(Long loanId, Long chargeId, JsonCommand command) {
-        // Validate and fetch loan
+        this.loanChargeApiJsonValidator.validateChargeDefinitionPaymentTransaction(command.json());
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
         checkClientOrGroupActive(loan);
 
@@ -1647,8 +1647,6 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         final ExternalId requestExternalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
         final PaymentDetail paymentDetail = paymentDetailWritePlatformService.createPaymentDetail(command, null);
         final String noteText = command.stringValueOfParameterNamedAllowingNull("note");
-        // Note: isAccountTransfer is always false in payByChargeId as per requirements
-        final boolean isAccountTransfer = false;
 
         // Calculate total outstanding across all matching charges (handles both regular and installment charges)
         BigDecimal totalOutstanding = BigDecimal.ZERO;
@@ -1671,19 +1669,9 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                     remainingAmount, totalOutstanding);
         }
 
-        // Note: We don't need existingTransactionIds here as we're using per-transaction journal entry posting
-
-        // Track payment details
-        final Map<String, Object> changes = new LinkedHashMap<>();
         final List<Long> paidChargeIds = new ArrayList<>();
-        final List<LoanTransaction> transactions = new ArrayList<>();
-        BigDecimal totalPaidAmount = BigDecimal.ZERO;
-
-        // When request has externalId and we create multiple transactions, each must have a unique external_id
-        // (DB unique constraint). First transaction keeps the request externalId; subsequent get suffix "-2", "-3", ...
-        // so recon can find all via prefix match (external_id LIKE requestExternalId%).
-        final int maxExternalIdLength = 100;
-        int transactionIndex = 0;
+        final List<LoanChargePaidByData> allocations = new ArrayList<>();
+        BigDecimal totalAmountToPay = BigDecimal.ZERO;
 
         // Process each charge using the same logic as payLoanCharge (reuse business logic)
         // Create transactions in memory first, then batch process - optimized for DB calls
@@ -1694,8 +1682,6 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
 
             BigDecimal chargeOutstanding;
             Integer installmentNumber = null;
-            Money paymentAmount;
-
             // Handle installment fees - reuse logic from payLoanCharge
             if (loanCharge.isInstalmentFee()) {
                 LoanInstallmentCharge chargePerInstallment = loanCharge.getUnpaidInstallmentLoanCharge();
@@ -1714,25 +1700,10 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             }
 
             BigDecimal amountToPay = remainingAmount.min(chargeOutstanding);
-            paymentAmount = Money.of(loan.getCurrency(), amountToPay);
-
-            // Assign unique externalId per transaction when request provided one (avoids unique constraint violation)
-            final ExternalId transactionExternalId = resolveTransactionExternalId(requestExternalId, transactionIndex, maxExternalIdLength);
-
-            // Create transaction using same logic as makeChargePayment (CHARGE_PAYMENT type)
-            final LoanTransactionType loanTransactionType = LoanTransactionType.CHARGE_PAYMENT;
-            LoanTransaction chargePaymentTransaction = LoanTransaction.loanPayment(null, loan.getOffice(), paymentAmount, paymentDetail,
-                    transactionDate, transactionExternalId, loanTransactionType);
-
-            // Use loanChargeService.makeChargePayment to handle proper processing logic
-            // This ensures same business logic as payLoanCharge is applied (transaction processing, allocation, etc.)
-            this.loanChargeService.makeChargePayment(loan, loanCharge.getId(), chargePaymentTransaction, installmentNumber);
-
-            transactions.add(chargePaymentTransaction);
+            allocations.add(new LoanChargePaidByData(null, amountToPay, installmentNumber, loanCharge.getId(), null));
             remainingAmount = remainingAmount.subtract(amountToPay);
-            totalPaidAmount = totalPaidAmount.add(amountToPay);
+            totalAmountToPay = totalAmountToPay.add(amountToPay);
             paidChargeIds.add(loanCharge.getId());
-            transactionIndex++;
         }
         if (remainingAmount.compareTo(BigDecimal.ZERO) > 0) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.charge.payment.amount.greater.than.total.outstanding",
@@ -1740,77 +1711,20 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                     remainingAmount, totalOutstanding);
         }
 
-        // Batch process all transactions - optimized DB operations
-        if (!transactions.isEmpty()) {
-            // Reprocess loan transactions ONCE (not in loop)
-            if (loan.isProgressiveSchedule() && ((loan.hasChargeOffTransaction() && loan.hasAccelerateChargeOffStrategy())
-                    || loan.hasContractTerminationTransaction())) {
-                final ScheduleGeneratorDTO scheduleGeneratorDTO = loanUtilService.buildScheduleGeneratorDTO(loan, null);
-                loanScheduleService.regenerateRepaymentSchedule(loan, scheduleGeneratorDTO);
-            }
-            reprocessLoanTransactionsService.reprocessTransactions(loan);
-            loanLifecycleStateMachine.determineAndTransition(loan, transactionDate);
-
-            // Batch save all transactions at ONCE (single DB call)
-            this.loanTransactionRepository.saveAll(transactions);
-            this.loanTransactionRepository.flush();
-
-            // Save loan ONCE (single DB call)
-            this.loanRepositoryWrapper.saveAndFlush(loan);
-
-            // Post journal entries per transaction (reuse same logic as payLoanCharge)
-            // This ensures proper accounting entries for each transaction
-            for (LoanTransaction transaction : transactions) {
-                this.loanJournalEntryPoster.postJournalEntriesForLoanTransaction(transaction, isAccountTransfer, false);
-            }
-
-            // Process accruals ONCE after all transactions
-            loanAccrualsProcessingService.processAccrualsOnInterestRecalculation(loan,
-                    loan.isInterestBearingAndInterestRecalculationEnabled(), true);
-
-            // Update delinquency ONCE (single DB call)
+        if (!allocations.isEmpty()) {
+            this.loanAccountDomainService.makeMultiChargePayment(loan, allocations, transactionDate, totalAmountToPay, paymentDetail,
+                    noteText, requestExternalId, false);
             this.loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
-
-            // Fire events ONCE
-            businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         }
 
-        // Add note if provided (only if we have at least one transaction)
-        if (StringUtils.isNotBlank(noteText) && !transactions.isEmpty()) {
-            final Note note = Note.loanTransactionNote(loan, transactions.get(transactions.size() - 1), noteText);
-            this.noteRepository.save(note);
-        }
-
-        // Build response with payment details
-        changes.put("totalPaidAmount", totalPaidAmount);
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("totalPaidAmount", totalAmountToPay);
         changes.put("chargeDefinitionId", chargeId);
         changes.put("paidChargeIds", paidChargeIds);
 
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(chargeId)
                 .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
                 .with(changes).build();
-    }
-
-    /**
-     * When a single request creates multiple charge-payment transactions and the request provides an externalId, each
-     * transaction must have a unique external_id (DB unique constraint). The first transaction keeps the request
-     * externalId; subsequent ones get a suffix "-2", "-3", etc. Recon can find all via prefix match (external_id LIKE
-     * requestExternalId%).
-     */
-    private ExternalId resolveTransactionExternalId(final ExternalId requestExternalId, final int transactionIndex,
-            final int maxExternalIdLength) {
-        if (requestExternalId == null || requestExternalId.isEmpty()) {
-            return requestExternalId != null ? requestExternalId : ExternalId.empty();
-        }
-        if (transactionIndex == 0) {
-            return requestExternalId;
-        }
-        final String base = requestExternalId.getValue();
-        final String suffix = "-" + (transactionIndex + 1);
-        if (base.length() + suffix.length() > maxExternalIdLength) {
-            return ExternalId.generate();
-        }
-        return new ExternalId(base + suffix);
     }
 
     @Override

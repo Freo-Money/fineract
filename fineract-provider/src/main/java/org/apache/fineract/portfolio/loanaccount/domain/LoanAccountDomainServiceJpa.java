@@ -88,6 +88,7 @@ import org.apache.fineract.portfolio.delinquency.validator.LoanDelinquencyAction
 import org.apache.fineract.portfolio.group.domain.Group;
 import org.apache.fineract.portfolio.group.exception.GroupNotActiveException;
 import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
+import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRefundRequestData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleDelinquencyData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
@@ -448,6 +449,70 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                 true);
 
         // For NPA loans, create ACCRUAL_SUSPENSE_REVERSE transactions for fee/penalty portions paid in charge payment
+        if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            LoanTransaction suspenseReverseTransaction = createAccrualSuspenseReverseForRepayment(loan, newPaymentTransaction);
+            if (suspenseReverseTransaction != null) {
+                loanTransactionValidator.validateAccrualSuspenseReverseForRepayment(loan, suspenseReverseTransaction,
+                        newPaymentTransaction);
+            }
+        }
+
+        journalEntryPoster.postJournalEntriesForLoanTransaction(newPaymentTransaction, isAccountTransfer, false);
+        businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
+        businessEventNotifierService.notifyPostBusinessEvent(new LoanChargePaymentPostBusinessEvent(newPaymentTransaction));
+        return newPaymentTransaction;
+    }
+
+    @Override
+    @Transactional
+    public LoanTransaction makeMultiChargePayment(final Loan loan, final List<LoanChargePaidByData> allocations,
+            final LocalDate transactionDate, final BigDecimal totalTransactionAmount, final PaymentDetail paymentDetail,
+            final String noteText, final ExternalId txnExternalId, boolean isAccountTransfer) {
+        checkClientOrGroupActive(loan);
+        if (loan.isChargedOff() && DateUtils.isBefore(transactionDate, loan.getChargedOffOnDate())) {
+            throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
+                    + loan.getId()
+                    + " backdated transaction is not allowed. Transaction date cannot be earlier than the charge-off date of the loan",
+                    loan.getId());
+        }
+        businessEventNotifierService.notifyPreBusinessEvent(new LoanChargePaymentPreBusinessEvent(loan));
+
+        final Money paymentAmount = Money.of(loan.getCurrency(), totalTransactionAmount);
+        final LoanTransaction newPaymentTransaction = LoanTransaction.loanPayment(null, loan.getOffice(), paymentAmount, paymentDetail,
+                transactionDate, txnExternalId, LoanTransactionType.CHARGE_PAYMENT);
+
+        final boolean allowTransactionsOnHoliday = this.configurationDomainService.allowTransactionsOnHolidayEnabled();
+        final List<Holiday> holidays = this.holidayRepository.findByOfficeIdAndGreaterThanDate(loan.getOfficeId(), transactionDate,
+                HolidayStatusType.ACTIVE.getValue());
+        final WorkingDays workingDays = this.workingDaysRepository.findOne();
+        final boolean allowTransactionsOnNonWorkingDay = this.configurationDomainService.allowTransactionsOnNonWorkingDayEnabled();
+        final boolean isHolidayEnabled = this.configurationDomainService.isRescheduleRepaymentsOnHolidaysEnabled();
+        HolidayDetailDTO holidayDetailDTO = new HolidayDetailDTO(isHolidayEnabled, holidays, workingDays, allowTransactionsOnHoliday,
+                allowTransactionsOnNonWorkingDay);
+
+        loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_CHARGE_PAYMENT);
+        loanTransactionValidator.validateRepaymentDateIsOnHoliday(newPaymentTransaction.getTransactionDate(),
+                holidayDetailDTO.isAllowTransactionsOnHoliday(), holidayDetailDTO.getHolidays());
+        loanTransactionValidator.validateRepaymentDateIsOnNonWorkingDay(newPaymentTransaction.getTransactionDate(),
+                holidayDetailDTO.getWorkingDays(), holidayDetailDTO.isAllowTransactionsOnNonWorkingDay());
+        loanTransactionValidator.validateActivityNotBeforeLastTransactionDate(loan, newPaymentTransaction.getTransactionDate(),
+                LoanEvent.LOAN_CHARGE_PAYMENT);
+        loanTransactionValidator.validateActivityNotBeforeClientOrGroupTransferDate(loan, LoanEvent.LOAN_CHARGE_PAYMENT,
+                newPaymentTransaction.getTransactionDate());
+
+        loanChargeService.makeMultiChargePayment(loan, newPaymentTransaction, allocations);
+
+        loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(newPaymentTransaction);
+        loanAccountService.saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+
+        if (StringUtils.isNotBlank(noteText)) {
+            final Note note = Note.loanTransactionNote(loan, newPaymentTransaction, noteText);
+            this.noteRepository.save(note);
+        }
+
+        loanAccrualsProcessingService.processAccrualsOnInterestRecalculation(loan, loan.isInterestBearingAndInterestRecalculationEnabled(),
+                true);
+
         if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
             LoanTransaction suspenseReverseTransaction = createAccrualSuspenseReverseForRepayment(loan, newPaymentTransaction);
             if (suspenseReverseTransaction != null) {
