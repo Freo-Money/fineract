@@ -258,17 +258,11 @@ public class LoanBalanceService {
     public void applyForeclosureRoundingToLoan(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail) {
         final MonetaryCurrency currency = loan.getCurrency();
         Integer installmentAmountInMultiplesOf = loan.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf();
-        if (installmentAmountInMultiplesOf == null || installmentAmountInMultiplesOf <= 0) {
-            if (!loan.getLoanProduct().isAdjustInterestForRounding()) {
-                return;
-            }
-            final Integer currencyMultiplesOf = currency.getCurrencyData().getInMultiplesOf();
-            if (currencyMultiplesOf != null && currencyMultiplesOf > 0) {
-                installmentAmountInMultiplesOf = currencyMultiplesOf;
-            } else {
-                installmentAmountInMultiplesOf = 1;
-            }
+        if ((installmentAmountInMultiplesOf == null || installmentAmountInMultiplesOf < 0)
+                && !loan.getLoanProduct().isAdjustInterestForRounding()) {
+            return;
         }
+        installmentAmountInMultiplesOf = LoanRoundingUtils.resolveMultiplesOfOrDefault(currency, installmentAmountInMultiplesOf);
         applyForeclosureRoundingWithMultiples(loan, foreclosureDetail, currency, installmentAmountInMultiplesOf);
     }
 

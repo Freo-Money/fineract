@@ -846,9 +846,12 @@ public class LoanRepaymentScheduleInstallment extends AbstractAuditableWithUTCDa
     }
 
     private void checkIfEmiCleared(final LocalDate transactionDate, final MonetaryCurrency currency) {
+        final Money principalDue = getPrincipal(currency);
+        final Money interestDue = getInterestCharged(currency);
+        final boolean hasPrincipalOrInterestDue = principalDue.isGreaterThanZero() || interestDue.isGreaterThanZero();
         final boolean principalCleared = getPrincipalOutstanding(currency).isZero();
         final boolean interestCleared = getInterestOutstanding(currency).isZero();
-        if (principalCleared && interestCleared) {
+        if (hasPrincipalOrInterestDue && principalCleared && interestCleared) {
             if (this.emiClearedOn == null) {
                 this.emiClearedOn = transactionDate;
             }
