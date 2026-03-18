@@ -928,8 +928,8 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
                         addEvent);
             }
         }
-        // reverse accruals after last installment
-        reverseTransactionsAfter(loan, ACCRUAL_TYPES, lastDueDate, addEvent);
+        // reverse accruals after last installment (exclude ACCRUAL_SUSPENSE* for NPA loans)
+        reverseTransactionsAfter(loan, getAccrualTypesToReprocess(loan), lastDueDate, addEvent);
     }
 
     private void reprocessNonPeriodicAccruals(Loan loan, final List<LoanTransaction> accrualTransactions, final boolean addEvent) {
@@ -1325,8 +1325,19 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         }
     }
 
+    /**
+     * For NPA loans with periodic accrual, we must not reprocess or reverse ACCRUAL_SUSPENSE and
+     * ACCRUAL_SUSPENSE_REVERSE, so that undo operations (repayment/charge payment/writeoff undo) do not flip suspense
+     * balances.
+     */
+    private Set<LoanTransactionType> getAccrualTypesToReprocess(final Loan loan) {
+        return loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()
+                ? Set.of(ACCRUAL, ACCRUAL_ADJUSTMENT, ACCRUAL_WRITEOFF)
+                : ACCRUAL_TYPES;
+    }
+
     private List<LoanTransaction> retrieveListOfAccrualTransactions(final Loan loan) {
-        return loanTransactionRepository.findNonReversedByLoanAndTypes(loan, ACCRUAL_TYPES).stream()
+        return loanTransactionRepository.findNonReversedByLoanAndTypes(loan, getAccrualTypesToReprocess(loan)).stream()
                 .sorted(LoanTransactionComparator.INSTANCE).collect(Collectors.toList());
     }
 

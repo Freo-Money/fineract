@@ -415,6 +415,8 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
 
         undoWaivedCharge(changes, loan, loanTransaction, loanChargePaidBy);
 
+        reverseAccrualWriteoffForUndoneWaiver(loan, loanTransaction);
+
         businessEventNotifierService.notifyPostBusinessEvent(new LoanWaiveChargeUndoBusinessEvent(loanCharge));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         changes.put("principalPortion", loanTransaction.getPrincipalPortion());
@@ -1904,9 +1906,35 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                     waiveTransaction.getTransactionDate(), totalAccrualWriteoff, null, waivedFee, waivedPenalty,
                     externalIdFactory.create());
             LoanTransaction savedAccrualWriteoffTransaction = this.loanTransactionRepository.save(accrualWriteoffTransaction);
-            this.loanTransactionRepository.flush(); // Flush to ensure ID is available for journal entry posting
+            this.loanTransactionRepository.flush();
             loan.addLoanTransaction(savedAccrualWriteoffTransaction);
             loanJournalEntryPoster.postJournalEntriesForLoanTransaction(savedAccrualWriteoffTransaction, false, false);
+        }
+    }
+
+    private void reverseAccrualWriteoffForUndoneWaiver(final Loan loan, final LoanTransaction waiveTransaction) {
+        BigDecimal waivedFee = MathUtil.nullToZero(waiveTransaction.getFeeChargesPortion());
+        BigDecimal waivedPenalty = MathUtil.nullToZero(waiveTransaction.getPenaltyChargesPortion());
+
+        if (!MathUtil.isGreaterThanZero(MathUtil.add(waivedFee, waivedPenalty))) {
+            return;
+        }
+
+        List<LoanTransaction> writeoffs = this.loanTransactionRepository.findNonReversedByLoanAndTypes(loan,
+                Set.of(LoanTransactionType.ACCRUAL_WRITEOFF));
+
+        LoanTransaction matchingWriteoff = writeoffs.stream()
+                .filter(t -> t.getTransactionDate().equals(waiveTransaction.getTransactionDate())).filter(t -> {
+                    BigDecimal writeoffFee = MathUtil.nullToZero(t.getFeeChargesPortion());
+                    BigDecimal writeoffPenalty = MathUtil.nullToZero(t.getPenaltyChargesPortion());
+                    return MathUtil.isEqualTo(writeoffFee, waivedFee) && MathUtil.isEqualTo(writeoffPenalty, waivedPenalty);
+                }).findFirst().orElse(null);
+
+        if (matchingWriteoff != null) {
+            matchingWriteoff.reverse();
+            matchingWriteoff.manuallyAdjustedOrReversed();
+            this.loanTransactionRepository.saveAndFlush(matchingWriteoff);
+            loanJournalEntryPoster.postJournalEntriesForLoanTransaction(matchingWriteoff, false, false);
         }
     }
 }
