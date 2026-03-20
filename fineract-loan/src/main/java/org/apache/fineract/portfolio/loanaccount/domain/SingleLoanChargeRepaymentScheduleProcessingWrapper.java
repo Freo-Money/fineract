@@ -225,8 +225,15 @@ public class SingleLoanChargeRepaymentScheduleProcessingWrapper {
         if (!DateUtils.isAfter(chargeDueDate, latestInstallment.getDueDate())) {
             return null;
         }
-        if (latestInstallment.isAdditional()) {
+        if (latestInstallment.isAdditional() || latestInstallment.isRecalculatedInterestComponent()) {
+            if (latestInstallment.isRecalculatedInterestComponent()) {
+                latestInstallment.setRecalculatedInterestComponent(false);
+                latestInstallment.markAsAdditional();
+            }
             latestInstallment.updateDueDate(chargeDueDate);
+            // Remove any intermediate recalculated/additional post-maturity installments that were created
+            // before the one-installment-post-maturity fix. Consolidate into the single latest installment.
+            consolidatePostMaturityInstallments(installments, latestInstallment);
             return null;
         } else {
             Loan loan = loanCharge.getLoan();
@@ -237,5 +244,21 @@ public class SingleLoanChargeRepaymentScheduleProcessingWrapper {
             loan.addLoanRepaymentScheduleInstallment(additionalInstallment);
             return additionalInstallment;
         }
+    }
+
+    private void consolidatePostMaturityInstallments(List<LoanRepaymentScheduleInstallment> installments,
+            LoanRepaymentScheduleInstallment retained) {
+        LocalDate earliestFromDate = retained.getFromDate();
+        for (LoanRepaymentScheduleInstallment inst : installments) {
+            if (inst != retained && !inst.isDownPayment() && (inst.isRecalculatedInterestComponent() || inst.isAdditional())
+                    && DateUtils.isBefore(inst.getFromDate(), earliestFromDate)) {
+                earliestFromDate = inst.getFromDate();
+            }
+        }
+        if (DateUtils.isBefore(earliestFromDate, retained.getFromDate())) {
+            retained.updateFromDate(earliestFromDate);
+        }
+        installments.removeIf(
+                inst -> inst != retained && (inst.isRecalculatedInterestComponent() || inst.isAdditional()) && !inst.isDownPayment());
     }
 }
