@@ -314,7 +314,6 @@ public class LoanDisbursementService {
         bpiRepayment.updateComponentsAndTotal(zero, bpiAmount, zero, zero); // principal, interest, fees, penalties
 
         bpiRepayment.updateLoan(loan);
-        loan.addLoanTransaction(bpiRepayment);
         transactionsToSave.add(bpiRepayment);
 
         return bpiRepayment;
