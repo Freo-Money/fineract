@@ -789,7 +789,6 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
                 LoanChargePaidBy newChargePaidBy = new LoanChargePaidBy(suspenseTransaction, originalChargePaidBy.getLoanCharge(),
                         originalChargePaidBy.getAmount(), originalChargePaidBy.getInstallmentNumber());
                 newChargePaidByList.add(newChargePaidBy);
-                originalChargePaidBy.getLoanCharge().getLoanChargePaidBySet().add(newChargePaidBy);
             }
             suspenseTransaction.updateLoanChargePaidMappings(newChargePaidByList);
         }
@@ -847,7 +846,6 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
             final BigDecimal chargeAmount = MathUtil.toBigDecimal(chargePortion);
             final LoanCharge loanCharge = loanChargeService.fetchLoanChargesById(loan, accrualCharge.getLoanChargeId());
             final LoanChargePaidBy paidBy = new LoanChargePaidBy(transaction, loanCharge, chargeAmount, installment.getInstallmentNumber());
-            loanCharge.getLoanChargePaidBySet().add(paidBy);
             transaction.getLoanChargesPaid().add(paidBy);
             final Long installmentChargeId = accrualCharge.getLoanInstallmentChargeId();
             if (installmentChargeId != null) {
@@ -1443,7 +1441,6 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         }
         LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(accrualTransaction, loanCharge, outstanding.getAmount(), null);
         accrualCharges.add(loanChargePaidBy);
-        loanCharge.getLoanChargePaidBySet().add(loanChargePaidBy);
     }
 
     @Override
