@@ -65,6 +65,7 @@ import org.apache.fineract.infrastructure.core.service.MathUtil;
 import org.apache.fineract.infrastructure.security.service.RandomPasswordGenerator;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
+import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.organisation.office.domain.Office;
 import org.apache.fineract.organisation.staff.domain.Staff;
 import org.apache.fineract.portfolio.accountdetails.domain.AccountType;
@@ -325,9 +326,11 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     @Column(name = "approved_principal", scale = 6, precision = 19, nullable = false)
     private BigDecimal approvedPrincipal;
 
-    @Setter()
     @Column(name = "net_disbursal_amount", scale = 6, precision = 19, nullable = false)
     private BigDecimal netDisbursalAmount;
+
+    @Column(name = "actual_net_disbursement_amount", scale = 6, precision = 19, nullable = false)
+    private BigDecimal actualNetDisbursementAmount;
 
     @Setter()
     @Column(name = "fixed_emi_amount", scale = 6, precision = 19)
@@ -567,7 +570,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         this.fixedPrincipalPercentagePerInstallment = fixedPrincipalPercentagePerInstallment;
 
         // Add net get net disbursal amount from charges and principal
-        this.netDisbursalAmount = this.approvedPrincipal.subtract(deriveSumTotalOfChargesDueAtDisbursement());
+        setNetDisbursalAmount(this.approvedPrincipal.subtract(deriveSumTotalOfChargesDueAtDisbursement()));
         this.loanStatus = LoanStatus.SUBMITTED_AND_PENDING_APPROVAL;
         this.externalId = externalId;
         this.termFrequency = loanApplicationTerms.getLoanTermFrequency();
@@ -1712,7 +1715,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     }
 
     public void adjustNetDisbursalAmount(BigDecimal adjustedAmount) {
-        this.netDisbursalAmount = adjustedAmount.subtract(this.deriveSumTotalOfChargesDueAtDisbursement());
+        setNetDisbursalAmount(adjustedAmount.subtract(this.deriveSumTotalOfChargesDueAtDisbursement()));
     }
 
     /**
@@ -1802,7 +1805,23 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     }
 
     public void deductFromNetDisbursalAmount(final BigDecimal subtrahend) {
-        this.netDisbursalAmount = this.netDisbursalAmount.subtract(subtrahend);
+        setNetDisbursalAmount(this.actualNetDisbursementAmount.subtract(subtrahend));
+    }
+
+    public void setNetDisbursalAmount(BigDecimal netDisbursalAmount) {
+        this.actualNetDisbursementAmount = netDisbursalAmount;
+        this.netDisbursalAmount = roundNetDisbursalAmount(netDisbursalAmount);
+    }
+
+    private BigDecimal roundNetDisbursalAmount(BigDecimal amount) {
+        if (amount == null) {
+            return null;
+        }
+        final Integer installmentAmountInMultiplesOf = getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf();
+        if (installmentAmountInMultiplesOf != null) {
+            return Money.roundToMultiplesOf(amount, installmentAmountInMultiplesOf);
+        }
+        return amount.setScale(0, MoneyHelper.getRoundingMode());
     }
 
     public void setIsTopup(boolean topup) {
