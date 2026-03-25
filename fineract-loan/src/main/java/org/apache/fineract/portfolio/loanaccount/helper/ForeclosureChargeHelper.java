@@ -30,6 +30,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
@@ -60,12 +61,14 @@ public class ForeclosureChargeHelper {
     private final ChargeReadPlatformService chargeReadPlatformService;
     private final ChargeRepositoryWrapper chargeRepositoryWrapper;
     private final LoanChargeService loanChargeService;
+    private final ConfigurationDomainService configurationDomainService;
 
     public ForeclosureChargeHelper(ChargeReadPlatformService chargeReadPlatformService, ChargeRepositoryWrapper chargeRepositoryWrapper,
-            @Lazy LoanChargeService loanChargeService) {
+            @Lazy LoanChargeService loanChargeService, ConfigurationDomainService configurationDomainService) {
         this.chargeReadPlatformService = chargeReadPlatformService;
         this.chargeRepositoryWrapper = chargeRepositoryWrapper;
         this.loanChargeService = loanChargeService;
+        this.configurationDomainService = configurationDomainService;
     }
 
     public Map<Long, BigDecimal> extractChargePercentagesFromJsonElement(JsonElement element, String paramName) {
@@ -246,8 +249,8 @@ public class ForeclosureChargeHelper {
             if (loanCharge.getChargeTimeType().equals(ChargeTimeType.FORECLOSURE) && loanCharge.isActive()) {
                 Money chargeAmount = loanCharge.getAmount(currency);
                 if (chargeAmount.isGreaterThanZero()) {
-                    paymentTransaction.getLoanChargesPaid()
-                            .add(new LoanChargePaidBy(paymentTransaction, loanCharge, chargeAmount.getAmount(), null));
+                    paymentTransaction.getLoanChargesPaid().add(new LoanChargePaidBy(paymentTransaction, loanCharge,
+                            chargeAmount.getAmount(), null, configurationDomainService.getTaxRoundingMode()));
                     loanCharge.updatePaidAmountBy(chargeAmount, null, chargeAmount);
                     totalForeclosureFeeCharges = totalForeclosureFeeCharges.plus(chargeAmount);
                 }

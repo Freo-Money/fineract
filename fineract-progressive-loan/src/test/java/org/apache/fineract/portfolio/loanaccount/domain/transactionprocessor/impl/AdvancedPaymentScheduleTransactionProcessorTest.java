@@ -498,7 +498,7 @@ class AdvancedPaymentScheduleTransactionProcessorTest {
         // Mock additional necessary methods
         LoanCharge loanCharge = mock(LoanCharge.class);
         when(loanTransaction.getLoanChargesPaid())
-                .thenReturn(Set.of(new LoanChargePaidBy(loanTransaction, loanCharge, transactionAmount, 1)));
+                .thenReturn(Set.of(new LoanChargePaidBy(loanTransaction, loanCharge, transactionAmount, 1, RoundingMode.HALF_EVEN)));
         when(loanCharge.getAmountOutstanding(currency)).thenReturn(transactionAmountMoney);
         when(loanTransaction.isAfter(any(LocalDate.class))).thenReturn(true); // Mock to simulate past due date check
 

@@ -33,6 +33,7 @@ import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionTy
 import static org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -726,16 +727,17 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         LoanTransaction transaction = adjustment
                 ? accrualAdjustment(loan, loan.getOffice(), transactionDate, amount, interest, fee, penalty, externalIdFactory.create())
                 : accrueTransaction(loan, loan.getOffice(), transactionDate, amount, interest, fee, penalty, externalIdFactory.create());
+        final RoundingMode taxRoundingMode = configurationDomainService.getTaxRoundingMode();
 
         // update repayment schedule portions
-        addTransactionMappings(transaction, accrualPeriod, adjustment);
+        addTransactionMappings(transaction, accrualPeriod, adjustment, taxRoundingMode);
         LoanTransaction savedTransaction = loanTransactionRepository.save(transaction);
         loan.addLoanTransaction(savedTransaction);
 
         // For NPA loans with periodic accrual accounting, also create ACCRUAL_SUSPENSE transaction with the same
         // amounts
         if (isNpa && !adjustment && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
-            addAccrualSuspenseTransaction(loan, savedTransaction, accrualPeriod, true);
+            addAccrualSuspenseTransaction(loan, savedTransaction, accrualPeriod, true, taxRoundingMode);
         }
 
         return savedTransaction;
@@ -743,11 +745,12 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
     private LoanTransaction addAccrualSuspenseTransaction(@NonNull Loan loan, @NonNull LoanTransaction sourceTransaction,
             boolean postJournalEntries) {
-        return addAccrualSuspenseTransaction(loan, sourceTransaction, null, postJournalEntries);
+        return addAccrualSuspenseTransaction(loan, sourceTransaction, null, postJournalEntries,
+                configurationDomainService.getTaxRoundingMode());
     }
 
     private LoanTransaction addAccrualSuspenseTransaction(@NonNull Loan loan, @NonNull LoanTransaction sourceTransaction,
-            AccrualPeriodData accrualPeriod, boolean postJournalEntries) {
+            AccrualPeriodData accrualPeriod, boolean postJournalEntries, RoundingMode taxRoundingMode) {
         // Create ACCRUAL_SUSPENSE transaction with same amounts as source
         LoanTransaction suspenseTransaction = LoanTransaction.accrueSuspenseTransaction(loan, loan.getOffice(),
                 sourceTransaction.getTransactionDate(), sourceTransaction.getAmount(), sourceTransaction.getInterestPortion(),
@@ -781,16 +784,16 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
         // Use addTransactionMappings if AccrualPeriodData is available, otherwise copy charges manually
         if (accrualPeriod != null) {
-            addTransactionMappings(suspenseTransaction, accrualPeriod, false);
+            addTransactionMappings(suspenseTransaction, accrualPeriod, false, taxRoundingMode);
         } else if (sourceTransaction.getLoanChargesPaid() != null && !sourceTransaction.getLoanChargesPaid().isEmpty()) {
             // Fallback: manually copy charge mappings when AccrualPeriodData is not available
             List<LoanChargePaidBy> newChargePaidByList = new ArrayList<>();
             for (LoanChargePaidBy originalChargePaidBy : sourceTransaction.getLoanChargesPaid()) {
                 LoanChargePaidBy newChargePaidBy = new LoanChargePaidBy(suspenseTransaction, originalChargePaidBy.getLoanCharge(),
-                        originalChargePaidBy.getAmount(), originalChargePaidBy.getInstallmentNumber());
+                        originalChargePaidBy.getAmount(), originalChargePaidBy.getInstallmentNumber(), taxRoundingMode);
                 newChargePaidByList.add(newChargePaidBy);
             }
-            suspenseTransaction.updateLoanChargePaidMappings(newChargePaidByList);
+            suspenseTransaction.updateLoanChargePaidMappings(newChargePaidByList, taxRoundingMode);
         }
 
         LoanTransaction savedSuspenseTransaction = loanTransactionRepository.save(suspenseTransaction);
@@ -816,11 +819,11 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
         transaction.updateComponentsAndTotal(null, interestPortion, feePortion, penaltyPortion);
         // update repayment schedule portions
-        addTransactionMappings(transaction, accrualPeriod, adjustment);
+        addTransactionMappings(transaction, accrualPeriod, adjustment, configurationDomainService.getTaxRoundingMode());
     }
 
     private void addTransactionMappings(@NonNull final LoanTransaction transaction, final AccrualPeriodData accrualPeriod,
-            final boolean adjustment) {
+            final boolean adjustment, final RoundingMode taxRoundingMode) {
         if (accrualPeriod == null) {
             return;
         }
@@ -829,11 +832,11 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         final LoanRepaymentScheduleInstallment installment = loan.fetchRepaymentScheduleInstallment(installmentNumber);
 
         // add charges paid by mappings
-        addPaidByMappings(transaction, installment, accrualPeriod, adjustment);
+        addPaidByMappings(transaction, installment, accrualPeriod, adjustment, taxRoundingMode);
     }
 
     private void addPaidByMappings(@NonNull final LoanTransaction transaction, final LoanRepaymentScheduleInstallment installment,
-            final AccrualPeriodData accrualPeriod, final boolean adjustment) {
+            final AccrualPeriodData accrualPeriod, final boolean adjustment, final RoundingMode taxRoundingMode) {
         final Loan loan = installment.getLoan();
         final MonetaryCurrency currency = loan.getCurrency();
         for (AccrualChargeData accrualCharge : accrualPeriod.getCharges()) {
@@ -845,7 +848,8 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
             }
             final BigDecimal chargeAmount = MathUtil.toBigDecimal(chargePortion);
             final LoanCharge loanCharge = loanChargeService.fetchLoanChargesById(loan, accrualCharge.getLoanChargeId());
-            final LoanChargePaidBy paidBy = new LoanChargePaidBy(transaction, loanCharge, chargeAmount, installment.getInstallmentNumber());
+            final LoanChargePaidBy paidBy = new LoanChargePaidBy(transaction, loanCharge, chargeAmount, installment.getInstallmentNumber(),
+                    taxRoundingMode);
             transaction.getLoanChargesPaid().add(paidBy);
             final Long installmentChargeId = accrualCharge.getLoanInstallmentChargeId();
             if (installmentChargeId != null) {
@@ -1379,6 +1383,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
     private void updateLoanChargesPaidBy(Loan loan, LoanTransaction accrual, Map<String, Object> feeDetails,
             LoanRepaymentScheduleInstallment installment) {
+        final RoundingMode taxRoundingMode = configurationDomainService.getTaxRoundingMode();
         @SuppressWarnings("unchecked")
         List<LoanCharge> loanCharges = (List<LoanCharge>) feeDetails.get("loanCharges");
         @SuppressWarnings("unchecked")
@@ -1387,7 +1392,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
             for (LoanCharge loanCharge : loanCharges) {
                 Integer installmentNumber = null == installment ? null : installment.getInstallmentNumber();
                 final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(accrual, loanCharge,
-                        loanCharge.getAmount(loan.getCurrency()).getAmount(), installmentNumber);
+                        loanCharge.getAmount(loan.getCurrency()).getAmount(), installmentNumber, taxRoundingMode);
                 accrual.getLoanChargesPaid().add(loanChargePaidBy);
             }
         }
@@ -1396,7 +1401,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
                 Integer installmentNumber = null == loanInstallmentCharge.getInstallment() ? null
                         : loanInstallmentCharge.getInstallment().getInstallmentNumber();
                 final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(accrual, loanInstallmentCharge.getLoanCharge(),
-                        loanInstallmentCharge.getAmount(loan.getCurrency()).getAmount(), installmentNumber);
+                        loanInstallmentCharge.getAmount(loan.getCurrency()).getAmount(), installmentNumber, taxRoundingMode);
                 accrual.getLoanChargesPaid().add(loanChargePaidBy);
             }
         }
@@ -1439,7 +1444,8 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         if (!outstanding.isGreaterThanZero()) {
             return;
         }
-        LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(accrualTransaction, loanCharge, outstanding.getAmount(), null);
+        LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(accrualTransaction, loanCharge, outstanding.getAmount(), null,
+                configurationDomainService.getTaxRoundingMode());
         accrualCharges.add(loanChargePaidBy);
     }
 

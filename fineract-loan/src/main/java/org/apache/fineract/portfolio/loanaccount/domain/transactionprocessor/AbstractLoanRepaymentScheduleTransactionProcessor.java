@@ -24,6 +24,7 @@ import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction.a
 
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -35,6 +36,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
@@ -679,6 +681,7 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             final Integer installmentNumber) {
 
         Money amountRemaining = chargeAmount;
+        final RoundingMode taxRoundingMode = TemporaryConfigurationServiceContainer.getTaxRoundingMode();
         final Set<LoanCharge> chargesThatCannotBeFullyPaidByOneInstallment = new HashSet<>();
 
         while (amountRemaining.isGreaterThanZero()) {
@@ -703,12 +706,12 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                     for (final LoanChargePaidBy chargePaidBy : chargesPaidBies) {
                         LoanCharge loanCharge = chargePaidBy.getLoanCharge();
                         if (loanCharge != null && Objects.equals(loanCharge.getId(), unpaidCharge.getId())) {
-                            chargePaidBy.setAmount(amountPaidTowardsCharge.getAmount());
+                            chargePaidBy.setAmount(amountPaidTowardsCharge.getAmount(), taxRoundingMode);
                         }
                     }
                 } else {
                     final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(loanTransaction, unpaidCharge,
-                            amountPaidTowardsCharge.getAmount(), installmentNumber);
+                            amountPaidTowardsCharge.getAmount(), installmentNumber, taxRoundingMode);
                     chargesPaidBies.add(loanChargePaidBy);
                 }
                 amountRemaining = amountRemaining.minus(amountPaidTowardsCharge);
@@ -842,6 +845,7 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             final Integer installmentNumber) {
 
         Money amountRemaining = chargeAmount;
+        final RoundingMode taxRoundingMode = TemporaryConfigurationServiceContainer.getTaxRoundingMode();
         while (amountRemaining.isGreaterThanZero()) {
             final LoanCharge paidCharge = findLatestPaidChargeFromUnOrderedSet(charges, chargeAmount.getCurrency());
 
@@ -853,7 +857,7 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 if (amountDeductedTowardsCharge.isGreaterThanZero()) {
 
                     final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(loanTransaction, paidCharge,
-                            amountDeductedTowardsCharge.getAmount().multiply(new BigDecimal(-1)), null);
+                            amountDeductedTowardsCharge.getAmount().multiply(new BigDecimal(-1)), null, taxRoundingMode);
                     loanTransaction.getLoanChargesPaid().add(loanChargePaidBy);
 
                     amountRemaining = amountRemaining.minus(amountDeductedTowardsCharge);

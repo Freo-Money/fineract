@@ -469,7 +469,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                 charge = loanCharge;
             }
         }
-        final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(chargesPayment, charge, charge.amount(), null);
+        final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(chargesPayment, charge, charge.amount(), null,
+                configurationDomainService.getTaxRoundingMode());
         chargesPayment.getLoanChargesPaid().add(loanChargePaidBy);
         final Money zero = Money.zero(loan.getCurrency());
         chargesPayment.updateComponents(zero, zero, charge.getAmount(loan.getCurrency()), zero);
@@ -1147,7 +1148,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
                     if (hasMatchingPortion) {
                         LoanChargePaidBy newChargePaidBy = new LoanChargePaidBy(suspenseReverseTransaction, loanCharge, chargeAmount,
-                                installmentNumber);
+                                installmentNumber, configurationDomainService.getTaxRoundingMode());
                         suspenseReverseTransaction.getLoanChargesPaid().add(newChargePaidBy);
                     }
                 }

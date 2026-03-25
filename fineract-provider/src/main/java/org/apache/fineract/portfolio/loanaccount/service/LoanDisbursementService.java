@@ -39,6 +39,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
@@ -78,6 +79,7 @@ public class LoanDisbursementService {
     private final LoanTransactionRepository loanTransactionRepository;
     private final BusinessEventNotifierService businessEventNotifierService;
     private final LoanDownPaymentHandlerService loanDownPaymentHandlerService;
+    private final ConfigurationDomainService configurationDomainService;
 
     public void updateDisbursementDetails(final Loan loan, final JsonCommand jsonCommand, final Map<String, Object> actualChanges) {
         final List<Long> disbursementList = loan.fetchDisbursementIds();
@@ -227,7 +229,7 @@ public class LoanDisbursementService {
 
         // Recalculate tax for all charges with actual disbursement date
         for (LoanCharge loanCharge : loan.getActiveCharges()) {
-            loanCharge.updateLoanChargeTaxDetails(disbursedOn, loanCharge.amount());
+            loanCharge.updateLoanChargeTaxDetails(disbursedOn, loanCharge.amount(), configurationDomainService.getTaxRoundingMode());
         }
 
         // Calculate disbursement charges and BPI amount
@@ -283,7 +285,8 @@ public class LoanDisbursementService {
 
             if (isDisbursementCharge && hasFeesAtDisbursement && !charge.getChargePaymentMode().isPaymentModeAccountTransfer()) {
                 charge.markAsFullyPaid();
-                final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(chargesPayment, charge, charge.amount(), null);
+                final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(chargesPayment, charge, charge.amount(), null,
+                        configurationDomainService.getTaxRoundingMode());
                 chargesPayment.getLoanChargesPaid().add(loanChargePaidBy);
             } else if (disbursedOn.equals(loan.getActualDisbursementDate()) && loan.isUpfrontAccrualAccountingEnabledOnLoanProduct()) {
                 final LoanTransaction applyLoanChargeTransaction = loanChargeService.handleChargeAppliedTransaction(loan, charge,

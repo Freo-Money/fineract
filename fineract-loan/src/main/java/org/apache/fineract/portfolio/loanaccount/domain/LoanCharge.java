@@ -31,6 +31,7 @@ import jakarta.persistence.UniqueConstraint;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -792,8 +793,8 @@ public class LoanCharge extends AbstractAuditableWithUTCDateTimeCustom<Long> {
                 }).toList();
     }
 
-    public void updateLoanChargeTaxDetails(LocalDate transactionDate, BigDecimal amount) {
-        LoanChargeTaxUtils.calculateAndSetTaxDetails(this, transactionDate, amount);
+    public void updateLoanChargeTaxDetails(LocalDate transactionDate, BigDecimal amount, RoundingMode taxRoundingMode) {
+        LoanChargeTaxUtils.calculateAndSetTaxDetails(this, transactionDate, amount, taxRoundingMode);
     }
 
     private void updateTaxDetailsAmountPaid(final Money amountPaidOnThisCharge, final MonetaryCurrency currency) {

@@ -19,11 +19,11 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
-import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
@@ -37,7 +37,8 @@ public final class LoanChargeTaxUtils {
 
     private LoanChargeTaxUtils() {}
 
-    public static void calculateAndSetTaxDetails(final LoanCharge loanCharge, final Charge chargeDefinition, final LocalDate chargeDate) {
+    public static void calculateAndSetTaxDetails(final LoanCharge loanCharge, final Charge chargeDefinition, final LocalDate chargeDate,
+            final RoundingMode taxRoundingMode) {
         TaxGroup taxGroup = chargeDefinition.getTaxGroup();
         BigDecimal totalAmountInclusive = loanCharge.getAmount();
 
@@ -48,35 +49,35 @@ public final class LoanChargeTaxUtils {
 
         LocalDate taxCalculationDate = getTaxCalculationDate(chargeDate, loanCharge);
         loanCharge.setTaxGroup(taxGroup);
-        calculateAndApplyTax(loanCharge, taxGroup, totalAmountInclusive, taxCalculationDate);
+        calculateAndApplyTax(loanCharge, taxGroup, totalAmountInclusive, taxCalculationDate, taxRoundingMode);
     }
 
     public static void calculateAndSetTaxDetails(final LoanCharge loanCharge, final Charge chargeDefinition, final LocalDate chargeDate,
-            final int currencyDigits) {
+            final int currencyDigits, final RoundingMode taxRoundingMode) {
         TaxGroup taxGroup = chargeDefinition.getTaxGroup();
         BigDecimal totalAmountInclusive = loanCharge.getAmount();
 
         if (taxGroup == null || totalAmountInclusive == null || totalAmountInclusive.compareTo(BigDecimal.ZERO) <= 0) {
             resetTaxFields(loanCharge);
-            roundChargeAmountToCurrency(loanCharge, currencyDigits);
+            roundChargeAmountToCurrency(loanCharge, currencyDigits, taxRoundingMode);
             return;
         }
 
         LocalDate taxCalculationDate = getTaxCalculationDate(chargeDate, loanCharge);
         loanCharge.setTaxGroup(taxGroup);
-        calculateAndApplyTax(loanCharge, taxGroup, totalAmountInclusive, taxCalculationDate, currencyDigits);
+        calculateAndApplyTax(loanCharge, taxGroup, totalAmountInclusive, taxCalculationDate, currencyDigits, taxRoundingMode);
     }
 
-    public static void roundChargeAmountToCurrency(final LoanCharge loanCharge, final int currencyDigits) {
+    public static void roundChargeAmountToCurrency(final LoanCharge loanCharge, final int currencyDigits,
+            final RoundingMode taxRoundingMode) {
         if (loanCharge.getAmount() != null) {
-            loanCharge.setAmount(
-                    loanCharge.getAmount().setScale(currencyDigits, TemporaryConfigurationServiceContainer.getTaxRoundingMode()));
+            loanCharge.setAmount(loanCharge.getAmount().setScale(currencyDigits, taxRoundingMode));
             loanCharge.setAmountOutstanding(loanCharge.calculateOutstanding());
         }
     }
 
     public static void calculateAndSetTaxDetails(final LoanCharge loanCharge, final LocalDate transactionDate,
-            final BigDecimal taxInclusiveAmount) {
+            final BigDecimal taxInclusiveAmount, final RoundingMode taxRoundingMode) {
         if (loanCharge.getCharge() == null) {
             resetTaxFields(loanCharge);
             return;
@@ -92,25 +93,26 @@ public final class LoanChargeTaxUtils {
         }
 
         loanCharge.setTaxGroup(taxGroup);
-        calculateAndApplyTax(loanCharge, taxGroup, taxInclusiveAmount, transactionDate);
+        calculateAndApplyTax(loanCharge, taxGroup, taxInclusiveAmount, transactionDate, taxRoundingMode);
     }
 
     private static void calculateAndApplyTax(final LoanCharge loanCharge, final TaxGroup taxGroup, final BigDecimal taxInclusiveAmount,
-            final LocalDate transactionDate) {
+            final LocalDate transactionDate, final RoundingMode taxRoundingMode) {
         int currencyScale = loanCharge.getLoan() != null && loanCharge.getLoan().getCurrency() != null
                 ? loanCharge.getLoan().getCurrency().getDigitsAfterDecimal()
                 : taxInclusiveAmount.scale();
-        calculateAndApplyTax(loanCharge, taxGroup, taxInclusiveAmount, transactionDate, currencyScale);
+        calculateAndApplyTax(loanCharge, taxGroup, taxInclusiveAmount, transactionDate, currencyScale, taxRoundingMode);
     }
 
     private static void calculateAndApplyTax(final LoanCharge loanCharge, final TaxGroup taxGroup, final BigDecimal taxInclusiveAmount,
-            final LocalDate transactionDate, final int currencyDigits) {
+            final LocalDate transactionDate, final int currencyDigits, final RoundingMode taxRoundingMode) {
         int mathScale = taxInclusiveAmount.scale();
         Set<TaxGroupMappings> taxGroupMappings = taxGroup.getTaxGroupMappings();
 
         BigDecimal amountSansTaxRaw = TaxUtils.extractBaseAmountFromTaxInclusive(taxInclusiveAmount, transactionDate, taxGroupMappings,
-                mathScale);
-        Map<TaxComponent, BigDecimal> taxSplitRaw = TaxUtils.splitTax(amountSansTaxRaw, transactionDate, taxGroupMappings, mathScale);
+                mathScale, taxRoundingMode);
+        Map<TaxComponent, BigDecimal> taxSplitRaw = TaxUtils.splitTax(amountSansTaxRaw, transactionDate, taxGroupMappings, mathScale,
+                taxRoundingMode);
 
         Map<TaxComponent, BigDecimal> taxSplitRounded = new HashMap<>(taxSplitRaw.size());
         BigDecimal totalTaxAmount = BigDecimal.ZERO;
@@ -118,15 +120,14 @@ public final class LoanChargeTaxUtils {
             if (entry.getValue() == null) {
                 continue;
             }
-            BigDecimal rounded = entry.getValue().setScale(currencyDigits, TemporaryConfigurationServiceContainer.getTaxRoundingMode());
+            BigDecimal rounded = entry.getValue().setScale(currencyDigits, taxRoundingMode);
             if (rounded.compareTo(BigDecimal.ZERO) > 0) {
                 taxSplitRounded.put(entry.getKey(), rounded);
                 totalTaxAmount = totalTaxAmount.add(rounded);
             }
         }
 
-        BigDecimal inclusiveRounded = taxInclusiveAmount.setScale(currencyDigits,
-                TemporaryConfigurationServiceContainer.getTaxRoundingMode());
+        BigDecimal inclusiveRounded = taxInclusiveAmount.setScale(currencyDigits, taxRoundingMode);
         BigDecimal amountSansTaxRounded = inclusiveRounded.subtract(totalTaxAmount);
 
         loanCharge.setAmount(inclusiveRounded);
