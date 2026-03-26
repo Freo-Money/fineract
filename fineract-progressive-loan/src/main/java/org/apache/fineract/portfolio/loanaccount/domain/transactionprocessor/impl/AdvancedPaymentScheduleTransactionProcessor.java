@@ -61,6 +61,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
@@ -1125,7 +1126,8 @@ public class AdvancedPaymentScheduleTransactionProcessor extends AbstractLoanRep
             LoanTransaction processTransaction = transaction;
             boolean isNew = transaction.getId() == null;
             if (!isNew) {
-                processTransaction = transaction.copyTransactionPropertiesAndMappings();
+                processTransaction = transaction
+                        .copyTransactionPropertiesAndMappings(TemporaryConfigurationServiceContainer.getTaxRoundingMode());
                 ctx.getChangedTransactionDetail().addTransactionChange(new TransactionChangeData(transaction, processTransaction));
             }
             processTransaction.setOverPayments(overpayment = MathUtil.minus(overpayment, processAmount));
@@ -1201,10 +1203,11 @@ public class AdvancedPaymentScheduleTransactionProcessor extends AbstractLoanRep
                 .anyMatch(lt -> !lt.equals(newTransaction) && lt.getTransactionDate().equals(oldTransaction.getTransactionDate()));
         boolean amountMatch = LoanTransaction.transactionAmountsMatch(currency, oldTransaction, newTransaction);
         if (!alreadyProcessed && amountMatch) {
+            final RoundingMode taxRoundingMode = TemporaryConfigurationServiceContainer.getTaxRoundingMode();
             if (!oldTransaction.getTypeOf().isWaiveCharges()) { // WAIVE_CHARGES is not reprocessed
                 oldTransaction
                         .updateLoanTransactionToRepaymentScheduleMappings(newTransaction.getLoanTransactionToRepaymentScheduleMappings());
-                oldTransaction.updateLoanChargePaidMappings(newTransaction.getLoanChargesPaid());
+                oldTransaction.updateLoanChargePaidMappings(newTransaction.getLoanChargesPaid(), taxRoundingMode);
             }
             changedTransactionDetail.removeTransactionChange(newTransaction);
             return oldTransaction;
@@ -2055,6 +2058,7 @@ public class AdvancedPaymentScheduleTransactionProcessor extends AbstractLoanRep
         Money unprocessed = loanTransaction.getAmount(transactionCtx.getCurrency());
         int firstNormalInstallmentNumber = LoanRepaymentScheduleProcessingWrapper
                 .fetchFirstNormalInstallmentNumber(transactionCtx.getInstallments());
+        final RoundingMode taxRoundingMode = TemporaryConfigurationServiceContainer.getTaxRoundingMode();
         for (final LoanRepaymentScheduleInstallment installment : transactionCtx.getInstallments()) {
             boolean isDue = loanCharge.isDueInPeriod(startDate, installment.getDueDate(),
                     installment.getInstallmentNumber().equals(firstNormalInstallmentNumber));
@@ -2067,13 +2071,13 @@ public class AdvancedPaymentScheduleTransactionProcessor extends AbstractLoanRep
 
                 if (loanTransaction.isPenaltyPayment()) {
                     penaltyChargesPortion = installment.payPenaltyChargesComponent(loanTransaction.getTransactionDate(), paidAmount);
-                    loanTransaction.setLoanChargesPaid(Collections
-                            .singleton(new LoanChargePaidBy(loanTransaction, loanCharge, paidAmount.getAmount(), installmentNumber)));
+                    loanTransaction.setLoanChargesPaid(Collections.singleton(
+                            new LoanChargePaidBy(loanTransaction, loanCharge, paidAmount.getAmount(), installmentNumber, taxRoundingMode)));
                     addToTransactionMapping(loanTransactionToRepaymentScheduleMapping, zero, zero, zero, penaltyChargesPortion);
                 } else {
                     feeChargesPortion = installment.payFeeChargesComponent(loanTransaction.getTransactionDate(), paidAmount);
-                    loanTransaction.setLoanChargesPaid(Collections
-                            .singleton(new LoanChargePaidBy(loanTransaction, loanCharge, paidAmount.getAmount(), installmentNumber)));
+                    loanTransaction.setLoanChargesPaid(Collections.singleton(
+                            new LoanChargePaidBy(loanTransaction, loanCharge, paidAmount.getAmount(), installmentNumber, taxRoundingMode)));
                     addToTransactionMapping(loanTransactionToRepaymentScheduleMapping, zero, zero, feeChargesPortion, zero);
                 }
 

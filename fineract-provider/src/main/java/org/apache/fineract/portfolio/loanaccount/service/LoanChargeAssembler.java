@@ -33,6 +33,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
@@ -70,6 +71,7 @@ public class LoanChargeAssembler {
     private final LoanProductRepository loanProductRepository;
     private final ExternalIdFactory externalIdFactory;
     private final LoanChargeService loanChargeService;
+    private final ConfigurationDomainService configurationDomainService;
 
     public Set<LoanCharge> fromParsedJson(final JsonElement element, List<LoanDisbursementDetails> disbursementDetails) {
         JsonArray jsonDisbursement = this.fromApiJsonHelper.extractJsonArrayNamed("disbursementData", element);
@@ -237,9 +239,9 @@ public class LoanChargeAssembler {
         for (final LoanCharge loanCharge : loanCharges) {
             if (loanCharge.getCharge() != null) {
                 LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(), loanCharge.getDueLocalDate(),
-                        currencyDigits);
+                        currencyDigits, configurationDomainService.getTaxRoundingMode());
             } else {
-                LoanChargeTaxUtils.roundChargeAmountToCurrency(loanCharge, currencyDigits);
+                LoanChargeTaxUtils.roundChargeAmountToCurrency(loanCharge, currencyDigits, configurationDomainService.getTaxRoundingMode());
             }
         }
 

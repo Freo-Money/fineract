@@ -27,12 +27,12 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.portfolio.tax.domain.TaxComponent;
 import org.apache.fineract.portfolio.tax.service.TaxUtils;
@@ -62,34 +62,40 @@ public class LoanChargePaidBy extends AbstractPersistableCustom<Long> {
 
     }
 
+    @Deprecated(since = "1.14.0", forRemoval = false)
     public LoanChargePaidBy(final LoanTransaction loanTransaction, final LoanCharge loanCharge, final BigDecimal amount,
             Integer installmentNumber) {
+        this(loanTransaction, loanCharge, amount, installmentNumber, RoundingMode.HALF_EVEN);
+    }
+
+    public LoanChargePaidBy(final LoanTransaction loanTransaction, final LoanCharge loanCharge, final BigDecimal amount,
+            Integer installmentNumber, final RoundingMode roundingMode) {
         this.loanTransaction = loanTransaction;
         this.loanCharge = loanCharge;
         this.amount = amount;
         this.installmentNumber = installmentNumber;
-        createTaxDetailsPaidBy(loanTransaction.getTransactionDate());
+        createTaxDetailsPaidBy(loanTransaction.getTransactionDate(), roundingMode);
     }
 
     public List<LoanChargeTaxDetailsPaidBy> getLoanChargeTaxDetailsPaidBy() {
         return this.loanChargeTaxDetailsPaidBy;
     }
 
-    private void createTaxDetailsPaidBy(LocalDate transactionDate) {
+    private void createTaxDetailsPaidBy(LocalDate transactionDate, RoundingMode roundingMode) {
         if (this.loanCharge.getTaxGroup() != null && this.amount.compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal incomeAmount = BigDecimal.ZERO;
             int currencyScale = this.loanCharge.getLoan() != null && this.loanCharge.getLoan().getCurrency() != null
                     ? this.loanCharge.getLoan().getCurrency().getDigitsAfterDecimal()
                     : this.amount.scale();
             Map<TaxComponent, BigDecimal> taxComponentsRaw = TaxUtils.splitTaxForLoanCharge(this.amount, transactionDate,
-                    this.loanCharge.getTaxGroup().getTaxGroupMappings(), this.amount.scale());
+                    this.loanCharge.getTaxGroup().getTaxGroupMappings(), this.amount.scale(), roundingMode);
             Map<TaxComponent, BigDecimal> taxComponents = new HashMap<>(taxComponentsRaw.size());
             BigDecimal totalTaxAmount = BigDecimal.ZERO;
             for (Map.Entry<TaxComponent, BigDecimal> entry : taxComponentsRaw.entrySet()) {
                 if (entry.getValue() == null) {
                     continue;
                 }
-                BigDecimal rounded = entry.getValue().setScale(currencyScale, TemporaryConfigurationServiceContainer.getTaxRoundingMode());
+                BigDecimal rounded = entry.getValue().setScale(currencyScale, roundingMode);
                 if (rounded.compareTo(BigDecimal.ZERO) > 0) {
                     taxComponents.put(entry.getKey(), rounded);
                     totalTaxAmount = totalTaxAmount.add(rounded);
@@ -117,13 +123,18 @@ public class LoanChargePaidBy extends AbstractPersistableCustom<Long> {
         return this.amount;
     }
 
+    @Deprecated(since = "1.14.0", forRemoval = false)
     public void setAmount(final BigDecimal amount) {
+        setAmount(amount, RoundingMode.HALF_EVEN);
+    }
+
+    public void setAmount(final BigDecimal amount, final RoundingMode roundingMode) {
         boolean amountChanged = this.amount == null || this.amount.compareTo(amount) != 0;
         this.amount = amount;
         if (amountChanged && this.loanTransaction != null) {
             // Amount changed, need to recalculate tax details
             this.loanChargeTaxDetailsPaidBy.clear();
-            createTaxDetailsPaidBy(this.loanTransaction.getTransactionDate());
+            createTaxDetailsPaidBy(this.loanTransaction.getTransactionDate(), roundingMode);
         }
     }
 

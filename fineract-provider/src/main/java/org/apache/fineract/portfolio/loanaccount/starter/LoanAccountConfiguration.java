@@ -294,9 +294,10 @@ public class LoanAccountConfiguration {
     @ConditionalOnMissingBean(LoanChargeAssembler.class)
     public LoanChargeAssembler loanChargeAssembler(final FromJsonHelper fromApiJsonHelper, final ChargeRepositoryWrapper chargeRepository,
             final LoanChargeRepository loanChargeRepository, final LoanProductRepository loanProductRepository,
-            final ExternalIdFactory externalIdFactory, final LoanChargeService loanChargeService) {
+            final ExternalIdFactory externalIdFactory, final LoanChargeService loanChargeService,
+            final ConfigurationDomainService configurationDomainService) {
         return new LoanChargeAssembler(fromApiJsonHelper, chargeRepository, loanChargeRepository, loanProductRepository, externalIdFactory,
-                loanChargeService);
+                loanChargeService, configurationDomainService);
     }
 
     @Bean
@@ -504,18 +505,20 @@ public class LoanAccountConfiguration {
             LoanDisbursementValidator loanDisbursementValidator, ReprocessLoanTransactionsService reprocessLoanTransactionsService,
             LoanChargeService loanChargeService, LoanBalanceService loanBalanceService, LoanJournalEntryPoster journalEntryPoster,
             LoanTransactionRepository loanTransactionRepository, BusinessEventNotifierService businessEventNotifierService,
-            LoanDownPaymentHandlerService loanDownPaymentHandlerService) {
+            LoanDownPaymentHandlerService loanDownPaymentHandlerService, ConfigurationDomainService configurationDomainService) {
         return new LoanDisbursementService(loanChargeValidator, loanDisbursementValidator, reprocessLoanTransactionsService,
                 loanChargeService, loanBalanceService, journalEntryPoster, loanTransactionRepository, businessEventNotifierService,
-                loanDownPaymentHandlerService);
+                loanDownPaymentHandlerService, configurationDomainService);
     }
 
     @Bean
     @ConditionalOnMissingBean(LoanChargeService.class)
     public LoanChargeService loanChargeService(final LoanChargeValidator loanChargeValidator,
             final LoanTransactionProcessingService loanTransactionProcessingService,
-            final LoanLifecycleStateMachine loanLifecycleStateMachine, final LoanBalanceService loanBalanceService) {
-        return new LoanChargeService(loanChargeValidator, loanTransactionProcessingService, loanLifecycleStateMachine, loanBalanceService);
+            final LoanLifecycleStateMachine loanLifecycleStateMachine, final LoanBalanceService loanBalanceService,
+            final ConfigurationDomainService configurationDomainService) {
+        return new LoanChargeService(loanChargeValidator, loanTransactionProcessingService, loanLifecycleStateMachine, loanBalanceService,
+                configurationDomainService);
     }
 
     @Bean

@@ -30,6 +30,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.Version;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -408,10 +409,15 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
         };
     }
 
+    @Deprecated(since = "1.14.0", forRemoval = false)
     public LoanTransaction copyTransactionPropertiesAndMappings() {
+        return copyTransactionPropertiesAndMappings(RoundingMode.HALF_EVEN);
+    }
+
+    public LoanTransaction copyTransactionPropertiesAndMappings(final RoundingMode taxRoundingMode) {
         LoanTransaction newTransaction = copyTransactionProperties(this);
         newTransaction.updateLoanTransactionToRepaymentScheduleMappings(loanTransactionToRepaymentScheduleMappings);
-        newTransaction.updateLoanChargePaidMappings(loanChargesPaid);
+        newTransaction.updateLoanChargePaidMappings(loanChargesPaid, taxRoundingMode);
         return newTransaction;
     }
 
@@ -948,15 +954,21 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
         }
     }
 
+    @Deprecated(since = "1.14.0", forRemoval = false)
     public void updateLoanChargePaidMappings(final Collection<LoanChargePaidBy> updatedMappings) {
+        updateLoanChargePaidMappings(updatedMappings, RoundingMode.HALF_EVEN);
+    }
+
+    public void updateLoanChargePaidMappings(final Collection<LoanChargePaidBy> updatedMappings, final RoundingMode taxRoundingMode) {
         Collection<LoanChargePaidBy> retainMappings = new ArrayList<>();
         for (LoanChargePaidBy updatedMapping : updatedMappings) {
-            updateLoanChargePaid(retainMappings, updatedMapping);
+            updateLoanChargePaid(retainMappings, updatedMapping, taxRoundingMode);
         }
         this.loanChargesPaid.retainAll(retainMappings);
     }
 
-    private void updateLoanChargePaid(final Collection<LoanChargePaidBy> retainMappings, final LoanChargePaidBy updatedMapping) {
+    private void updateLoanChargePaid(final Collection<LoanChargePaidBy> retainMappings, final LoanChargePaidBy updatedMapping,
+            final RoundingMode taxRoundingMode) {
         boolean updated = false;
         LoanCharge updatedCharge = updatedMapping.getLoanCharge();
         Integer updatedInstallment = updatedMapping.getInstallmentNumber();
@@ -965,14 +977,15 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
             Integer existingInstallment = existingMapping.getInstallmentNumber();
             if (existingCharge.equals(updatedCharge)
                     && (existingInstallment == null ? updatedInstallment == null : existingInstallment.equals(updatedInstallment))) {
-                existingMapping.setAmount(updatedMapping.getAmount());
+                existingMapping.setAmount(updatedMapping.getAmount(), taxRoundingMode);
                 updated = true;
                 retainMappings.add(existingMapping);
                 break;
             }
         }
         if (!updated) {
-            LoanChargePaidBy newMapping = new LoanChargePaidBy(this, updatedCharge, updatedMapping.getAmount(), updatedInstallment);
+            LoanChargePaidBy newMapping = new LoanChargePaidBy(this, updatedCharge, updatedMapping.getAmount(), updatedInstallment,
+                    taxRoundingMode);
             this.loanChargesPaid.add(newMapping);
             retainMappings.add(newMapping);
         }

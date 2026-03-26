@@ -357,7 +357,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                 final BigDecimal appliedRefundAmount = newChargeRefundTxn.getAmount(loanCharge.getLoan().getCurrency()).getAmount()
                         .multiply(BigDecimal.valueOf(-1));
                 final LoanChargePaidBy loanChargePaidByForChargeRefund = new LoanChargePaidBy(newChargeRefundTxn, loanCharge,
-                        appliedRefundAmount, installmentNumberIdentified);
+                        appliedRefundAmount, installmentNumberIdentified, configurationDomainService.getTaxRoundingMode());
                 newChargeRefundTxn.getLoanChargesPaid().add(loanChargePaidByForChargeRefund);
                 loanCharge.getLoanChargePaidBySet().add(loanChargePaidByForChargeRefund);
                 break;
@@ -1599,7 +1599,8 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         final LoanTransaction waiveLoanChargeTransaction = LoanTransaction.waiveLoanCharge(loan, loan.getOffice(), amountWaived,
                 transactionDate, feeChargesWaived, penaltyChargesWaived, unrecognizedIncome, externalId);
         final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(waiveLoanChargeTransaction, loanCharge,
-                waiveLoanChargeTransaction.getAmount(loan.getCurrency()).getAmount(), loanInstallmentNumber);
+                waiveLoanChargeTransaction.getAmount(loan.getCurrency()).getAmount(), loanInstallmentNumber,
+                configurationDomainService.getTaxRoundingMode());
         waiveLoanChargeTransaction.getLoanChargesPaid().add(loanChargePaidBy);
         loan.addLoanTransaction(waiveLoanChargeTransaction);
         if (loan.isCumulativeSchedule() && loan.isInterestBearingAndInterestRecalculationEnabled()

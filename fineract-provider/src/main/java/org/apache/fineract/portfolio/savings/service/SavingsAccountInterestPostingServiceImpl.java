@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.domain.LocalDateInterval;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
@@ -585,7 +586,8 @@ public class SavingsAccountInterestPostingServiceImpl implements SavingsAccountI
         if (savingsAccountData.getTaxGroup() != null && savingsAccountData.getTaxGroup().getTaxAssociations() != null
                 && amount.compareTo(BigDecimal.ZERO) > 0) {
             Map<TaxComponentData, BigDecimal> taxSplit = TaxUtils.splitTaxData(amount, date,
-                    savingsAccountData.getTaxGroup().getTaxAssociations().stream().collect(Collectors.toSet()), amount.scale());
+                    savingsAccountData.getTaxGroup().getTaxAssociations().stream().collect(Collectors.toSet()), amount.scale(),
+                    TemporaryConfigurationServiceContainer.getTaxRoundingMode());
             BigDecimal totalTax = TaxUtils.totalTaxDataAmount(taxSplit);
             if (totalTax.compareTo(BigDecimal.ZERO) > 0) {
                 SavingsAccountTransactionData withholdTransaction = SavingsAccountTransactionData.withHoldTax(savingsAccountData, date,
