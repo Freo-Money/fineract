@@ -140,7 +140,6 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                             LoanChargePaidDetail chargePaidDetail = new LoanChargePaidDetail(amountForProcess, installment,
                                     loanCharge.isFeeCharge());
                             chargePaidDetails.add(chargePaidDetail);
-                            break;
                         }
                     }
                     startDate = installment.getDueDate();
@@ -154,8 +153,9 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                     if (processAmt.isGreaterThan(unprocessed)) {
                         processAmt = unprocessed;
                     }
-                    unprocessed = handleTransactionAndCharges(loanTransaction, currency, processInstallments, transferCharges, processAmt,
-                            chargePaidDetail.isFeeCharge());
+                    Money chargeLeftover = handleTransactionAndCharges(loanTransaction, currency, processInstallments, transferCharges,
+                            processAmt, chargePaidDetail.isFeeCharge());
+                    unprocessed = unprocessed.minus(processAmt).plus(chargeLeftover);
                     if (!unprocessed.isGreaterThanZero()) {
                         break;
                     }
