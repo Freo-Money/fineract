@@ -244,4 +244,5 @@
     <include file="parts/1042_add_overdue_due_fees_penalties_order_strategies.xml" relativeToChangelogFile="true" />
     <include file="parts/1043_add_all_principal_all_interest_then_charges_order_strategies.xml" relativeToChangelogFile="true" />
     <include file="parts/1045_add_actual_net_disbursement_amount_to_loan.xml" relativeToChangelogFile="true" />
+    <include file="parts/1046_add_overdue_due_adv_principal_interest_overdue_due_penalties_fees_order_strategy.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

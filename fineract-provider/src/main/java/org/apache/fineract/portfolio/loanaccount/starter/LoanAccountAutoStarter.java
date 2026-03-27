@@ -34,6 +34,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.imp
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.FineractStyleLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.HeavensFamilyLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.InterestPrincipalPenaltyFeesOrderLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.OverdueDueAdvPrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.OverdueDueInterestPrincipalOverdueDueFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.OverdueDueInterestPrincipalOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.OverdueDuePrincipalInterestOverdueDueFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor;
@@ -119,6 +120,15 @@ public class LoanAccountAutoStarter {
             final ExternalIdFactory externalIdFactory, final LoanChargeValidator loanChargeValidator,
             final LoanBalanceService loanBalanceService) {
         return new OverdueDuePrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor(externalIdFactory,
+                loanChargeValidator, loanBalanceService);
+    }
+
+    @Bean
+    @Conditional(OverdueDueAdvPrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessorCondition.class)
+    public OverdueDueAdvPrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor overdueDueAdvPrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor(
+            final ExternalIdFactory externalIdFactory, final LoanChargeValidator loanChargeValidator,
+            final LoanBalanceService loanBalanceService) {
+        return new OverdueDueAdvPrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor(externalIdFactory,
                 loanChargeValidator, loanBalanceService);
     }
 
