@@ -28,6 +28,7 @@ public class LoanChargeCannotBePayedException extends AbstractPlatformDomainRule
         ALREADY_PAID, //
         ALREADY_WAIVED, //
         LOAN_INACTIVE, //
+        CHARGE_INACTIVE, //
         CHARGE_NOT_ACCOUNT_TRANSFER, //
         CHARGE_NOT_PAYABLE; //
 
@@ -38,6 +39,8 @@ public class LoanChargeCannotBePayedException extends AbstractPlatformDomainRule
                 return "This loan charge has already been waived";
             } else if (name().toString().equalsIgnoreCase("LOAN_INACTIVE")) {
                 return "This loan charge can be payed as the loan associated with it is currently inactive";
+            } else if (name().toString().equalsIgnoreCase("CHARGE_INACTIVE")) {
+                return "This loan charge cannot be payed as the loan charge is inactive";
             } else if (name().toString().equalsIgnoreCase("CHARGE_NOT_ACCOUNT_TRANSFER")) {
                 return "This loan charge can be payed as the charge payment mode is not account transfer";
             } else if (name().toString().equalsIgnoreCase("CHARGE_NOT_PAYABLE")) {
@@ -54,6 +57,8 @@ public class LoanChargeCannotBePayedException extends AbstractPlatformDomainRule
                 return "error.msg.loan.charge.already.waived";
             } else if (name().toString().equalsIgnoreCase("LOAN_INACTIVE")) {
                 return "error.msg.loan.charge.associated.loan.inactive";
+            } else if (name().toString().equalsIgnoreCase("CHARGE_INACTIVE")) {
+                return "error.msg.loan.charge.inactive";
             } else if (name().toString().equalsIgnoreCase("CHARGE_NOT_ACCOUNT_TRANSFER")) {
                 return "error.msg.loan.charge.payment.mode.not.account.transfer";
             } else if (name().toString().equalsIgnoreCase("CHARGE_NOT_PAYABLE")) {

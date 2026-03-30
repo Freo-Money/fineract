@@ -644,6 +644,11 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                     loanCharge.getId());
         }
 
+        if (!loanCharge.isActive()) {
+            throw new LoanChargeCannotBePayedException(LoanChargeCannotBePayedException.LoanChargeCannotBePayedReason.CHARGE_INACTIVE,
+                    loanCharge.getId());
+        }
+
         // validate loan charge is not already paid or waived
         if (loanCharge.isWaived()) {
             throw new LoanChargeCannotBePayedException(LoanChargeCannotBePayedException.LoanChargeCannotBePayedReason.ALREADY_WAIVED,
