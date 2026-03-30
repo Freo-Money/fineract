@@ -247,4 +247,5 @@
     <include file="parts/1046_add_overdue_due_adv_principal_interest_overdue_due_penalties_fees_order_strategy.xml" relativeToChangelogFile="true" />
     <include file="parts/1047_add_preclose_emi_rounding_to_product_loan.xml" relativeToChangelogFile="true" />
     <include file="parts/1048_add_actual_tax_amount.xml" relativeToChangelogFile="true" />
+    <include file="parts/1049_add_overdue_due_adv_interest_principal_overdue_due_penalties_fees_order_strategy.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>
