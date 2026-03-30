@@ -111,8 +111,7 @@ public final class LoanChargeTaxUtils {
 
         BigDecimal amountSansTaxRaw = TaxUtils.extractBaseAmountFromTaxInclusive(taxInclusiveAmount, transactionDate, taxGroupMappings,
                 mathScale, taxRoundingMode);
-        Map<TaxComponent, BigDecimal> taxSplitRaw = TaxUtils.splitTax(amountSansTaxRaw, transactionDate, taxGroupMappings, mathScale,
-                taxRoundingMode);
+        Map<TaxComponent, BigDecimal> taxSplitRaw = TaxUtils.splitTax(amountSansTaxRaw, transactionDate, taxGroupMappings, mathScale);
 
         Map<TaxComponent, BigDecimal> taxSplitRounded = new HashMap<>(taxSplitRaw.size());
         BigDecimal totalTaxAmount = BigDecimal.ZERO;

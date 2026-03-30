@@ -25,7 +25,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.portfolio.tax.data.TaxComponentData;
 import org.apache.fineract.portfolio.tax.data.TaxGroupMappingsData;
@@ -144,7 +143,7 @@ public final class TaxUtils {
             return new HashMap<>();
         }
         BigDecimal baseAmount = extractBaseAmountFromTaxInclusive(taxInclusiveAmount, date, taxGroupMappings, scale, roundingMode);
-         Map<TaxComponent, BigDecimal> rawMap = splitTax(baseAmount, date, taxGroupMappings, scale);
+        Map<TaxComponent, BigDecimal> rawMap = splitTax(baseAmount, date, taxGroupMappings, scale);
 
         Map<TaxComponent, BigDecimal> roundedMap = new HashMap<>();
         for (Map.Entry<TaxComponent, BigDecimal> entry : rawMap.entrySet()) {
