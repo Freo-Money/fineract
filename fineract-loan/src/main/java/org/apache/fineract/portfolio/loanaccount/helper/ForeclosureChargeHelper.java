@@ -215,7 +215,6 @@ public class ForeclosureChargeHelper {
                         ? calculatePercentageBasedCharge(loan, chargeDefinition, calculationType, amountOrPercentage)
                         : amountOrPercentage;
                 uncappedChargeAmount = uncappedChargeAmount.setScale(currency.getDigitsAfterDecimal(), RoundingMode.HALF_UP);
-
                 LoanCharge loanCharge = loanChargeService.create(loan, chargeDefinition, loan.getPrincipal().getAmount(),
                         amountOrPercentage, ChargeTimeType.FORECLOSURE, calculationType, foreclosureDate, null, null, uncappedChargeAmount,
                         null);

@@ -351,6 +351,11 @@ public class LoanProductAssembler {
                     .booleanPrimitiveValueOfParameterNamed(LoanProductConstants.ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME);
         }
 
+        boolean precloseEmiRounding = false;
+        if (command.parameterExists(LoanProductConstants.PRECLOSE_EMI_ROUNDING_PARAM_NAME)) {
+            precloseEmiRounding = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.PRECLOSE_EMI_ROUNDING_PARAM_NAME);
+        }
+
         return new LoanProduct(fund, loanTransactionProcessingStrategy, loanProductPaymentAllocationRules, loanProductCreditAllocationRules,
                 name, shortName, description, currency, principal, minPrincipal, maxPrincipal, interestRatePerPeriod,
                 minInterestRatePerPeriod, maxInterestRatePerPeriod, interestFrequencyType, annualInterestRate, interestMethod,
@@ -362,18 +367,18 @@ public class LoanProductAssembler {
                 graceOnArrearsAgeing, overdueDaysForNPA, daysInMonthType, daysInYearType, isInterestRecalculationEnabled,
                 interestRecalculationSettings, minimumDaysBetweenDisbursalAndFirstRepayment, holdGuarantorFunds,
                 loanProductGuaranteeDetails, principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion,
-                canDefineEmiAmount, adjustInterestForRounding, installmentAmountInMultiplesOf, loanConfigurableAttributes,
-                isLinkedToFloatingInterestRates, floatingRate, interestRateDifferential, minDifferentialLendingRate,
-                maxDifferentialLendingRate, defaultDifferentialLendingRate, isFloatingInterestRateCalculationAllowed,
-                isVariableInstallmentsAllowed, minimumGapBetweenInstallments, maximumGapBetweenInstallments,
-                syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, productRates, fixedPrincipalPercentagePerInstallment,
-                disallowExpectedDisbursements, allowApprovedDisbursedAmountsOverApplied, overAppliedCalculationType, overAppliedNumber,
-                dueDaysForRepaymentEvent, overDueDaysForRepaymentEvent, enableDownPayment, disbursedAmountPercentageDownPayment,
-                enableAutoRepaymentForDownPayment, repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType,
-                loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour,
-                interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
-                capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
-                buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, null,
+                canDefineEmiAmount, adjustInterestForRounding, precloseEmiRounding, installmentAmountInMultiplesOf,
+                loanConfigurableAttributes, isLinkedToFloatingInterestRates, floatingRate, interestRateDifferential,
+                minDifferentialLendingRate, maxDifferentialLendingRate, defaultDifferentialLendingRate,
+                isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed, minimumGapBetweenInstallments,
+                maximumGapBetweenInstallments, syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, productRates,
+                fixedPrincipalPercentagePerInstallment, disallowExpectedDisbursements, allowApprovedDisbursedAmountsOverApplied,
+                overAppliedCalculationType, overAppliedNumber, dueDaysForRepaymentEvent, overDueDaysForRepaymentEvent, enableDownPayment,
+                disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment, repaymentStartDateType,
+                enableInstallmentLevelDelinquency, loanScheduleType, loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting,
+                supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate, daysInYearCustomStrategy,
+                enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType,
+                enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, null,
                 installmentInterestCalculationType, bpiCollectedAtDisbursement);
 
     }

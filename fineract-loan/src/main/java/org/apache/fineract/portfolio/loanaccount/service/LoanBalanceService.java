@@ -91,7 +91,8 @@ public class LoanBalanceService {
             }
         }
 
-        // if total paid in transactions doesn't match repayment schedule then there's an overpayment.
+        // if total paid in transactions doesn't match repayment schedule then there's
+        // an overpayment.
         return totalPaidInRepayments.minus(cumulativeTotalPaidOnInstallments);
     }
 
@@ -131,7 +132,8 @@ public class LoanBalanceService {
     }
 
     private Money calculateTotalRecoveredPayments(Loan loan) {
-        // in case logic for reversing recovered payment is implemented handle subtraction from totalRecoveredPayments
+        // in case logic for reversing recovered payment is implemented handle
+        // subtraction from totalRecoveredPayments
         final BigDecimal totalRecoveryAmount = loanTransactionRepository.calculateTotalRecoveryPaymentAmount(loan);
         return Money.of(loan.getCurrency(), totalRecoveryAmount);
     }
@@ -154,7 +156,8 @@ public class LoanBalanceService {
             } else if (loanTransaction.isChargeback() || loanTransaction.isCreditBalanceRefund()) {
                 Money transactionOutstanding = loanTransaction.getPrincipalPortion(loan.getCurrency());
                 if (loanTransaction.isOverPaid()) {
-                    // in case of advanced payment strategy and creditAllocations the full amount is recognized first
+                    // in case of advanced payment strategy and creditAllocations the full amount is
+                    // recognized first
                     if (loan.getCreditAllocationRules() != null && !loan.getCreditAllocationRules().isEmpty()) {
                         Money payedPrincipal = loanTransaction.getLoanTransactionToRepaymentScheduleMappings().stream() //
                                 .map(mapping -> mapping.getPrincipalPortion(loan.getCurrency())) //
@@ -247,7 +250,10 @@ public class LoanBalanceService {
                 .plus(foreclosureDetail.getInterestOutstanding(currency)).plus(foreclosureDetail.getFeeChargesOutstanding(currency))
                 .plus(foreclosureDetail.getPenaltyChargesOutstanding(currency)).plus(extraFees == null ? Money.zero(currency) : extraFees);
 
-        final Money roundedOutstandingAmount = Money.roundToMultiplesOf(outstandingAmount, installmentAmountInMultiplesOf);
+        final boolean precloseEmiRounding = loan.getLoanProduct().isPrecloseEmiRounding();
+        final Money roundedOutstandingAmount = precloseEmiRounding
+                ? Money.ceilToMultiplesOf(outstandingAmount, installmentAmountInMultiplesOf)
+                : Money.roundToMultiplesOf(outstandingAmount, installmentAmountInMultiplesOf);
         final BigDecimal adjustedInterestAmount = roundedOutstandingAmount.getAmount().subtract(outstandingAmount.getAmount());
 
         foreclosureDetail.setInterestCharged(
@@ -273,15 +279,22 @@ public class LoanBalanceService {
                 .filter(LoanRepaymentScheduleInstallment::isNotFullyPaidOff).min((i1, i2) -> i1.getDueDate().compareTo(i2.getDueDate()))
                 .orElse(null);
 
+        final boolean precloseEmiRounding = loan.getLoanProduct().isPrecloseEmiRounding();
         final Money totalOutstanding = loan.getSummary().getTotalOutstanding(currency);
-        final Money roundedTotalOutstanding = Money.roundToMultiplesOf(totalOutstanding, multiplesOf);
+        final Money roundedTotalOutstanding = precloseEmiRounding ? Money.ceilToMultiplesOf(totalOutstanding, multiplesOf)
+                : Money.roundToMultiplesOf(totalOutstanding, multiplesOf);
         final BigDecimal adjustedInterestAmount = roundedTotalOutstanding.getAmount().subtract(totalOutstanding.getAmount());
 
         if (adjustedInterestAmount.compareTo(BigDecimal.ZERO) == 0) {
             return;
         }
 
-        loan.setAdjustedInterestAmount(adjustedInterestAmount);
+        BigDecimal existingAdjustedAmount = loan.getAdjustedInterestAmount();
+        if (existingAdjustedAmount == null) {
+            loan.updateAdjustedInterestAmount(adjustedInterestAmount);
+        } else {
+            loan.updateAdjustedInterestAmount(existingAdjustedAmount.add(adjustedInterestAmount));
+        }
 
         if (earliestUnpaidInstallment != null) {
             final BigDecimal currentInterestCharged = earliestUnpaidInstallment.getInterestCharged(currency).getAmount();
@@ -298,7 +311,8 @@ public class LoanBalanceService {
         refreshSummaryAndBalancesForDisbursedLoan(loan);
 
         final Money finalTotalOutstanding = loan.getSummary().getTotalOutstanding(currency);
-        final Money finalRoundedTotalOutstanding = Money.roundToMultiplesOf(finalTotalOutstanding, multiplesOf);
+        final Money finalRoundedTotalOutstanding = precloseEmiRounding ? Money.ceilToMultiplesOf(finalTotalOutstanding, multiplesOf)
+                : Money.roundToMultiplesOf(finalTotalOutstanding, multiplesOf);
         loan.getSummary().updateTotalOutstanding(finalRoundedTotalOutstanding.getAmount());
     }
 

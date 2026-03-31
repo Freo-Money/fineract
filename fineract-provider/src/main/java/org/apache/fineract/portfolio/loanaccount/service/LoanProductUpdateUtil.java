@@ -416,6 +416,13 @@ public class LoanProductUpdateUtil {
             loanProduct.setAdjustInterestForRounding(newValue);
         }
 
+        if (command.isChangeInBooleanParameterNamed(LoanProductConstants.PRECLOSE_EMI_ROUNDING_PARAM_NAME,
+                loanProduct.isPrecloseEmiRounding())) {
+            final boolean newValue = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.PRECLOSE_EMI_ROUNDING_PARAM_NAME);
+            actualChanges.put(LoanProductConstants.PRECLOSE_EMI_ROUNDING_PARAM_NAME, newValue);
+            loanProduct.setPrecloseEmiRounding(newValue);
+        }
+
         if (command.isChangeInIntegerParameterNamedWithNullCheck(LoanProductConstants.installmentAmountInMultiplesOfParamName,
                 loanProduct.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf())) {
             final Integer newValue = command.integerValueOfParameterNamed(LoanProductConstants.installmentAmountInMultiplesOfParamName);
