@@ -303,7 +303,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             final CurrencyData currency = new CurrencyData(currencyCode, currencyName, currencyDigits, inMultiplesOf, currencyDisplaySymbol,
                     currencyNameCode);
 
-            // Convert string to enum (loan_schedule_type is stored as VARCHAR: "CUMULATIVE" or "PROGRESSIVE")
+            // Convert string to enum (loan_schedule_type is stored as VARCHAR: "CUMULATIVE"
+            // or "PROGRESSIVE")
             final LoanScheduleType loanScheduleType = loanScheduleTypeStr != null ? LoanScheduleType.valueOf(loanScheduleTypeStr)
                     : LoanScheduleType.CUMULATIVE; // Default to CUMULATIVE if null
 
@@ -394,7 +395,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             final String sql = "select " + rm.loanPaymentsSchema() + " where tr.loan_id = ? and tr.transaction_type_enum not in (0, 3) "
                     + " and (tr.is_reversed=false or tr.manually_adjusted_or_reversed = true)  order by tr.transaction_date DESC, tr.created_on_utc DESC, tr.id DESC ";
             Collection<LoanTransactionData> loanTransactionData = this.jdbcTemplate.query(sql, rm, loanId); // NOSONAR
-            // TODO: would worth to rework in the future. It is not nice to fetch relations one by one... might worth to
+            // TODO: would worth to rework in the future. It is not nice to fetch relations
+            // one by one... might worth to
             // give a try to get rid of native queries
             final List<Long> loanIds = loanTransactionData.stream().map(LoanTransactionData::getId).collect(Collectors.toList());
             final List<LoanTransactionRelationData> loanTransactionRelationDatas = loanTransactionRelationReadService
@@ -1621,7 +1623,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
                 BigDecimal disbursedAmount = calculateDisbursedAmount(combinedDataList);
 
-                // Add the Charge back or Credits to the initial amount to avoid negative balance
+                // Add the Charge back or Credits to the initial amount to avoid negative
+                // balance
                 final BigDecimal principalCredits = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "principalCredits");
                 final BigDecimal feeCredits = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "feeCredits");
                 final BigDecimal penaltyCredits = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penaltyCredits");

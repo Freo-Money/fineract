@@ -147,6 +147,7 @@ public class LoanProductData implements Serializable {
     private final Integer minimumDaysBetweenDisbursalAndFirstRepayment;
     private final boolean canDefineInstallmentAmount;
     private final boolean adjustInterestForRounding;
+    private final boolean precloseEmiRounding;
     private final Integer installmentAmountInMultiplesOf;
     private final EnumOptionData repaymentStartDateType;
     private final List<StringEnumOptionData> supportedInterestRefundTypes;
@@ -402,7 +403,7 @@ public class LoanProductData implements Serializable {
                 disallowExpectedDisbursements, allowApprovedDisbursedAmountsOverApplied, overAppliedCalculationType, overAppliedNumber,
                 graceOnArrearsAgeing, overdueDaysForNPA, daysInMonthType, daysInYearType, isInterestRecalculationEnabled,
                 interestRecalculationData, minimumDaysBetweenDisbursalAndFirstRepayment, holdGuaranteeFunds, productGuaranteeData,
-                principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineInstallmentAmount, false,
+                principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineInstallmentAmount, false, false,
                 installmentAmountInMultiplesOf, loanProductConfigurableAttributes, isLinkedToFloatingInterestRates, floatingRateId,
                 floatingRateName, interestRateDifferential, minDifferentialLendingRate, defaultDifferentialLendingRate,
                 maxDifferentialLendingRate, isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed, minimumGap, maximumGap,
@@ -543,7 +544,7 @@ public class LoanProductData implements Serializable {
                 disallowExpectedDisbursements, allowApprovedDisbursedAmountsOverApplied, overAppliedCalculationType, overAppliedNumber,
                 graceOnArrearsAgeing, overdueDaysForNPA, daysInMonthType, daysInYearType, isInterestRecalculationEnabled,
                 interestRecalculationData, minimumDaysBetweenDisbursalAndFirstRepayment, holdGuaranteeFunds, productGuaranteeData,
-                principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineInstallmentAmount, false,
+                principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineInstallmentAmount, false, false,
                 installmentAmountInMultiplesOf, loanProductConfigurableAttributes, isLinkedToFloatingInterestRates, floatingRateId,
                 floatingRateName, interestRateDifferential, minDifferentialLendingRate, defaultDifferentialLendingRate,
                 maxDifferentialLendingRate, isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed, minimumGap, maximumGap,
@@ -691,7 +692,7 @@ public class LoanProductData implements Serializable {
                 outstandingLoanBalance, disallowExpectedDisbursements, allowApprovedDisbursedAmountsOverApplied, overAppliedCalculationType,
                 overAppliedNumber, graceOnArrearsAgeing, overdueDaysForNPA, daysInMonthType, daysInYearType, isInterestRecalculationEnabled,
                 interestRecalculationData, minimumDaysBetweenDisbursalAndFirstRepayment, holdGuaranteeFunds, productGuaranteeData,
-                principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineInstallmentAmount, false,
+                principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineInstallmentAmount, false, false,
                 installmentAmountInMultiplesOf, loanProductConfigurableAttributes, isLinkedToFloatingInterestRates, floatingRateId,
                 floatingRateName, interestRateDifferential, minDifferentialLendingRate, defaultDifferentialLendingRate,
                 maxDifferentialLendingRate, isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed, minimumGap, maximumGap,
@@ -833,7 +834,7 @@ public class LoanProductData implements Serializable {
                 outstandingLoanBalance, disallowExpectedDisbursements, allowApprovedDisbursedAmountsOverApplied, overAppliedCalculationType,
                 overAppliedNumber, graceOnArrearsAgeing, overdueDaysForNPA, daysInMonthType, daysInYearType, isInterestRecalculationEnabled,
                 interestRecalculationData, minimumDaysBetweenDisbursalAndFirstRepayment, holdGuaranteeFunds, productGuaranteeData,
-                principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineInstallmentAmount, false,
+                principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineInstallmentAmount, false, false,
                 installmentAmountInMultiplesOf, loanProductConfigurableAttributes, isLinkedToFloatingInterestRates, floatingRateId,
                 floatingRateName, interestRateDifferential, minDifferentialLendingRate, defaultDifferentialLendingRate,
                 maxDifferentialLendingRate, isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed, minimumGap, maximumGap,
@@ -890,7 +891,7 @@ public class LoanProductData implements Serializable {
             final Integer minimumDaysBetweenDisbursalAndFirstRepayment, boolean holdGuaranteeFunds,
             final LoanProductGuaranteeData loanProductGuaranteeData, final BigDecimal principalThresholdForLastInstallment,
             final boolean accountMovesOutOfNPAOnlyOnArrearsCompletion, boolean canDefineInstallmentAmount,
-            final boolean adjustInterestForRounding, Integer installmentAmountInMultiplesOf,
+            final boolean adjustInterestForRounding, boolean precloseEmiRounding, Integer installmentAmountInMultiplesOf,
             LoanProductConfigurableAttributes allowAttributeOverrides, boolean isLinkedToFloatingInterestRates, Integer floatingRateId,
             String floatingRateName, BigDecimal interestRateDifferential, BigDecimal minDifferentialLendingRate,
             BigDecimal defaultDifferentialLendingRate, BigDecimal maxDifferentialLendingRate,
@@ -1040,6 +1041,7 @@ public class LoanProductData implements Serializable {
 
         this.canDefineInstallmentAmount = canDefineInstallmentAmount;
         this.adjustInterestForRounding = adjustInterestForRounding;
+        this.precloseEmiRounding = precloseEmiRounding;
         this.installmentAmountInMultiplesOf = installmentAmountInMultiplesOf;
         this.preClosureInterestCalculationStrategyOptions = null;
         this.syncExpectedWithDisbursementDate = syncExpectedWithDisbursementDate;
@@ -1247,6 +1249,7 @@ public class LoanProductData implements Serializable {
 
         this.canDefineInstallmentAmount = productData.canDefineInstallmentAmount;
         this.adjustInterestForRounding = productData.adjustInterestForRounding;
+        this.precloseEmiRounding = productData.precloseEmiRounding;
         this.installmentAmountInMultiplesOf = productData.installmentAmountInMultiplesOf;
         this.preClosureInterestCalculationStrategyOptions = preCloseInterestCalculationStrategyOptions;
         this.syncExpectedWithDisbursementDate = productData.syncExpectedWithDisbursementDate;

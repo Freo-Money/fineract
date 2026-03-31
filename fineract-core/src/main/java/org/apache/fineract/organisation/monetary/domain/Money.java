@@ -20,6 +20,7 @@ package org.apache.fineract.organisation.monetary.domain;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.math.RoundingMode;
 import java.util.Iterator;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 
@@ -165,6 +166,19 @@ public class Money implements Comparable<Money> {
         BigDecimal inMultiplesOfValue = BigDecimal.valueOf(inMultiplesOf);
         if (inMultiplesOfValue.compareTo(BigDecimal.ZERO) > 0) {
             amountScaled = amountScaled.divide(inMultiplesOfValue, 0, mc.getRoundingMode()).multiply(inMultiplesOfValue);
+        }
+        return Money.of(existingVal.getCurrencyData(), amountScaled);
+    }
+
+    public static Money ceilToMultiplesOf(final Money existingVal, final Integer inMultiplesOf) {
+        return ceilToMultiplesOf(existingVal, inMultiplesOf, MoneyHelper.getMathContext());
+    }
+
+    public static Money ceilToMultiplesOf(final Money existingVal, final Integer inMultiplesOf, final MathContext mc) {
+        BigDecimal amountScaled = existingVal.getAmount();
+        BigDecimal inMultiplesOfValue = BigDecimal.valueOf(inMultiplesOf);
+        if (inMultiplesOfValue.compareTo(BigDecimal.ZERO) > 0) {
+            amountScaled = amountScaled.divide(inMultiplesOfValue, 0, RoundingMode.CEILING).multiply(inMultiplesOfValue);
         }
         return Money.of(existingVal.getCurrencyData(), amountScaled);
     }
