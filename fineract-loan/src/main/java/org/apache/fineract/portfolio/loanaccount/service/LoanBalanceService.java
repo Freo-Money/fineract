@@ -289,12 +289,7 @@ public class LoanBalanceService {
             return;
         }
 
-        BigDecimal existingAdjustedAmount = loan.getAdjustedInterestAmount();
-        if (existingAdjustedAmount == null) {
-            loan.updateAdjustedInterestAmount(adjustedInterestAmount);
-        } else {
-            loan.updateAdjustedInterestAmount(existingAdjustedAmount.add(adjustedInterestAmount));
-        }
+        loan.updateAdjustedInterestAmount(adjustedInterestAmount);
 
         if (earliestUnpaidInstallment != null) {
             final BigDecimal currentInterestCharged = earliestUnpaidInstallment.getInterestCharged(currency).getAmount();

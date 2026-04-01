@@ -2568,7 +2568,6 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     public LoanTransactionData retrieveLoanForeclosureTemplate(final Long loanId, final LocalDate transactionDate,
             final Map<Long, BigDecimal> chargePercentages) {
         this.context.authenticatedUser();
-
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         loanForeclosureValidator.validateForForeclosureTemplate(loan, transactionDate);
         final MonetaryCurrency currency = loan.getCurrency();
