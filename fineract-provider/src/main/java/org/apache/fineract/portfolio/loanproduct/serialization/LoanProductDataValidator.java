@@ -214,7 +214,7 @@ public final class LoanProductDataValidator {
             LoanProductAccountingParams.BUYDOWN_FEE_CLASSIFICATION_TO_INCOME_ACCOUNT_MAPPINGS.getValue(), //
             LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR,
             LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE,
-            LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME));
+            LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME, LoanProductConstants.PRECLOSE_EMI_ROUNDING_PARAM_NAME));
 
     private static final String[] SUPPORTED_LOAN_CONFIGURABLE_ATTRIBUTES = { LoanProductConstants.amortizationTypeParamName,
             LoanProductConstants.interestTypeParamName, LoanProductConstants.transactionProcessingStrategyCodeParamName,
