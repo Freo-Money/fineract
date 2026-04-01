@@ -94,7 +94,23 @@ public class AllPrincipalAllInterestThenPenaltiesFeesOrderLoanRepaymentScheduleT
         Money feeChargesPortion = Money.zero(currency);
         Money penaltyChargesPortion = Money.zero(currency);
 
-        if (loanTransaction.isInterestWaiver()) {
+        if (loanTransaction.isChargesWaiver()) {
+            feeChargesPortion = currentInstallment.waiveFeeChargesComponent(transactionDate,
+                    loanTransaction.getFeeChargesPortion(currency));
+            transactionAmountRemaining = transactionAmountRemaining.minus(feeChargesPortion);
+
+            penaltyChargesPortion = currentInstallment.waivePenaltyChargesComponent(transactionDate,
+                    loanTransaction.getPenaltyChargesPortion(currency));
+            transactionAmountRemaining = transactionAmountRemaining.minus(penaltyChargesPortion);
+
+            final Money principalPortion = Money.zero(currency);
+            final Money interestPortion = Money.zero(currency);
+            loanTransaction.updateComponents(principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion);
+            if (penaltyChargesPortion.plus(feeChargesPortion).isGreaterThanZero()) {
+                transactionMappings.add(LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, currentInstallment,
+                        principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion));
+            }
+        } else if (loanTransaction.isInterestWaiver()) {
             interestWaivedPortion = currentInstallment.waiveInterestComponent(transactionDate, transactionAmountRemaining);
             transactionAmountRemaining = transactionAmountRemaining.minus(interestWaivedPortion);
 
