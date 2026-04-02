@@ -630,8 +630,8 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
             throw new InvalidJsonException();
         }
 
-        final Set<String> foreclosureParameters = new HashSet<>(
-                Arrays.asList("transactionDate", "note", "locale", "dateFormat", "externalId"));
+        final Set<String> foreclosureParameters = new HashSet<>(Arrays.asList("transactionDate", "note", "locale", "dateFormat",
+                "externalId", LoanApiConstants.foreclosureChargePercentageMapParamName));
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, foreclosureParameters);
