@@ -25,6 +25,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,6 +41,7 @@ import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.charge.exception.LoanChargeWithoutMandatoryFieldException;
+import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
@@ -144,6 +146,54 @@ public class LoanChargeService {
             }
         }
         handleChargePaidTransaction(loan, charge, paymentTransaction, installmentNumber);
+    }
+
+    /**
+     * Pays multiple charges with a single CHARGE_PAYMENT transaction, mirroring how a repayment allocates one
+     * transaction across multiple obligations. Each charge's portion is tracked via a separate {@link LoanChargePaidBy}
+     * entry on the same transaction.
+     */
+    public void makeMultiChargePayment(final Loan loan, final LoanTransaction paymentTransaction,
+            final List<LoanChargePaidByData> allocations) {
+        loanChargeValidator.validateChargePaymentNotInFuture(paymentTransaction);
+        paymentTransaction.updateLoan(loan);
+
+        final Set<LoanCharge> loanCharges = new LinkedHashSet<>();
+        final List<LoanRepaymentScheduleInstallment> chargePaymentInstallments = new ArrayList<>();
+        final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
+        final int firstNormalInstallmentNumber = LoanRepaymentScheduleProcessingWrapper.fetchFirstNormalInstallmentNumber(installments);
+
+        for (LoanChargePaidByData allocation : allocations) {
+            final LoanCharge charge = loan.getCharges().stream().filter(lc -> lc.isActive() && allocation.getChargeId().equals(lc.getId()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("Active loan charge not found for id " + allocation.getChargeId()));
+
+            final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(paymentTransaction, charge, allocation.getAmount(),
+                    allocation.getInstallmentNumber());
+            paymentTransaction.getLoanChargesPaid().add(loanChargePaidBy);
+            loanCharges.add(charge);
+
+            for (final LoanRepaymentScheduleInstallment installment : installments) {
+                boolean isFirstInstallment = installment.getInstallmentNumber().equals(firstNormalInstallmentNumber);
+                if (installment.getInstallmentNumber().equals(allocation.getInstallmentNumber())
+                        || (allocation.getInstallmentNumber() == null
+                                && charge.isDueInPeriod(installment.getFromDate(), installment.getDueDate(), isFirstInstallment))) {
+                    if (!chargePaymentInstallments.contains(installment)) {
+                        chargePaymentInstallments.add(installment);
+                    }
+                    break;
+                }
+            }
+        }
+
+        loan.addLoanTransaction(paymentTransaction);
+        loanLifecycleStateMachine.transition(LoanEvent.LOAN_CHARGE_PAYMENT, loan);
+
+        loanTransactionProcessingService.processLatestTransaction(loan.getTransactionProcessingStrategyCode(), paymentTransaction,
+                new TransactionCtx(loan.getCurrency(), chargePaymentInstallments, loanCharges,
+                        new MoneyHolder(loan.getTotalOverpaidAsMoney()), null));
+
+        loanLifecycleStateMachine.determineAndTransition(loan, paymentTransaction.getTransactionDate());
     }
 
     /**
