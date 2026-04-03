@@ -1661,7 +1661,8 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                     "Transaction amount must be provided and greater than zero", remainingAmount);
         }
         final ExternalId requestExternalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
-        final PaymentDetail paymentDetail = paymentDetailWritePlatformService.createPaymentDetail(command, null);
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        final PaymentDetail paymentDetail = paymentDetailWritePlatformService.createAndPersistPaymentDetail(command, changes);
         final String noteText = command.stringValueOfParameterNamedAllowingNull("note");
 
         // Calculate total outstanding across all matching charges (handles both regular and installment charges)
@@ -1733,7 +1734,6 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             this.loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
         }
 
-        final Map<String, Object> changes = new LinkedHashMap<>();
         changes.put("totalPaidAmount", totalAmountToPay);
         changes.put("chargeDefinitionId", chargeId);
         changes.put("paidChargeIds", paidChargeIds);
