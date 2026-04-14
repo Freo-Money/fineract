@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.List;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 
-
 /**
  * Enum representing different strategies for handling broken period interest (BPI).
  */
@@ -81,13 +80,12 @@ public enum BrokenPeriodInterestStrategy {
             return null;
         }
         for (BrokenPeriodInterestStrategy s : values()) {
-                if (s.getCode().equalsIgnoreCase(strategyCode)) {
-                    return s;
-                }
+            if (s.getCode().equalsIgnoreCase(strategyCode)) {
+                return s;
             }
-            return null;
         }
-
+        return null;
+    }
 
     public boolean isAddToFirstInstallmentEmi() {
         return this == ADD_TO_FIRST_INSTALLMENT_EMI;
