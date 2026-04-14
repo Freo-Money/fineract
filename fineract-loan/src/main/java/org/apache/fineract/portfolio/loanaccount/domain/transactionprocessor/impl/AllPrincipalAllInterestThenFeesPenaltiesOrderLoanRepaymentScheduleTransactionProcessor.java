@@ -21,7 +21,6 @@ package org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.im
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
-import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
@@ -36,11 +35,8 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanBalanceService;
 
 /**
  * This {@link LoanRepaymentScheduleTransactionProcessor} processes payments in the order: All principal first (P1, P2,
- * P3, P4), then all interest (I1, I2, I3, I4), then all fees (F1, F2, F3, F4), then all penalties (Penal1, Penal2,
- * Penal3, Penal4).
- *
- * Example: With 4 overdue/due installments: P1, P2, P3, P4, I1, I2, I3, I4, F1, F2, F3, F4, Penal1, Penal2, Penal3,
- * Penal4.
+ * … across every installment with outstanding principal), then all interest (I1, I2, …), then all fees, then all
+ * penalties — including future installments when those components are outstanding.
  */
 public class AllPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor
         extends AbstractLoanRepaymentScheduleTransactionProcessor {
@@ -78,8 +74,8 @@ public class AllPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleT
     }
 
     /**
-     * For late repayments, pays all principal (P1..P4), then all interest (I1..I4), then all fees (F1..F4), then all
-     * penalties (Penal1..Penal4).
+     * For late repayments, pays all principal across installments, then all interest, then all fees, then all
+     * penalties.
      */
     @Override
     protected Money handleTransactionThatIsALateRepaymentOfInstallment(final LoanRepaymentScheduleInstallment currentInstallment,
@@ -136,15 +132,9 @@ public class AllPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleT
                         principalPortion, interestPortion, feeChargesPortion, penaltyChargesPortion));
             }
         } else {
-            final LoanRepaymentScheduleInstallment currentInstallmentBasedOnTransactionDate = nearestInstallment(
-                    loanTransaction.getTransactionDate(), installments);
-
-            // First pass: Pay ALL principal for overdue/due installments (P1, P2, P3, P4)
+            // First pass: Pay ALL principal for every installment with principal outstanding (P1, P2, … Pn)
             for (final LoanRepaymentScheduleInstallment installment : installments) {
-                if (installment.isPrincipalNotCompleted(currency)
-                        && (installment.isOverdueOn(loanTransaction.getTransactionDate()) || installment.getInstallmentNumber()
-                                .equals(currentInstallmentBasedOnTransactionDate.getInstallmentNumber()))
-                        && transactionAmountRemaining.isGreaterThanZero()) {
+                if (installment.isPrincipalNotCompleted(currency) && transactionAmountRemaining.isGreaterThanZero()) {
 
                     Money principalPortion = installment.payPrincipalComponent(transactionDate, transactionAmountRemaining);
                     transactionAmountRemaining = transactionAmountRemaining.minus(principalPortion);
@@ -157,12 +147,9 @@ public class AllPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleT
                 }
             }
 
-            // Second pass: Pay ALL interest for overdue/due installments (I1, I2, I3, I4)
+            // Second pass: Pay ALL interest for every installment with interest outstanding (I1, I2, … In)
             for (final LoanRepaymentScheduleInstallment installment : installments) {
-                if (installment.isInterestDue(currency)
-                        && (installment.isOverdueOn(loanTransaction.getTransactionDate()) || installment.getInstallmentNumber()
-                                .equals(currentInstallmentBasedOnTransactionDate.getInstallmentNumber()))
-                        && transactionAmountRemaining.isGreaterThanZero()) {
+                if (installment.isInterestDue(currency) && transactionAmountRemaining.isGreaterThanZero()) {
 
                     Money interestPortion = installment.payInterestComponent(transactionDate, transactionAmountRemaining);
                     transactionAmountRemaining = transactionAmountRemaining.minus(interestPortion);
@@ -175,12 +162,9 @@ public class AllPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleT
                 }
             }
 
-            // Third pass: Pay ALL fees for overdue/due installments (F1, F2, F3, F4)
+            // Third pass: Pay ALL fees for every installment with fee outstanding (F1, F2, … Fn)
             for (final LoanRepaymentScheduleInstallment installment : installments) {
-                if (installment.getFeeChargesOutstanding(currency).isGreaterThanZero()
-                        && (installment.isOverdueOn(loanTransaction.getTransactionDate()) || installment.getInstallmentNumber()
-                                .equals(currentInstallmentBasedOnTransactionDate.getInstallmentNumber()))
-                        && transactionAmountRemaining.isGreaterThanZero()) {
+                if (installment.getFeeChargesOutstanding(currency).isGreaterThanZero() && transactionAmountRemaining.isGreaterThanZero()) {
 
                     Money feeChargesPortionForInstallment = installment.payFeeChargesComponent(transactionDate, transactionAmountRemaining);
                     transactionAmountRemaining = transactionAmountRemaining.minus(feeChargesPortionForInstallment);
@@ -194,11 +178,9 @@ public class AllPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleT
                 }
             }
 
-            // Fourth pass: Pay ALL penalties for overdue/due installments (Penal1, Penal2, Penal3, Penal4)
+            // Fourth pass: Pay ALL penalties for every installment with penalty outstanding (Penal1 … Penaln)
             for (final LoanRepaymentScheduleInstallment installment : installments) {
                 if (installment.getPenaltyChargesOutstanding(currency).isGreaterThanZero()
-                        && (installment.isOverdueOn(loanTransaction.getTransactionDate()) || installment.getInstallmentNumber()
-                                .equals(currentInstallmentBasedOnTransactionDate.getInstallmentNumber()))
                         && transactionAmountRemaining.isGreaterThanZero()) {
 
                     Money penaltyChargesPortionForInstallment = installment.payPenaltyChargesComponent(transactionDate,
@@ -216,18 +198,6 @@ public class AllPrincipalAllInterestThenFeesPenaltiesOrderLoanRepaymentScheduleT
         }
 
         return transactionAmountRemaining;
-    }
-
-    private LoanRepaymentScheduleInstallment nearestInstallment(final LocalDate transactionDate,
-            final List<LoanRepaymentScheduleInstallment> installments) {
-        LoanRepaymentScheduleInstallment nearest = installments.get(0); // installments must be sorted by dates
-        for (final LoanRepaymentScheduleInstallment installment : installments) {
-            if (DateUtils.isBefore(transactionDate, installment.getDueDate())) {
-                break;
-            }
-            nearest = installment;
-        }
-        return nearest;
     }
 
     private void updateOrAddMapping(final LoanTransaction loanTransaction, final LoanRepaymentScheduleInstallment installment,
