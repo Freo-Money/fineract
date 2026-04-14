@@ -150,6 +150,7 @@ import org.apache.fineract.portfolio.loanaccount.mapper.LoanTransactionMapper;
 import org.apache.fineract.portfolio.loanaccount.repository.LoanBuyDownFeeBalanceRepository;
 import org.apache.fineract.portfolio.loanaccount.repository.LoanCapitalizedIncomeBalanceRepository;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanForeclosureValidator;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
@@ -1458,7 +1459,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, brokenPeriodInterest);
 
             // Set BPI configuration
+            String bpiMethodType = brokenPeriodConfig != null ? brokenPeriodConfig.getBrokenPeriodMethodType() : null;
+            // If BPI method is 'none', set days fields to null in the config for UI
+            if ("none".equalsIgnoreCase(bpiMethodType) && brokenPeriodConfig != null) {
+                brokenPeriodConfig = new BrokenPeriodConfigData(brokenPeriodConfig.getBrokenPeriodMethodType(), null, null);
+            }
             loanAccountData.setBrokenPeriodConfig(brokenPeriodConfig);
+            loanAccountData.setBrokenPeriodMethodType(bpiMethodType);
             loanAccountData.setCustomScheduleDefined(customScheduleDefined);
             loanAccountData.setBpiCollectedAtDisbursement(bpiCollectedAtDisbursement);
 
