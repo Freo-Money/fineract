@@ -255,9 +255,7 @@ public class LoanBalanceService {
                 ? Money.ceilToMultiplesOf(outstandingAmount, installmentAmountInMultiplesOf)
                 : Money.roundToMultiplesOf(outstandingAmount, installmentAmountInMultiplesOf);
         final BigDecimal adjustedInterestAmount = roundedOutstandingAmount.getAmount().subtract(outstandingAmount.getAmount());
-
-        foreclosureDetail.setInterestCharged(
-                foreclosureDetail.getInterestCharged(currency).plus(Money.of(currency, adjustedInterestAmount)).getAmount());
+        foreclosureDetail.setInterestCharged(foreclosureDetail.getInterestCharged(currency).getAmount());
         foreclosureDetail.setAdjustedInterestAmount(adjustedInterestAmount);
     }
 

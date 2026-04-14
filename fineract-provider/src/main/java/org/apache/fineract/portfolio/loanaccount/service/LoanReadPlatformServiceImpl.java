@@ -2593,17 +2593,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         Money penaltyChargesOutstanding = loanRepaymentScheduleInstallment.getPenaltyChargesOutstanding(currency);
         Money principalOutstanding = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency);
         Money interestOutstanding = loanRepaymentScheduleInstallment.getInterestOutstanding(currency);
+        BigDecimal adjustedInterestAmount = loanRepaymentScheduleInstallment.getAdjustedInterestAmount();
 
         final Money outStandingAmount = principalOutstanding.plus(interestOutstanding).plus(feeChargesOutstanding)
-                .plus(penaltyChargesOutstanding);
+                .plus(penaltyChargesOutstanding).plus(Money.of(currency, adjustedInterestAmount));
 
         return LoanTransactionData.builder().type(transactionType).currency(currencyData).date(earliestUnpaidInstallmentDate)
                 .amount(outStandingAmount.getAmount()).netDisbursalAmount(loan.getNetDisbursalAmount())
                 .principalPortion(principalOutstanding.getAmount()).interestPortion(interestOutstanding.getAmount())
                 .feeChargesPortion(feeChargesOutstanding.getAmount()).penaltyChargesPortion(penaltyChargesOutstanding.getAmount())
-                .unrecognizedIncomePortion(unrecognizedIncomePortion).paymentTypeOptions(paymentTypeOptions).externalId(ExternalId.empty())
-                .outstandingLoanBalance(outstandingLoanBalance).manuallyReversed(isManuallyReversed).loanId(loanId)
-                .externalLoanId(loan.getExternalId()).foreclosureChargePercentageMap(mergedChargePercentages).build();
+                .unrecognizedIncomePortion(unrecognizedIncomePortion).adjustedInterestPortion(adjustedInterestAmount)
+                .paymentTypeOptions(paymentTypeOptions).externalId(ExternalId.empty()).outstandingLoanBalance(outstandingLoanBalance)
+                .manuallyReversed(isManuallyReversed).loanId(loanId).externalLoanId(loan.getExternalId())
+                .foreclosureChargePercentageMap(mergedChargePercentages).build();
     }
 
     private static final class CurrencyMapper implements RowMapper<CurrencyData> {

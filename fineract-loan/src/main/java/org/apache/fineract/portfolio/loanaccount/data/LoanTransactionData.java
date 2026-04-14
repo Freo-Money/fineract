@@ -71,6 +71,7 @@ public class LoanTransactionData implements Serializable {
     private final BigDecimal penaltyChargesPortion;
     private final BigDecimal overpaymentPortion;
     private final BigDecimal unrecognizedIncomePortion;
+    private final BigDecimal adjustedInterestPortion;
     private final ExternalId externalId;
     private final AccountTransferData transfer;
     private final BigDecimal fixedEmiAmount;
