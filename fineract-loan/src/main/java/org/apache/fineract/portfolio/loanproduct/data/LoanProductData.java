@@ -275,9 +275,6 @@ public class LoanProductData implements Serializable {
     // Broken Period Interest Configuration
     private final BrokenPeriodConfigData brokenPeriodConfig;
     private List<EnumOptionData> brokenPeriodInterestStrategyOptions;
-    private final String brokenPeriodMethodType;
-    private final Integer brokenPeriodDaysInYear;
-    private final Integer brokenPeriodDaysInMonth;
     private boolean bpiCollectedAtDisbursement;
 
     /**
@@ -420,7 +417,7 @@ public class LoanProductData implements Serializable {
                 interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
                 buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions, brokenPeriodConfig, null, null, null, null, false);
+                writeOffReasonOptions, brokenPeriodConfig, null, bpiCollectedAtDisbursement);
 
     }
 
@@ -561,7 +558,7 @@ public class LoanProductData implements Serializable {
                 interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
                 buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions, brokenPeriodConfig, null, null, null, null, false);
+                writeOffReasonOptions, brokenPeriodConfig, null, false);
 
     }
 
@@ -709,7 +706,7 @@ public class LoanProductData implements Serializable {
                 interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
                 buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions, brokenPeriodConfig, null, null, null, null, false);
+                writeOffReasonOptions, brokenPeriodConfig, null, false);
 
     }
 
@@ -851,7 +848,7 @@ public class LoanProductData implements Serializable {
                 interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
                 buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions, brokenPeriodConfig, null, null, null, null, false);
+                writeOffReasonOptions, brokenPeriodConfig, null, false);
     }
 
     public static LoanProductData withAccountingDetails(final LoanProductData productData, final Map<String, Object> accountingMappings,
@@ -920,8 +917,7 @@ public class LoanProductData implements Serializable {
             final StringEnumOptionData buyDownFeeIncomeType, final boolean merchantBuyDownFee,
             final List<WriteOffReasonsToExpenseAccountMapper> writeOffReasonsToExpenseMappings,
             final List<CodeValueData> writeOffReasonOptions, final BrokenPeriodConfigData brokenPeriodConfig,
-            final EnumOptionData installmentInterestCalculationType, final String brokenPeriodMethodType,
-            final Integer brokenPeriodDaysInYear, final Integer brokenPeriodDaysInMonth, final boolean bpiCollectedAtDisbursement) {
+            final EnumOptionData installmentInterestCalculationType, final boolean bpiCollectedAtDisbursement) {
         this.id = id;
         this.name = name;
         this.shortName = shortName;
@@ -987,10 +983,7 @@ public class LoanProductData implements Serializable {
         this.buyDownFeeStrategy = buyDownFeeStrategy;
         this.buyDownFeeIncomeType = buyDownFeeIncomeType;
         this.merchantBuyDownFee = merchantBuyDownFee;
-        this.brokenPeriodConfig = brokenPeriodConfig;
-        this.brokenPeriodMethodType = brokenPeriodMethodType;
-        this.brokenPeriodDaysInYear = brokenPeriodDaysInYear;
-        this.brokenPeriodDaysInMonth = brokenPeriodDaysInMonth;
+        this.brokenPeriodConfig = brokenPeriodConfig != null ? brokenPeriodConfig : new BrokenPeriodConfigData("none", null, null);
         this.bpiCollectedAtDisbursement = bpiCollectedAtDisbursement;
         this.precloseEmiRounding = precloseEmiRounding;
         this.installmentInterestCalculationType = installmentInterestCalculationType;
@@ -1319,10 +1312,6 @@ public class LoanProductData implements Serializable {
         this.buydownFeeClassificationToIncomeAccountMappings = productData.buydownFeeClassificationToIncomeAccountMappings;
         this.capitalizedIncomeClassificationToIncomeAccountMappings = productData.capitalizedIncomeClassificationToIncomeAccountMappings;
         this.brokenPeriodConfig = productData.brokenPeriodConfig;
-        this.brokenPeriodMethodType = productData.brokenPeriodMethodType;
-        this.brokenPeriodDaysInYear = productData.brokenPeriodDaysInYear;
-        this.brokenPeriodDaysInMonth = productData.brokenPeriodDaysInMonth;
-        this.bpiCollectedAtDisbursement = productData.bpiCollectedAtDisbursement;
         this.brokenPeriodInterestStrategyOptions = BrokenPeriodInterestStrategy.getOptionDataList();
     }
 
@@ -1540,32 +1529,7 @@ public class LoanProductData implements Serializable {
         return isRatesEnabled;
     }
 
-    public String getBrokenPeriodMethodType() {
-        return brokenPeriodMethodType;
-    }
-
-    // Backward-compatible aliases for UIs still reading legacy response keys
-    public String getBpiStrategy() {
-        return brokenPeriodMethodType;
-    }
-
-    public Integer getBrokenPeriodDaysInYear() {
-        return brokenPeriodDaysInYear;
-    }
-
-    public Integer getBpiDaysInYear() {
-        return brokenPeriodDaysInYear;
-    }
-
-    public Integer getBrokenPeriodDaysInMonth() {
-        return brokenPeriodDaysInMonth;
-    }
-
-    public Integer getBpiDaysInMonth() {
-        return brokenPeriodDaysInMonth;
-    }
-
-    public Boolean getIsBpiCollectedAtDisbursement() {
+    public Boolean isBpiCollectedAtDisbursement() {
         return bpiCollectedAtDisbursement;
     }
 

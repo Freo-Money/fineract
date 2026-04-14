@@ -313,16 +313,10 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
                         command.enumValueOfParameterNamed(LoanProductConstants.CHARGE_OFF_BEHAVIOUR, LoanChargeOffBehaviour.class));
             }
 
-            if (!changes.isEmpty()) {
-                product.validateLoanProductPreSave();
-                this.loanProductRepository.saveAndFlush(product);
-            }
-
             // Handle Broken Period Interest Configuration update (upsert logic)
             final var existingConfig = loanProductConfigMappingRepository.findByLoanProductId(loanProductId);
             final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper);
             if (bpiConfig != null) {
-                // A valid BPI strategy was provided, so upsert the config
                 if (existingConfig.isPresent()) {
                     final LoanProductConfigMapping configMapping = existingConfig.get();
                     configMapping.updateBrokenPeriodConfig(bpiConfig);
@@ -336,12 +330,19 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
                 changes.put("brokenPeriodDaysInMonth", bpiConfig.getDaysInMonthType().getValue());
                 changes.put("brokenPeriodDaysInYear", bpiConfig.getDaysInYearType().getValue());
             } else if (command.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE)) {
-                // This implies "None" was explicitly selected. Remove any existing BPI config mapping.
-                // This is the standard JPA way to delete an entity that may or may not exist.
                 existingConfig.ifPresent(loanProductConfigMappingRepository::delete);
                 changes.put("brokenPeriodConfig", "none");
                 changes.put("brokenPeriodDaysInYear", null);
                 changes.put("brokenPeriodDaysInMonth", null);
+                if (product.getLoanProductRelatedDetail() != null) {
+                    product.getLoanProductRelatedDetail().setBpiCollectedAtDisbursement(false);
+                }
+                changes.put(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT, false);
+            }
+
+            if (!changes.isEmpty()) {
+                product.validateLoanProductPreSave();
+                this.loanProductRepository.saveAndFlush(product);
             }
 
             return new CommandProcessingResultBuilder() //

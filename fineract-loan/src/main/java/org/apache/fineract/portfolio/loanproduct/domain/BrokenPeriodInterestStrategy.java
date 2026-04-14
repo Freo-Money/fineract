@@ -18,10 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanproduct.domain;
 
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
-
 
 /**
  * Enum representing different strategies for handling broken period interest (BPI).
@@ -61,33 +61,21 @@ public enum BrokenPeriodInterestStrategy {
         return this.displayName;
     }
 
-    /**
-     * A static method to provide a list of all enum constants as EnumOptionData objects. This is used to populate
-     * dropdowns in the UI.
-     *
-     * @return A list of EnumOptionData representing the enum values.
-     */
-
     public static List<EnumOptionData> getOptionDataList() {
-        final List<EnumOptionData> options = new ArrayList<>();
-        for (final BrokenPeriodInterestStrategy strategy : values()) {
-            options.add(new EnumOptionData((long) strategy.ordinal(), strategy.getCode(), strategy.getDisplayName()));
-        }
-        return options;
+        return Arrays.stream(values())
+                .map(strategy -> new EnumOptionData((long) strategy.ordinal(), strategy.getCode(), strategy.getDisplayName()))
+                .collect(Collectors.toList());
     }
 
-    public static BrokenPeriodInterestStrategy fromCode(String strategyCode) {
-        if (strategyCode == null) {
-            return null;
-        }
+    public static BrokenPeriodInterestStrategy fromCode(String strategy) {
+        BrokenPeriodInterestStrategy result = ADD_TO_FIRST_INSTALLMENT_EMI;
         for (BrokenPeriodInterestStrategy s : values()) {
-                if (s.getCode().equalsIgnoreCase(strategyCode)) {
-                    return s;
-                }
+            if (s.getCode().equalsIgnoreCase(strategy)) {
+                result = s;
             }
-            return null;
         }
-
+        return result;
+    }
 
     public boolean isAddToFirstInstallmentEmi() {
         return this == ADD_TO_FIRST_INSTALLMENT_EMI;
