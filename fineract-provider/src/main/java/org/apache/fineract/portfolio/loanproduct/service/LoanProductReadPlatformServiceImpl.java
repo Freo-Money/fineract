@@ -595,6 +595,9 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     ? LoanEnumerations
                             .interestCalculationPeriodType(InterestCalculationPeriodMethod.fromInt(installmentInterestCalculationTypeValue))
                     : null;
+            String brokenPeriodMethodType = null;
+            Integer brokenPeriodDaysInYear = null;
+            Integer brokenPeriodDaysInMonth = null;
             final boolean bpiCollectedAtDisbursement = rs.getBoolean("isBpiCollectedAtDisbursement");
 
             // Extract and parse BPI configuration
@@ -608,6 +611,12 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                 } catch (Exception e) {
                     // Failed to parse BPI configuration - skip it
                 }
+            }
+
+            if (brokenPeriodConfig != null) {
+                brokenPeriodMethodType = brokenPeriodConfig.getBrokenPeriodMethodType();
+                brokenPeriodDaysInYear = brokenPeriodConfig.getBrokenPeriodDaysInYear();
+                brokenPeriodDaysInMonth = brokenPeriodConfig.getBrokenPeriodDaysInMonth();
             }
 
             return new LoanProductData(id, name, shortName, description, currency, principal, minPrincipal, maxPrincipal, tolerance,
@@ -635,7 +644,8 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     loanChargeOffBehaviour.getValueAsStringEnumOptionData(), interestRecognitionOnDisbursementDate,
                     daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                     capitalizedIncome, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                    merchantBuyDownFee, null, null, brokenPeriodConfig, installmentInterestCalculationType, bpiCollectedAtDisbursement);
+                    merchantBuyDownFee, null, null, brokenPeriodConfig, installmentInterestCalculationType, brokenPeriodMethodType,
+                    brokenPeriodDaysInYear, brokenPeriodDaysInMonth, bpiCollectedAtDisbursement);
         }
     }
 

@@ -52,6 +52,7 @@ import org.apache.fineract.portfolio.floatingrates.domain.FloatingRateRepository
 import org.apache.fineract.portfolio.fund.domain.Fund;
 import org.apache.fineract.portfolio.fund.domain.FundRepository;
 import org.apache.fineract.portfolio.fund.exception.FundNotFoundException;
+import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeOffBehaviour;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleTransactionProcessorFactory;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
@@ -318,10 +319,10 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
             }
 
             // Handle Broken Period Interest Configuration update (upsert logic)
+            final var existingConfig = loanProductConfigMappingRepository.findByLoanProductId(loanProductId);
             final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper);
             if (bpiConfig != null) {
-                final var existingConfig = loanProductConfigMappingRepository.findByLoanProductId(loanProductId);
-
+                // A valid BPI strategy was provided, so upsert the config
                 if (existingConfig.isPresent()) {
                     final LoanProductConfigMapping configMapping = existingConfig.get();
                     configMapping.updateBrokenPeriodConfig(bpiConfig);
@@ -334,6 +335,13 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
                 changes.put("brokenPeriodConfig", bpiConfig.getStrategy().getCode());
                 changes.put("brokenPeriodDaysInMonth", bpiConfig.getDaysInMonthType().getValue());
                 changes.put("brokenPeriodDaysInYear", bpiConfig.getDaysInYearType().getValue());
+            } else if (command.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE)) {
+                // This implies "None" was explicitly selected. Remove any existing BPI config mapping.
+                // This is the standard JPA way to delete an entity that may or may not exist.
+                existingConfig.ifPresent(loanProductConfigMappingRepository::delete);
+                changes.put("brokenPeriodConfig", "none");
+                changes.put("brokenPeriodDaysInYear", null);
+                changes.put("brokenPeriodDaysInMonth", null);
             }
 
             return new CommandProcessingResultBuilder() //

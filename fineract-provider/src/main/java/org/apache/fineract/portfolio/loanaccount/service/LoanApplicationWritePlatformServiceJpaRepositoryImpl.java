@@ -323,6 +323,13 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 }
                 loanConfigMappingRepository.saveAndFlush(configMapping);
                 loan.setBpiConfig(configMapping);
+            } else if (command.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE)) {
+                // Explicit strategy in request resolved to NONE, so remove loan-level BPI config
+                existingConfig.ifPresent(config -> {
+                    loanConfigMappingRepository.delete(config);
+                });
+                loan.setBpiConfig(null);
+                changes.put("brokenPeriodConfig", "none");
             } else if (existingConfig.isEmpty() && loan.getLoanProduct().getBpiConfig() != null) {
                 // Copy BPI config from product if loan doesn't have one
                 final LoanConfigMapping configMapping = new LoanConfigMapping(loan, loan.getLoanProduct().getBpiConfig());

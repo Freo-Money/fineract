@@ -167,6 +167,7 @@ public class LoanAccountData {
     private Collection<EnumOptionData> amortizationTypeOptions;
     private Collection<EnumOptionData> interestTypeOptions;
     private Collection<EnumOptionData> interestCalculationPeriodTypeOptions;
+    private List<EnumOptionData> brokenPeriodInterestStrategyOptions;
     private Collection<TransactionProcessingStrategyData> transactionProcessingStrategyOptions;
     private Collection<ChargeData> chargeOptions;
     private Collection<CodeValueData> loanCollateralOptions;
@@ -294,6 +295,7 @@ public class LoanAccountData {
     private StringEnumOptionData buyDownFeeIncomeType;
     private Boolean merchantBuyDownFee;
     private Boolean customScheduleDefined;
+    private String brokenPeriodMethodType;
     private boolean bpiCollectedAtDisbursement;
 
     public static LoanAccountData importInstanceIndividual(EnumOptionData loanTypeEnumOption, Long clientId, Long productId,
@@ -575,7 +577,7 @@ public class LoanAccountData {
             final List<StringEnumOptionData> capitalizedIncomeStrategyOptions,
             final List<StringEnumOptionData> capitalizedIncomeTypeOptions,
             final List<StringEnumOptionData> buyDownFeeCalculationTypeOptions, final List<StringEnumOptionData> buyDownFeeStrategyOptions,
-            final List<StringEnumOptionData> buyDownFeeIncomeTypeOptions) {
+            final List<StringEnumOptionData> buyDownFeeIncomeTypeOptions, final List<EnumOptionData> brokenPeriodInterestStrategyOptions) {
 
         // TODO: why are these variables 'calendarData', 'chargeTemplate' never used (see original private constructor)
 
@@ -601,7 +603,8 @@ public class LoanAccountData {
                 .setCapitalizedIncomeStrategyOptions(capitalizedIncomeStrategyOptions)
                 .setCapitalizedIncomeTypeOptions(capitalizedIncomeTypeOptions)
                 .setBuyDownFeeCalculationTypeOptions(buyDownFeeCalculationTypeOptions)
-                .setBuyDownFeeStrategyOptions(buyDownFeeStrategyOptions).setBuyDownFeeIncomeTypeOptions(buyDownFeeIncomeTypeOptions);
+                .setBuyDownFeeStrategyOptions(buyDownFeeStrategyOptions).setBuyDownFeeIncomeTypeOptions(buyDownFeeIncomeTypeOptions)
+                .setBrokenPeriodInterestStrategyOptions(brokenPeriodInterestStrategyOptions);
     }
 
     public LoanAccountData associationsAndTemplate(final Collection<LoanProductData> productOptions,
@@ -718,6 +721,11 @@ public class LoanAccountData {
                 chargeData.getAmount(), percentage, chargeData.getChargeTimeType(), chargeData.getChargeCalculationType(),
                 chargeData.isPenalty(), chargeData.getChargePaymentMode(), chargeData.getMinCap(), chargeData.getMaxCap(),
                 ExternalId.empty());
+    }
+
+    public LoanAccountData setBrokenPeriodInterestStrategyOptions(List<EnumOptionData> options) {
+        this.brokenPeriodInterestStrategyOptions = options;
+        return this;
     }
 
     public void setBpiCollectedAtDisbursement(boolean bpiCollectedAtDisbursement) {

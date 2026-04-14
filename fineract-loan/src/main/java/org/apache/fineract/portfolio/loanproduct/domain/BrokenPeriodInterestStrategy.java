@@ -18,13 +18,24 @@
  */
 package org.apache.fineract.portfolio.loanproduct.domain;
 
+import java.util.ArrayList;
+import java.util.List;
+import org.apache.fineract.infrastructure.core.data.EnumOptionData;
+
+
 /**
  * Enum representing different strategies for handling broken period interest (BPI).
  */
+
 public enum BrokenPeriodInterestStrategy {
 
     /**
-     * Add partial interest to the first installment EMI
+     * No broken period interest strategy
+     */
+    NONE("none", "None"),
+
+    /**
+     * Add partial interest to the first installment EMI.
      */
     ADD_TO_FIRST_INSTALLMENT_EMI("add_to_first_installment_emi", "Add to First Installment EMI"),
 
@@ -50,15 +61,33 @@ public enum BrokenPeriodInterestStrategy {
         return this.displayName;
     }
 
-    public static BrokenPeriodInterestStrategy fromCode(String strategy) {
-        BrokenPeriodInterestStrategy result = ADD_TO_FIRST_INSTALLMENT_EMI;
-        for (BrokenPeriodInterestStrategy s : values()) {
-            if (s.getCode().equalsIgnoreCase(strategy)) {
-                result = s;
-            }
+    /**
+     * A static method to provide a list of all enum constants as EnumOptionData objects. This is used to populate
+     * dropdowns in the UI.
+     *
+     * @return A list of EnumOptionData representing the enum values.
+     */
+
+    public static List<EnumOptionData> getOptionDataList() {
+        final List<EnumOptionData> options = new ArrayList<>();
+        for (final BrokenPeriodInterestStrategy strategy : values()) {
+            options.add(new EnumOptionData((long) strategy.ordinal(), strategy.getCode(), strategy.getDisplayName()));
         }
-        return result;
+        return options;
     }
+
+    public static BrokenPeriodInterestStrategy fromCode(String strategyCode) {
+        if (strategyCode == null) {
+            return null;
+        }
+        for (BrokenPeriodInterestStrategy s : values()) {
+                if (s.getCode().equalsIgnoreCase(strategyCode)) {
+                    return s;
+                }
+            }
+            return null;
+        }
+
 
     public boolean isAddToFirstInstallmentEmi() {
         return this == ADD_TO_FIRST_INSTALLMENT_EMI;
@@ -66,5 +95,9 @@ public enum BrokenPeriodInterestStrategy {
 
     public boolean isAddToFirstInstallmentWithPrincipalGrace() {
         return this == ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE;
+    }
+
+    public boolean isNone() {
+        return this == NONE;
     }
 }

@@ -46,18 +46,25 @@ public final class BrokenPeriodConfigHelper {
         }
 
         final String brokenPeriodMethodType = jsonHelper.extractStringNamed(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element);
-        Integer daysInYear = jsonHelper.extractIntegerWithLocaleNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, element);
-        Integer daysInMonth = jsonHelper.extractIntegerWithLocaleNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, element);
+
+        // If strategy is NONE, no BPI configuration is needed — days fields should be null
+        final BrokenPeriodInterestStrategy resolvedStrategy = BrokenPeriodInterestStrategy.fromCode(brokenPeriodMethodType);
+        if (resolvedStrategy == null || resolvedStrategy.isNone()) {
+            return null;
+        }
+
+        Integer brokenPeriodDaysInYear = jsonHelper.extractIntegerWithLocaleNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, element);
+        Integer brokenPeriodDaysInMonth = jsonHelper.extractIntegerWithLocaleNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, element);
 
         // Apply defaults
-        if (daysInYear == null || daysInYear == 0) {
-            daysInYear = DaysInYearType.DAYS_365.getValue();
+        if (brokenPeriodDaysInYear == null || brokenPeriodDaysInYear == 0) {
+            brokenPeriodDaysInYear = DaysInYearType.DAYS_365.getValue();
         }
-        if (daysInMonth == null || daysInMonth == 0) {
-            daysInMonth = DaysInMonthType.ACTUAL.getValue();
+        if (brokenPeriodDaysInMonth == null || brokenPeriodDaysInMonth == 0) {
+            brokenPeriodDaysInMonth = DaysInMonthType.ACTUAL.getValue();
         }
 
-        return toDomainDTO(brokenPeriodMethodType, daysInYear, daysInMonth);
+        return toDomainDTO(brokenPeriodMethodType, brokenPeriodDaysInYear, brokenPeriodDaysInMonth);
     }
 
     public static BrokenPeriodInterestConfigDTO toDomainDTO(final String brokenPeriodMethodType, final Integer daysInYear,

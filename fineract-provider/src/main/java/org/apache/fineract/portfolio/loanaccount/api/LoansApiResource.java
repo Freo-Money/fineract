@@ -176,6 +176,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanSummaryProviderDele
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
+import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
@@ -1178,6 +1179,7 @@ public class LoansApiResource {
         Collection<EnumOptionData> amortizationTypeOptions = null;
         Collection<EnumOptionData> interestTypeOptions = null;
         Collection<EnumOptionData> interestCalculationPeriodTypeOptions = null;
+        List<EnumOptionData> brokenPeriodInterestStrategyOptions = null;
         Collection<FundData> fundOptions = null;
         Collection<StaffData> allowedLoanOfficers = null;
         Collection<ChargeData> chargeOptions = null;
@@ -1207,6 +1209,7 @@ public class LoansApiResource {
                 interestTypeOptions = this.dropdownReadPlatformService.retrieveLoanInterestTypeOptions();
             }
             interestCalculationPeriodTypeOptions = this.dropdownReadPlatformService.retrieveLoanInterestRateCalculatedInPeriodOptions();
+            brokenPeriodInterestStrategyOptions = BrokenPeriodInterestStrategy.getOptionDataList();
 
             fundOptions = this.fundReadPlatformService.retrieveAllFunds();
             repaymentStrategyOptions = this.dropdownReadPlatformService.retrieveTransactionProcessingStrategies();
@@ -1289,7 +1292,7 @@ public class LoansApiResource {
                 ApiFacingEnum.getValuesAsStringEnumOptionDataList(LoanCapitalizedIncomeType.class),
                 ApiFacingEnum.getValuesAsStringEnumOptionDataList(LoanBuyDownFeeCalculationType.class),
                 ApiFacingEnum.getValuesAsStringEnumOptionDataList(LoanBuyDownFeeStrategy.class),
-                ApiFacingEnum.getValuesAsStringEnumOptionDataList(LoanBuyDownFeeIncomeType.class));
+                ApiFacingEnum.getValuesAsStringEnumOptionDataList(LoanBuyDownFeeIncomeType.class), brokenPeriodInterestStrategyOptions);
 
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters(),
                 mandatoryResponseParameters);
