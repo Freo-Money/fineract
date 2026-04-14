@@ -36,6 +36,7 @@ public interface LoanTransactionMapper {
     @Mapping(target = "classificationOptions", ignore = true)
     @Mapping(target = "paymentTypeOptions", ignore = true)
     @Mapping(target = "overpaymentPortion", ignore = true)
+    @Mapping(target = "adjustedInterestPortion", ignore = true)
     @Mapping(target = "transfer", ignore = true)
     @Mapping(target = "fixedEmiAmount", ignore = true)
     @Mapping(target = "date", source = "dateOf")
