@@ -121,6 +121,8 @@ final class ChargesApiResourceSwagger {
         public GetChargesAppliesToResponse chargeAppliesTo;
         public GetChargesCalculationTypeResponse chargeCalculationType;
         public GetChargesPaymentModeResponse chargePaymentMode;
+        @Schema(example = "0")
+        public Integer penaltyWaitPeriod;
         public BigDecimal minCap;
         public BigDecimal maxCap;
         public GetChargesTaxGroup taxGroup;
@@ -153,6 +155,8 @@ final class ChargesApiResourceSwagger {
         public String monthDayFormat;
         @Schema(example = "false")
         public boolean penalty;
+        @Schema(example = "0")
+        public Integer penaltyWaitPeriod;
         @Schema(example = "23.43")
         public BigDecimal minCap;
         @Schema(example = "45.56")
@@ -195,6 +199,8 @@ final class ChargesApiResourceSwagger {
         public boolean active;
         @Schema(example = "false")
         public boolean penalty;
+        @Schema(example = "0")
+        public Integer penaltyWaitPeriod;
         @Schema(example = "dd MMMM")
         public String monthDayFormat;
         @Schema(example = "01 March")

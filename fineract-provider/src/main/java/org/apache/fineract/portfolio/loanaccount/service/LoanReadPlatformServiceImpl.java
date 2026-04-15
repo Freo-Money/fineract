@@ -2130,13 +2130,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     }
 
     @Override
-    public Collection<OverdueLoanScheduleData> retrieveAllLoansWithOverdueInstallments(final Long penaltyWaitPeriod,
-            final Boolean backdatePenalties) {
+    public Collection<OverdueLoanScheduleData> retrieveAllLoansWithOverdueInstallments(final Boolean backdatePenalties) {
         final MusoniOverdueLoanScheduleMapper rm = new MusoniOverdueLoanScheduleMapper();
 
         final StringBuilder sqlBuilder = new StringBuilder(400);
         sqlBuilder.append("select ").append(rm.schema())
-                .append(" where " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day") + " >= ls.duedate ")
+                .append(" where " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "mc.penalty_wait_period", "day")
+                        + " >= ls.duedate ")
                 .append(" and ls.completed_derived <> true and mc.charge_applies_to_enum =1 ")
                 .append(" and ls.recalculated_interest_component <> true ").append(" and ls.is_additional <> true ")
                 .append(" and mc.charge_time_enum = 9 and ml.loan_status_id = 300 ")
@@ -2144,13 +2144,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                 .append("      COALESCE(penalty_summary.existing_penalty_amount, 0) < mc.max_cumulative_penalty_cap) ");
 
         if (backdatePenalties) {
-            return this.jdbcTemplate.query(sqlBuilder.toString(), rm, penaltyWaitPeriod);
+            return this.jdbcTemplate.query(sqlBuilder.toString(), rm);
         }
         // When backdating is disabled, only apply for installments whose due date
-        // becomes eligible today (i.e. dueDate == businessDate - penaltyWaitPeriod).
-        sqlBuilder.append(" and ls.duedate >= " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "?", "day"));
+        // becomes eligible today (i.e. dueDate == businessDate - penalty_wait_period).
+        sqlBuilder
+                .append(" and ls.duedate >= " + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "mc.penalty_wait_period", "day"));
 
-        return this.jdbcTemplate.query(sqlBuilder.toString(), rm, penaltyWaitPeriod, penaltyWaitPeriod);
+        return this.jdbcTemplate.query(sqlBuilder.toString(), rm);
     }
 
     @Override
@@ -2180,7 +2181,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             }
         }
 
-        final Long penaltyWaitPeriod = configurationDomainService.retrievePenaltyWaitPeriod();
+        final Integer penaltyWaitPeriod = penaltyCharge.getPenaltyWaitPeriod();
         final boolean backdatePenalties = configurationDomainService.isBackdatePenaltiesEnabled();
 
         for (LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
