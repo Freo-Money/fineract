@@ -30,10 +30,4 @@
             </column>
         </addColumn>
     </changeSet>
-    <changeSet author="fineract" id="2" context="mysql,postgresql">
-        <comment>Create index on penalty_wait_period column for performance</comment>
-        <createIndex indexName="idx_m_charge_penalty_wait_period" tableName="m_charge" unique="false">
-            <column name="penalty_wait_period"/>
-        </createIndex>
-    </changeSet>
 </databaseChangeLog>
