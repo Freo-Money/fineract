@@ -61,7 +61,7 @@ public class ApplyChargeToOverdueLoanInstallmentTaskletTest {
 
     @Test
     public void testExecute_WhenNoOverdueInstallments_ShouldNotApplyCharges() throws Exception {
-        when(loanReadPlatformService.retrieveAllLoansWithOverdueInstallments(anyLong(), anyBoolean()))
+        when(loanReadPlatformService.retrieveAllLoansWithOverdueInstallments(anyBoolean()))
                 .thenReturn(Collections.emptyList());
 
         RepeatStatus status = tasklet.execute(contribution, chunkContext);
@@ -74,7 +74,7 @@ public class ApplyChargeToOverdueLoanInstallmentTaskletTest {
     @Test
     public void testExecute_WhenOverdueInstallmentsExist_ShouldApplyCharges() throws Exception {
         OverdueLoanScheduleData overdueData = mock(OverdueLoanScheduleData.class);
-        when(loanReadPlatformService.retrieveAllLoansWithOverdueInstallments(anyLong(), anyBoolean()))
+        when(loanReadPlatformService.retrieveAllLoansWithOverdueInstallments(anyBoolean()))
                 .thenReturn(Collections.singletonList(overdueData));
 
         RepeatStatus status = tasklet.execute(contribution, chunkContext);

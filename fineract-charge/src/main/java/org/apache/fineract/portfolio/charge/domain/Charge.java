@@ -131,6 +131,9 @@ public class Charge extends AbstractPersistableCustom<Long> {
     @Column(name = "charge_percentage_calc_days_in_year_type", nullable = false)
     private Integer chargePercentageCalcDaysInYearType = 1;
 
+    @Column(name = "penalty_wait_period", nullable = false)
+    private Integer penaltyWaitPeriod = 0;
+
     @Column(name = "is_payment_type", nullable = false)
     private boolean enablePaymentType;
 
@@ -175,6 +178,7 @@ public class Charge extends AbstractPersistableCustom<Long> {
         final BigDecimal maxCap = command.bigDecimalValueOfParameterNamed("maxCap");
         final BigDecimal maxCumulativePenaltyCap = command.bigDecimalValueOfParameterNamed("maxCumulativePenaltyCap");
         final Integer feeFrequency = command.integerValueOfParameterNamed("feeFrequency");
+        final Integer penaltyWaitPeriod = command.integerValueOfParameterNamed("penaltyWaitPeriod");
         final Integer digitsAfterDecimal = command.integerValueOfParameterNamed("digitsAfterDecimal");
         final Integer roundingMode = command.integerValueOfParameterNamed("roundingMode");
 
@@ -196,9 +200,9 @@ public class Charge extends AbstractPersistableCustom<Long> {
         }
 
         return new Charge(name, amount, currencyCode, chargeAppliesTo, chargeTimeType, chargeCalculationType, penalty, active, paymentMode,
-                feeOnMonthDay, feeInterval, minCap, maxCap, maxCumulativePenaltyCap, feeFrequency, enableFreeWithdrawalCharge,
-                freeWithdrawalFrequency, restartCountFrequency, countFrequencyType, account, taxGroup, enablePaymentType, paymentType,
-                roundingMode, digitsAfterDecimal);
+                feeOnMonthDay, feeInterval, minCap, maxCap, maxCumulativePenaltyCap, feeFrequency, penaltyWaitPeriod,
+                enableFreeWithdrawalCharge, freeWithdrawalFrequency, restartCountFrequency, countFrequencyType, account, taxGroup,
+                enablePaymentType, paymentType, roundingMode, digitsAfterDecimal);
     }
 
     protected Charge() {}
@@ -206,7 +210,7 @@ public class Charge extends AbstractPersistableCustom<Long> {
     private Charge(final String name, final BigDecimal amount, final String currencyCode, final ChargeAppliesTo chargeAppliesTo,
             final ChargeTimeType chargeTime, final ChargeCalculationType chargeCalculationType, final boolean penalty, final boolean active,
             final ChargePaymentMode paymentMode, final MonthDay feeOnMonthDay, final Integer feeInterval, final BigDecimal minCap,
-            final BigDecimal maxCap, final BigDecimal maxCumulativePenaltyCap, final Integer feeFrequency,
+            final BigDecimal maxCap, final BigDecimal maxCumulativePenaltyCap, final Integer feeFrequency, final Integer penaltyWaitPeriod,
             final boolean enableFreeWithdrawalCharge, final Integer freeWithdrawalFrequency, final Integer restartFrequency,
             final PeriodFrequencyType restartFrequencyEnum, final GLAccount account, final TaxGroup taxGroup,
             final boolean enablePaymentType, final PaymentType paymentType, final Integer roundingMode, final Integer digitsAfterDecimal) {
@@ -234,6 +238,7 @@ public class Charge extends AbstractPersistableCustom<Long> {
         this.feeInterval = feeInterval;
         this.feeFrequency = feeFrequency;
         this.maxCumulativePenaltyCap = maxCumulativePenaltyCap;
+        this.penaltyWaitPeriod = penaltyWaitPeriod == null ? 0 : penaltyWaitPeriod;
 
         if (isSavingsCharge()) {
             // TODO vishwas, this validation seems unnecessary as identical
@@ -408,6 +413,14 @@ public class Charge extends AbstractPersistableCustom<Long> {
 
     public void setChargePercentageCalcDaysInYearType(final Integer chargePercentageCalcDaysInYearType) {
         this.chargePercentageCalcDaysInYearType = chargePercentageCalcDaysInYearType;
+    }
+
+    public Integer getPenaltyWaitPeriod() {
+        return this.penaltyWaitPeriod;
+    }
+
+    public void setPenaltyWaitPeriod(final Integer penaltyWaitPeriod) {
+        this.penaltyWaitPeriod = penaltyWaitPeriod;
     }
 
     public PaymentType getPaymentType() {
@@ -631,9 +644,14 @@ public class Charge extends AbstractPersistableCustom<Long> {
             actualChanges.put("locale", locale.getLanguage());
             this.feeFrequency = newValue;
         }
-
         if (this.feeFrequency != null) {
             baseDataValidator.reset().parameter("feeInterval").value(this.feeInterval).notNull();
+        }
+        final String penaltyWaitPeriodParamName = "penaltyWaitPeriod";
+        if (command.isChangeInIntegerParameterNamed(penaltyWaitPeriodParamName, this.penaltyWaitPeriod)) {
+            final Integer newValue = command.integerValueOfParameterNamed(penaltyWaitPeriodParamName);
+            actualChanges.put(penaltyWaitPeriodParamName, newValue);
+            this.penaltyWaitPeriod = newValue == null ? 0 : newValue;
         }
 
         final String penaltyParamName = "penalty";
@@ -744,8 +762,8 @@ public class Charge extends AbstractPersistableCustom<Long> {
                 .freeWithdrawal(this.enableFreeWithdrawal).freeWithdrawalChargeFrequency(this.freeWithdrawalFrequency)
                 .restartFrequency(this.restartFrequency).restartFrequencyEnum(this.restartFrequencyEnum)
                 .isPaymentType(this.enablePaymentType).paymentTypeOptions(paymentTypeData).minCap(this.minCap).maxCap(this.maxCap)
-                .digitsAfterDecimal(this.digitsAfterDecimal).roundingMode(roundingModeEnum).feeFrequency(feeFrequencyType)
-                .incomeOrLiabilityAccount(accountData).taxGroup(taxGroupData).build();
+                .feeFrequency(feeFrequencyType).penaltyWaitPeriod(this.penaltyWaitPeriod).incomeOrLiabilityAccount(accountData)
+                .taxGroup(taxGroupData).digitsAfterDecimal(this.digitsAfterDecimal).roundingMode(roundingModeEnum).build();
 
     }
 
@@ -861,13 +879,13 @@ public class Charge extends AbstractPersistableCustom<Long> {
                 && Objects.equals(feeOnDay, other.feeOnDay) && Objects.equals(feeInterval, other.feeInterval)
                 && Objects.equals(feeOnMonth, other.feeOnMonth) && penalty == other.penalty && active == other.active
                 && deleted == other.deleted && Objects.equals(minCap, other.minCap) && Objects.equals(maxCap, other.maxCap)
-                && Objects.equals(feeFrequency, other.feeFrequency) && Objects.equals(account, other.account)
-                && Objects.equals(taxGroup, other.taxGroup);
+                && Objects.equals(feeFrequency, other.feeFrequency) && Objects.equals(penaltyWaitPeriod, other.penaltyWaitPeriod)
+                && Objects.equals(account, other.account) && Objects.equals(taxGroup, other.taxGroup);
     }
 
     @Override
     public int hashCode() {
         return Objects.hash(name, amount, currencyCode, chargeAppliesTo, chargeTimeType, chargeCalculation, chargePaymentMode, feeOnDay,
-                feeInterval, feeOnMonth, penalty, active, deleted, minCap, maxCap, feeFrequency, account, taxGroup);
+                feeInterval, feeOnMonth, penalty, active, deleted, minCap, maxCap, feeFrequency, penaltyWaitPeriod, account, taxGroup);
     }
 }

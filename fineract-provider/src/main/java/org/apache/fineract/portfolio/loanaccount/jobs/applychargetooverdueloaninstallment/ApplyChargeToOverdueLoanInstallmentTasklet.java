@@ -48,10 +48,9 @@ public class ApplyChargeToOverdueLoanInstallmentTasklet implements Tasklet {
 
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
-        final Long penaltyWaitPeriodValue = configurationDomainService.retrievePenaltyWaitPeriod();
         final Boolean backdatePenalties = configurationDomainService.isBackdatePenaltiesEnabled();
         final Collection<OverdueLoanScheduleData> overdueLoanScheduledInstallments = loanReadPlatformService
-                .retrieveAllLoansWithOverdueInstallments(penaltyWaitPeriodValue, backdatePenalties);
+                .retrieveAllLoansWithOverdueInstallments(backdatePenalties);
 
         if (!overdueLoanScheduledInstallments.isEmpty()) {
             final Map<Long, Collection<OverdueLoanScheduleData>> overdueScheduleData = new HashMap<>();
