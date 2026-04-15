@@ -22,7 +22,7 @@
 <databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
-    <changeSet author="fineract" id="1" context="mysql,postgresql">
+    <changeSet id="1" author="fineract">
         <comment>Add penalty_wait_period column to m_charge table</comment>
         <addColumn tableName="m_charge">
             <column name="penalty_wait_period" type="INT" defaultValueNumeric="0">
