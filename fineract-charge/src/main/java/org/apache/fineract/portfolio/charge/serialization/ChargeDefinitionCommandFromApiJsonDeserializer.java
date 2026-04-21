@@ -42,6 +42,7 @@ import org.apache.fineract.portfolio.charge.domain.ChargeAppliesTo;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
+import org.apache.fineract.portfolio.charge.domain.RoundingModeEnum;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -73,6 +74,8 @@ public final class ChargeDefinitionCommandFromApiJsonDeserializer {
     public static final String COUNT_FREQUENCY_TYPE = "countFrequencyType";
     public static final String ENABLE_PAYMENT_TYPE = "enablePaymentType";
     public static final String PAYMENT_TYPE_ID = "paymentTypeId";
+    public static final String DIGITS_AFTER_DECIMAL = "digitsAfterDecimal";
+    public static final String ROUNDING_MODE = "roundingMode";
     public static final String CHARGE = "charge";
     /**
      * The parameters supported for this command.
@@ -81,7 +84,8 @@ public final class ChargeDefinitionCommandFromApiJsonDeserializer {
             CURRENCY_OPTIONS, CHARGE_APPLIES_TO, CHARGE_TIME_TYPE, CHARGE_CALCULATION_TYPE, CHARGE_CALCULATION_TYPE_OPTIONS, PENALTY,
             ACTIVE, CHARGE_PAYMENT_MODE, FEE_ON_MONTH_DAY, FEE_INTERVAL, MONTH_DAY_FORMAT, MIN_CAP, MAX_CAP, MAX_CUMULATIVE_PENALTY_CAP,
             FEE_FREQUENCY, ENABLE_FREE_WITHDRAWAL_CHARGE, FREE_WITHDRAWAL_FREQUENCY, RESTART_COUNT_FREQUENCY, COUNT_FREQUENCY_TYPE,
-            PAYMENT_TYPE_ID, ENABLE_PAYMENT_TYPE, ChargesApiConstants.glAccountIdParamName, ChargesApiConstants.taxGroupIdParamName));
+            PAYMENT_TYPE_ID, ENABLE_PAYMENT_TYPE, DIGITS_AFTER_DECIMAL, ROUNDING_MODE, ChargesApiConstants.glAccountIdParamName,
+            ChargesApiConstants.taxGroupIdParamName));
     private final FromJsonHelper fromApiJsonHelper;
 
     @Autowired
@@ -154,6 +158,14 @@ public final class ChargeDefinitionCommandFromApiJsonDeserializer {
 
         if (feeFrequency != null) {
             baseDataValidator.reset().parameter(FEE_INTERVAL).value(feeInterval).notNull();
+        }
+
+        final Integer digitsAfterDecimal = this.fromApiJsonHelper.extractIntegerNamed(DIGITS_AFTER_DECIMAL, element, Locale.getDefault());
+        baseDataValidator.reset().parameter(DIGITS_AFTER_DECIMAL).value(digitsAfterDecimal).ignoreIfNull().inMinMaxRange(0, 6);
+
+        final Integer roundingMode = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(ROUNDING_MODE, element);
+        if (roundingMode != null && RoundingModeEnum.fromInt(roundingMode).isInvalid()) {
+            baseDataValidator.reset().parameter(ROUNDING_MODE).value(roundingMode).failWithCode("invalid.rounding.mode");
         }
 
         final ChargeAppliesTo appliesTo = ChargeAppliesTo.fromInt(chargeAppliesTo);
@@ -329,6 +341,19 @@ public final class ChargeDefinitionCommandFromApiJsonDeserializer {
             baseDataValidator.reset().parameter(AMOUNT).value(amount).notNull().positiveAmount();
         }
 
+        if (this.fromApiJsonHelper.parameterExists(DIGITS_AFTER_DECIMAL, element)) {
+            final Integer digitsAfterDecimal = this.fromApiJsonHelper.extractIntegerNamed(DIGITS_AFTER_DECIMAL, element,
+                    Locale.getDefault());
+            baseDataValidator.reset().parameter(DIGITS_AFTER_DECIMAL).value(digitsAfterDecimal).ignoreIfNull().inMinMaxRange(0, 6);
+        }
+
+        if (this.fromApiJsonHelper.parameterExists(ROUNDING_MODE, element)) {
+            final Integer roundingMode = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(ROUNDING_MODE, element);
+            if (roundingMode != null && RoundingModeEnum.fromInt(roundingMode).isInvalid()) {
+                baseDataValidator.reset().parameter(ROUNDING_MODE).value(roundingMode).failWithCode("invalid.rounding.mode");
+            }
+        }
+
         if (this.fromApiJsonHelper.parameterExists(MIN_CAP, element)) {
             final BigDecimal minCap = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed(MIN_CAP, element.getAsJsonObject());
             baseDataValidator.reset().parameter(MIN_CAP).value(minCap).notNull().positiveAmount();
@@ -375,12 +400,6 @@ public final class ChargeDefinitionCommandFromApiJsonDeserializer {
                     baseDataValidator.reset().parameter(PAYMENT_TYPE_ID).value(paymentTypeId).integerGreaterThanZero();
                 }
             }
-        }
-
-        if (this.fromApiJsonHelper.parameterExists(CHARGE_APPLIES_TO, element)) {
-            final Integer chargeAppliesTo = this.fromApiJsonHelper.extractIntegerSansLocaleNamed(CHARGE_APPLIES_TO, element);
-            baseDataValidator.reset().parameter(CHARGE_APPLIES_TO).value(chargeAppliesTo).notNull()
-                    .isOneOfTheseValues(ChargeAppliesTo.validValues());
         }
 
         if (this.fromApiJsonHelper.parameterExists(CHARGE_APPLIES_TO, element)) {

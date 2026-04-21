@@ -60,6 +60,8 @@ public final class ChargeData implements Comparable<ChargeData>, Serializable {
     private final PaymentTypeData paymentTypeOptions;
     private final CurrencyData currency;
     private final BigDecimal amount;
+    private final Integer digitsAfterDecimal;
+    private final EnumOptionData roundingMode;
     private final EnumOptionData chargeTimeType;
     private final EnumOptionData chargeAppliesTo;
     private final EnumOptionData chargeCalculationType;
@@ -89,6 +91,7 @@ public final class ChargeData implements Comparable<ChargeData>, Serializable {
     private final List<EnumOptionData> shareChargeCalculationTypeOptions;
     private final List<EnumOptionData> shareChargeTimeTypeOptions;
 
+    private final List<EnumOptionData> roundingModeOptions;
     private final List<EnumOptionData> feeFrequencyOptions;
 
     private final Map<String, List<GLAccountData>> incomeOrLiabilityAccountOptions;
@@ -109,7 +112,7 @@ public final class ChargeData implements Comparable<ChargeData>, Serializable {
                 .savingsChargeTimeTypeOptions(template.getSavingsChargeTimeTypeOptions())
                 .clientChargeCalculationTypeOptions(template.getClientChargeCalculationTypeOptions())
                 .clientChargeTimeTypeOptions(template.getClientChargeTimeTypeOptions())
-                .feeFrequencyOptions(template.getFeeFrequencyOptions())
+                .roundingModeOptions(template.getRoundingModeOptions()).feeFrequencyOptions(template.getFeeFrequencyOptions())
                 .incomeOrLiabilityAccountOptions(template.getIncomeOrLiabilityAccountOptions())
                 .taxGroupOptions(template.getTaxGroupOptions())
                 .shareChargeCalculationTypeOptions(template.getShareChargeCalculationTypeOptions())

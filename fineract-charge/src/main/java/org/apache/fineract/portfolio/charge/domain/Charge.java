@@ -146,6 +146,12 @@ public class Charge extends AbstractPersistableCustom<Long> {
     @JoinColumn(name = "tax_group_id")
     private TaxGroup taxGroup;
 
+    @Column(name = "rounding_mode", nullable = true)
+    private Integer roundingMode;
+
+    @Column(name = "digits_after_decimal", nullable = true)
+    private Integer digitsAfterDecimal;
+
     public static Charge fromJson(final JsonCommand command, final GLAccount account, final TaxGroup taxGroup,
             final PaymentType paymentType) {
 
@@ -169,6 +175,8 @@ public class Charge extends AbstractPersistableCustom<Long> {
         final BigDecimal maxCap = command.bigDecimalValueOfParameterNamed("maxCap");
         final BigDecimal maxCumulativePenaltyCap = command.bigDecimalValueOfParameterNamed("maxCumulativePenaltyCap");
         final Integer feeFrequency = command.integerValueOfParameterNamed("feeFrequency");
+        final Integer digitsAfterDecimal = command.integerValueOfParameterNamed("digitsAfterDecimal");
+        final Integer roundingMode = command.integerValueOfParameterNamed("roundingMode");
 
         boolean enableFreeWithdrawalCharge = false;
         enableFreeWithdrawalCharge = command.booleanPrimitiveValueOfParameterNamed("enableFreeWithdrawalCharge");
@@ -189,7 +197,8 @@ public class Charge extends AbstractPersistableCustom<Long> {
 
         return new Charge(name, amount, currencyCode, chargeAppliesTo, chargeTimeType, chargeCalculationType, penalty, active, paymentMode,
                 feeOnMonthDay, feeInterval, minCap, maxCap, maxCumulativePenaltyCap, feeFrequency, enableFreeWithdrawalCharge,
-                freeWithdrawalFrequency, restartCountFrequency, countFrequencyType, account, taxGroup, enablePaymentType, paymentType);
+                freeWithdrawalFrequency, restartCountFrequency, countFrequencyType, account, taxGroup, enablePaymentType, paymentType,
+                roundingMode, digitsAfterDecimal);
     }
 
     protected Charge() {}
@@ -200,7 +209,7 @@ public class Charge extends AbstractPersistableCustom<Long> {
             final BigDecimal maxCap, final BigDecimal maxCumulativePenaltyCap, final Integer feeFrequency,
             final boolean enableFreeWithdrawalCharge, final Integer freeWithdrawalFrequency, final Integer restartFrequency,
             final PeriodFrequencyType restartFrequencyEnum, final GLAccount account, final TaxGroup taxGroup,
-            final boolean enablePaymentType, final PaymentType paymentType) {
+            final boolean enablePaymentType, final PaymentType paymentType, final Integer roundingMode, final Integer digitsAfterDecimal) {
         this.name = name;
         this.amount = amount;
         this.currencyCode = currencyCode;
@@ -212,6 +221,8 @@ public class Charge extends AbstractPersistableCustom<Long> {
         this.account = account;
         this.taxGroup = taxGroup;
         this.chargePaymentMode = paymentMode == null ? null : paymentMode.getValue();
+        this.roundingMode = roundingMode;
+        this.digitsAfterDecimal = digitsAfterDecimal;
 
         final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
         final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("charges");
@@ -443,6 +454,20 @@ public class Charge extends AbstractPersistableCustom<Long> {
             actualChanges.put(amountParamName, newValue);
             actualChanges.put("locale", locale.getLanguage());
             this.amount = newValue;
+        }
+
+        final String digitsAfterDecimalParamName = "digitsAfterDecimal";
+        if (command.isChangeInIntegerParameterNamed(digitsAfterDecimalParamName, this.digitsAfterDecimal)) {
+            final Integer newValue = command.integerValueOfParameterNamed(digitsAfterDecimalParamName);
+            actualChanges.put(digitsAfterDecimalParamName, newValue);
+            this.digitsAfterDecimal = newValue;
+        }
+
+        final String roundingModeParamName = "roundingMode";
+        if (command.isChangeInIntegerParameterNamed(roundingModeParamName, this.roundingMode)) {
+            final Integer newValue = command.integerValueOfParameterNamed(roundingModeParamName);
+            actualChanges.put(roundingModeParamName, newValue);
+            this.roundingMode = newValue;
         }
 
         final String chargeTimeParamName = "chargeTimeType";
@@ -693,6 +718,7 @@ public class Charge extends AbstractPersistableCustom<Long> {
         final EnumOptionData chargeAppliesTo = ChargeEnumerations.chargeAppliesTo(this.chargeAppliesTo);
         final EnumOptionData chargeCalculationType = ChargeEnumerations.chargeCalculationType(this.chargeCalculation);
         final EnumOptionData chargePaymentMode = ChargeEnumerations.chargePaymentMode(this.chargePaymentMode);
+        final EnumOptionData roundingModeEnum = ChargeEnumerations.chargeRoundingMode(this.roundingMode);
         EnumOptionData feeFrequencyType = null;
         if (this.feeFrequency != null) {
             feeFrequencyType = ChargeEnumerations.feeFrequencyType(this.feeFrequency);
@@ -718,7 +744,8 @@ public class Charge extends AbstractPersistableCustom<Long> {
                 .freeWithdrawal(this.enableFreeWithdrawal).freeWithdrawalChargeFrequency(this.freeWithdrawalFrequency)
                 .restartFrequency(this.restartFrequency).restartFrequencyEnum(this.restartFrequencyEnum)
                 .isPaymentType(this.enablePaymentType).paymentTypeOptions(paymentTypeData).minCap(this.minCap).maxCap(this.maxCap)
-                .feeFrequency(feeFrequencyType).incomeOrLiabilityAccount(accountData).taxGroup(taxGroupData).build();
+                .digitsAfterDecimal(this.digitsAfterDecimal).roundingMode(roundingModeEnum).feeFrequency(feeFrequencyType)
+                .incomeOrLiabilityAccount(accountData).taxGroup(taxGroupData).build();
 
     }
 
@@ -809,6 +836,14 @@ public class Charge extends AbstractPersistableCustom<Long> {
 
     public void setTaxGroup(TaxGroup taxGroup) {
         this.taxGroup = taxGroup;
+    }
+
+    public Integer getRoundingMode() {
+        return this.roundingMode;
+    }
+
+    public Integer getDigitsAfterDecimal() {
+        return this.digitsAfterDecimal;
     }
 
     @Override

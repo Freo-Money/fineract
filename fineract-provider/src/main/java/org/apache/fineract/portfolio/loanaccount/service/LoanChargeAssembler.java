@@ -379,6 +379,10 @@ public class LoanChargeAssembler {
         }
 
         CurrencyData currency = loanCurrency != null ? loanCurrency : chargeDefinition.toData().getCurrency();
+        if (chargeDefinition.getDigitsAfterDecimal() != null) {
+            currency = new CurrencyData(currency.getCode(), currency.getName(), chargeDefinition.getDigitsAfterDecimal(),
+                    currency.getInMultiplesOf(), currency.getDisplaySymbol(), currency.getNameCode());
+        }
         EnumOptionData chargeTimeType = ChargeEnumerations.chargeTimeType(chargeDefinition.getChargeTimeType());
         EnumOptionData chargeCalculationType = ChargeEnumerations.chargeCalculationType(chargeDefinition.getChargeCalculation());
         EnumOptionData chargePaymentMode = ChargeEnumerations.chargePaymentMode(chargeDefinition.getChargePaymentMode());

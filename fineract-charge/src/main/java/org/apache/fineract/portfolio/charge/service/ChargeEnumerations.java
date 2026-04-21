@@ -18,11 +18,14 @@
  */
 package org.apache.fineract.portfolio.charge.service;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.fineract.infrastructure.core.data.EnumOptionData;
 import org.apache.fineract.portfolio.charge.domain.ChargeAppliesTo;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargePaymentMode;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
+import org.apache.fineract.portfolio.charge.domain.RoundingModeEnum;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 
 public final class ChargeEnumerations {
@@ -198,6 +201,28 @@ public final class ChargeEnumerations {
             break;
         }
         return optionData;
+    }
+
+    public static EnumOptionData chargeRoundingMode(final Integer id) {
+        if (id == null) {
+            return null;
+        }
+        final RoundingModeEnum roundingModeEnum = RoundingModeEnum.fromInt(id);
+        if (roundingModeEnum.isInvalid()) {
+            return null;
+        }
+        return new EnumOptionData(roundingModeEnum.getValue().longValue(), roundingModeEnum.getCode(), roundingModeEnum.name());
+    }
+
+    public static List<EnumOptionData> chargeRoundingModeOptions() {
+        final List<EnumOptionData> options = new ArrayList<>();
+        for (RoundingModeEnum roundingModeEnum : RoundingModeEnum.values()) {
+            if (!roundingModeEnum.isInvalid()) {
+                options.add(
+                        new EnumOptionData(roundingModeEnum.getValue().longValue(), roundingModeEnum.getCode(), roundingModeEnum.name()));
+            }
+        }
+        return options;
     }
 
     public static EnumOptionData feeFrequencyType(final int id) {

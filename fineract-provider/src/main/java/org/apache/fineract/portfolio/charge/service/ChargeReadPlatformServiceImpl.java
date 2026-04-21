@@ -139,6 +139,7 @@ public class ChargeReadPlatformServiceImpl implements ChargeReadPlatformService 
         final String accountMappingForChargeConfig = this.configurationDomainServiceJpa.getAccountMappingForCharge();
         final List<GLAccountData> expenseAccountOptions = this.accountingDropdownReadPlatformService.retrieveExpenseAccountOptions();
         final List<GLAccountData> assetAccountOptions = this.accountingDropdownReadPlatformService.retrieveAssetAccountOptions();
+        final List<EnumOptionData> roundingModeOptions = ChargeEnumerations.chargeRoundingModeOptions();
 
         return ChargeData.builder().currencyOptions(currencyOptions).chargeCalculationTypeOptions(allowedChargeCalculationTypeOptions)
                 .chargeAppliesToOptions(allowedChargeAppliesToOptions).chargeTimeTypeOptions(allowedChargeTimeOptions)
@@ -148,10 +149,10 @@ public class ChargeReadPlatformServiceImpl implements ChargeReadPlatformService 
                 .savingsChargeTimeTypeOptions(savingsChargeTimeTypeOptions)
                 .clientChargeCalculationTypeOptions(clientChargeCalculationTypeOptions)
                 .clientChargeTimeTypeOptions(clientChargeTimeTypeOptions).feeFrequencyOptions(feeFrequencyOptions)
-                .incomeOrLiabilityAccountOptions(incomeOrLiabilityAccountOptions).taxGroupOptions(taxGroupOptions)
-                .shareChargeCalculationTypeOptions(shareChargeCalculationTypeOptions).shareChargeTimeTypeOptions(shareChargeTimeTypeOptions)
-                .accountMappingForChargeConfig(accountMappingForChargeConfig).expenseAccountOptions(expenseAccountOptions)
-                .assetAccountOptions(assetAccountOptions).build();
+                .roundingModeOptions(roundingModeOptions).incomeOrLiabilityAccountOptions(incomeOrLiabilityAccountOptions)
+                .taxGroupOptions(taxGroupOptions).shareChargeCalculationTypeOptions(shareChargeCalculationTypeOptions)
+                .shareChargeTimeTypeOptions(shareChargeTimeTypeOptions).accountMappingForChargeConfig(accountMappingForChargeConfig)
+                .expenseAccountOptions(expenseAccountOptions).assetAccountOptions(assetAccountOptions).build();
     }
 
     @Override
@@ -275,6 +276,7 @@ public class ChargeReadPlatformServiceImpl implements ChargeReadPlatformService 
                     + "c.charge_payment_mode_enum as chargePaymentMode, "
                     + "c.charge_calculation_enum as chargeCalculation, c.is_penalty as penalty, "
                     + "c.is_active as active, c.is_free_withdrawal as isFreeWithdrawal, c.free_withdrawal_charge_frequency as freeWithdrawalChargeFrequency, c.restart_frequency as restartFrequency, c.restart_frequency_enum as restartFrequencyEnum,"
+                    + "c.digits_after_decimal as digitsAfterDecimal, c.rounding_mode as roundingMode, "
                     + "oc.name as currencyName, oc.decimal_places as currencyDecimalPlaces, "
                     + "oc.currency_multiplesof as inMultiplesOf, oc.display_symbol as currencyDisplaySymbol, "
                     + "oc.internationalized_name_code as currencyNameCode, c.fee_on_day as feeOnDay, c.fee_on_month as feeOnMonth, "
@@ -329,6 +331,9 @@ public class ChargeReadPlatformServiceImpl implements ChargeReadPlatformService 
 
             final boolean penalty = rs.getBoolean("penalty");
             final boolean active = rs.getBoolean("active");
+            final Integer digitsAfterDecimal = JdbcSupport.getInteger(rs, "digitsAfterDecimal");
+            final Integer roundingMode = JdbcSupport.getInteger(rs, "roundingMode");
+            final EnumOptionData roundingModeEnum = ChargeEnumerations.chargeRoundingMode(roundingMode);
 
             final Integer feeInterval = JdbcSupport.getInteger(rs, "feeInterval");
             EnumOptionData feeFrequencyType = null;
@@ -376,7 +381,8 @@ public class ChargeReadPlatformServiceImpl implements ChargeReadPlatformService 
                 paymentTypeData = PaymentTypeData.instance(paymentTypeId, paymentTypeName);
             }
 
-            return ChargeData.builder().id(id).name(name).amount(amount).currency(currency).chargeTimeType(chargeTimeType)
+            return ChargeData.builder().id(id).name(name).amount(amount).currency(currency).digitsAfterDecimal(digitsAfterDecimal)
+                    .roundingMode(roundingModeEnum).chargeTimeType(chargeTimeType)
                     .chargeAppliesTo(chargeAppliesToType).chargeCalculationType(chargeCalculationType).chargePaymentMode(chargePaymentMode)
                     .feeOnMonthDay(feeOnMonthDay).feeInterval(feeInterval).penalty(penalty).active(active).freeWithdrawal(isFreeWithdrawal)
                     .freeWithdrawalChargeFrequency(freeWithdrawalChargeFrequency).restartFrequency(restartFrequency)

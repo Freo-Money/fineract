@@ -74,6 +74,7 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
                     + "lc.min_cap as minCap, lc.max_cap as maxCap, lc.charge_amount_or_percentage as amountOrPercentage, " //
                     + "lc.tax_group_id as taxGroupId, lc.amount_sans_tax as amountSansTax, lc.tax_amount as taxAmount, " //
                     + "lc.loan_id as loanId, c.currency_code as currencyCode, oc.name as currencyName, " //
+                    + "c.digits_after_decimal as chargeDigitsAfterDecimal, " //
                     + "date(coalesce(dd.disbursedon_date,dd.expected_disburse_date,l.disbursedon_date,l.expected_disbursedon_date)) as disbursementDate, " //
                     + "oc.decimal_places as currencyDecimalPlaces, oc.currency_multiplesof as inMultiplesOf, oc.display_symbol as currencyDisplaySymbol, " //
                     + "oc.internationalized_name_code as currencyNameCode, l.external_id as externalLoanId from m_charge c " //
@@ -103,8 +104,10 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
             final String currencyDisplaySymbol = rs.getString("currencyDisplaySymbol");
             final Integer currencyDecimalPlaces = JdbcSupport.getInteger(rs, "currencyDecimalPlaces");
             final Integer inMultiplesOf = JdbcSupport.getInteger(rs, "inMultiplesOf");
+            final Integer chargeDigitsAfterDecimal = JdbcSupport.getInteger(rs, "chargeDigitsAfterDecimal");
 
-            final CurrencyData currency = new CurrencyData(currencyCode, currencyName, currencyDecimalPlaces, inMultiplesOf,
+            final int effectiveDecimalPlaces = chargeDigitsAfterDecimal != null ? chargeDigitsAfterDecimal : currencyDecimalPlaces;
+            final CurrencyData currency = new CurrencyData(currencyCode, currencyName, effectiveDecimalPlaces, inMultiplesOf,
                     currencyDisplaySymbol, currencyNameCode);
 
             final int chargeTime = rs.getInt("chargeTime");
