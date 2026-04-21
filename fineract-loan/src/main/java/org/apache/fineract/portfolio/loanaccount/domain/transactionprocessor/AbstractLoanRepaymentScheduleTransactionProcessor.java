@@ -64,6 +64,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.imp
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.InterestPrincipalPenaltyFeesOrderLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.service.LoanBalanceService;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.CollectionUtils;
 
 /**
@@ -82,6 +84,19 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
     protected final ExternalIdFactory externalIdFactory;
     protected final LoanChargeValidator loanChargeValidator;
     protected final LoanBalanceService loanBalanceService;
+    private LoanProductRoundingModeService loanProductRoundingModeService;
+
+    @Autowired(required = false)
+    public void setLoanProductRoundingModeService(final LoanProductRoundingModeService loanProductRoundingModeService) {
+        this.loanProductRoundingModeService = loanProductRoundingModeService;
+    }
+
+    protected MathContext resolveMathContext(final Loan loan) {
+        if (loanProductRoundingModeService != null && loan != null && loan.getLoanProduct() != null) {
+            return loanProductRoundingModeService.resolveMathContext(loan.getLoanProduct().getId());
+        }
+        return MoneyHelper.getMathContext();
+    }
 
     @Override
     public boolean accept(String s) {
@@ -944,7 +959,7 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 } else {
                     final long totalDaysInPeriod = ChronoUnit.DAYS.between(installment.getFromDate(), installment.getDueDate());
                     final long daysTillChargeOff = ChronoUnit.DAYS.between(installment.getFromDate(), chargeOffDate);
-                    final MathContext mc = MoneyHelper.getMathContext();
+                    final MathContext mc = resolveMathContext(loan);
 
                     interest = Money.of(currency, totalInterest.divide(BigDecimal.valueOf(totalDaysInPeriod), mc)
                             .multiply(BigDecimal.valueOf(daysTillChargeOff), mc), mc).getAmount();

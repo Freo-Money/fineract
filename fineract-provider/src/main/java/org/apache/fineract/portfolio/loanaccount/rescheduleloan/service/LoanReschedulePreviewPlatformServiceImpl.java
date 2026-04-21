@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
-import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
@@ -44,6 +43,7 @@ import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanResch
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequestRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.exception.LoanRescheduleRequestNotFoundException;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,6 +58,7 @@ public class LoanReschedulePreviewPlatformServiceImpl implements LoanRescheduleP
     private final LoanRepaymentScheduleTransactionProcessorFactory loanRepaymentScheduleTransactionProcessorFactory;
     private final LoanScheduleGeneratorFactory loanScheduleFactory;
     private final LoanTermVariationsMapper loanTermVariationsMapper;
+    private final LoanProductRoundingModeService loanProductRoundingModeService;
 
     @Override
     public LoanScheduleModel previewLoanReschedule(Long requestId) {
@@ -119,7 +120,7 @@ public class LoanReschedulePreviewPlatformServiceImpl implements LoanRescheduleP
 
         loanApplicationTerms.getLoanTermVariations().updateLoanTermVariationsData(loanTermVariationsData);
 
-        final MathContext mathContext = MoneyHelper.getMathContext();
+        final MathContext mathContext = loanProductRoundingModeService.resolveMathContext(loan.loanProduct().getId());
         final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.loanRepaymentScheduleTransactionProcessorFactory
                 .determineProcessor(loan.transactionProcessingStrategy());
         final LoanScheduleGenerator loanScheduleGenerator = this.loanScheduleFactory.create(loanApplicationTerms.getLoanScheduleType(),

@@ -202,7 +202,7 @@ public class UserAdministrationTest extends IntegrationTest {
 
         // User updates its own password
         String updatedPassword = "QwE!5rTy#9uP0u";
-        PutUsersUserIdResponse putUsersUserIdResponse = ok(newFineractClient(simpleUsername, originalPassword).users.update26(userId,
+        PutUsersUserIdResponse putUsersUserIdResponse = ok(newFineractClient(simpleUsername, originalPassword).users.update27(userId,
                 new PutUsersUserIdRequest().password(updatedPassword).repeatPassword(updatedPassword)));
         Assertions.assertNotNull(putUsersUserIdResponse.getResourceId());
 
@@ -272,7 +272,7 @@ public class UserAdministrationTest extends IntegrationTest {
 
         // User tries to update it's own roles
         CallFailedRuntimeException callFailedRuntimeException = Assertions.assertThrows(CallFailedRuntimeException.class, () -> {
-            ok(newFineractClient(simpleUsername, password).users.update26(userId,
+            ok(newFineractClient(simpleUsername, password).users.update27(userId,
                     new PutUsersUserIdRequest().roles(List.of(Long.valueOf(roleId2)))));
         });
 

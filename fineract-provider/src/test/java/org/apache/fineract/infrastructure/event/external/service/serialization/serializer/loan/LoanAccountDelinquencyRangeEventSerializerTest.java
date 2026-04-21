@@ -102,6 +102,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService
 import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionProcessingService;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -130,9 +131,10 @@ public class LoanAccountDelinquencyRangeEventSerializerTest {
     @Mock
     private AvroDateTimeMapper mapper;
 
-    private final LoanChargeService loanChargeService = new LoanChargeService(mock(LoanChargeValidator.class),
-            mock(LoanTransactionProcessingService.class), mock(LoanLifecycleStateMachine.class), mock(LoanBalanceService.class),
-            mock(ConfigurationDomainService.class));
+    @Mock
+    private ConfigurationDomainService configurationDomainService;
+
+    private LoanChargeService loanChargeService;
 
     private MockedStatic<MoneyHelper> moneyHelper = Mockito.mockStatic(MoneyHelper.class);
 
@@ -142,6 +144,10 @@ public class LoanAccountDelinquencyRangeEventSerializerTest {
     public void setUp() {
         moneyHelper.when(MoneyHelper::getMathContext).thenReturn(new MathContext(12, RoundingMode.UP));
         moneyHelper.when(MoneyHelper::getRoundingMode).thenReturn(RoundingMode.UP);
+        when(configurationDomainService.getTaxRoundingMode()).thenReturn(RoundingMode.UP);
+        loanChargeService = new LoanChargeService(mock(LoanChargeValidator.class), mock(LoanTransactionProcessingService.class),
+                mock(LoanLifecycleStateMachine.class), mock(LoanBalanceService.class), configurationDomainService,
+                mock(LoanProductRoundingModeService.class));
         ThreadLocalContextUtil.setTenant(new FineractPlatformTenant(1L, "default", "Default", "Asia/Kolkata", null));
         ThreadLocalContextUtil.setActionContext(ActionContext.DEFAULT);
         ThreadLocalContextUtil

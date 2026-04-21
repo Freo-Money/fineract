@@ -554,6 +554,14 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder updateLoanProductRoundingMode(final Long productId) {
+        this.actionName = "UPDATE";
+        this.entityName = "LOANPRODUCTROUNDINGMODE";
+        this.entityId = productId;
+        this.href = "/loanproducts/" + productId + "/rounding-mode";
+        return this;
+    }
+
     public CommandWrapperBuilder createClientIdentifier(final Long clientId) {
         this.actionName = "CREATE";
         this.entityName = "CLIENTIDENTIFIER";

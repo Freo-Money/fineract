@@ -174,6 +174,7 @@ import org.apache.fineract.portfolio.loanaccount.service.strategy.OverdueChargeC
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.portfolio.note.service.NoteWritePlatformService;
 import org.apache.fineract.portfolio.paymentdetail.service.PaymentDetailWritePlatformService;
@@ -516,9 +517,10 @@ public class LoanAccountConfiguration {
     public LoanChargeService loanChargeService(final LoanChargeValidator loanChargeValidator,
             final LoanTransactionProcessingService loanTransactionProcessingService,
             final LoanLifecycleStateMachine loanLifecycleStateMachine, final LoanBalanceService loanBalanceService,
-            final ConfigurationDomainService configurationDomainService) {
+            final ConfigurationDomainService configurationDomainService,
+            final LoanProductRoundingModeService loanProductRoundingModeService) {
         return new LoanChargeService(loanChargeValidator, loanTransactionProcessingService, loanLifecycleStateMachine, loanBalanceService,
-                configurationDomainService);
+                configurationDomainService, loanProductRoundingModeService);
     }
 
     @Bean

@@ -32,7 +32,6 @@ import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
 import org.apache.fineract.organisation.monetary.domain.Money;
-import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.calendar.data.CalendarHistoryDataWrapper;
 import org.apache.fineract.portfolio.calendar.domain.Calendar;
 import org.apache.fineract.portfolio.calendar.domain.CalendarInstance;
@@ -855,7 +854,7 @@ public final class LoanApplicationTerms {
     }
 
     public Money adjustPrincipalIfLastRepaymentPeriod(final Money principalForPeriod, final Money totalCumulativePrincipalToDate,
-            final int periodNumber) {
+            final int periodNumber, final MathContext mc) {
 
         Money adjusted = principalForPeriod;
 
@@ -866,8 +865,7 @@ public final class LoanApplicationTerms {
             adjusted = principalForPeriod.minus(totalPrincipalRemaining.abs());
         } else if (this.actualFixedEmiAmount != null) {
             final Money difference = this.principal.minus(totalCumulativePrincipalToDate);
-            final Money principalThreshold = principalForPeriod.multipliedBy(this.principalThresholdForLastInstalment).dividedBy(100,
-                    MoneyHelper.getMathContext());
+            final Money principalThreshold = principalForPeriod.multipliedBy(this.principalThresholdForLastInstalment).dividedBy(100, mc);
             if (difference.isLessThan(principalThreshold)) {
                 adjusted = principalForPeriod.plus(difference.abs());
             }

@@ -36,3 +36,5 @@ gradleExp/
 
 .cursor/
 .windsurf/
+.claude/
+CLAUDE.md

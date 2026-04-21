@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.function.Predicate;
@@ -37,6 +38,11 @@ public class SingleLoanChargeRepaymentScheduleProcessingWrapper {
 
     public void reprocess(final MonetaryCurrency currency, final LocalDate disbursementDate,
             final List<LoanRepaymentScheduleInstallment> installments, LoanCharge loanCharge) {
+        reprocess(currency, disbursementDate, installments, loanCharge, MoneyHelper.getMathContext());
+    }
+
+    public void reprocess(final MonetaryCurrency currency, final LocalDate disbursementDate,
+            final List<LoanRepaymentScheduleInstallment> installments, LoanCharge loanCharge, final MathContext mc) {
         Money zero = Money.zero(currency);
         Money totalInterest = zero;
         Money totalPrincipal = zero;
@@ -65,7 +71,7 @@ public class SingleLoanChargeRepaymentScheduleProcessingWrapper {
             Predicate<LoanCharge> feePredicate = e -> e.isFeeCharge() && !e.isDueAtDisbursement();
             LocalDate dueDate = installment.getDueDate();
             final Money feeChargesDue = calcChargeDue(startDate, dueDate, loanCharge, currency, installment, totalPrincipal, totalInterest,
-                    installmentChargeApplicable, isFirstPeriod, feePredicate);
+                    installmentChargeApplicable, isFirstPeriod, feePredicate, mc);
             final Money feeChargesWaived = calcChargeWaived(startDate, dueDate, loanCharge, currency, installmentChargeApplicable,
                     isFirstPeriod, feePredicate);
             final Money feeChargesWrittenOff = calcChargeWrittenOff(startDate, dueDate, loanCharge, currency, installmentChargeApplicable,
@@ -73,7 +79,7 @@ public class SingleLoanChargeRepaymentScheduleProcessingWrapper {
 
             Predicate<LoanCharge> penaltyPredicate = LoanCharge::isPenaltyCharge;
             final Money penaltyChargesDue = calcChargeDue(startDate, dueDate, loanCharge, currency, installment, totalPrincipal,
-                    totalInterest, installmentChargeApplicable, isFirstPeriod, penaltyPredicate);
+                    totalInterest, installmentChargeApplicable, isFirstPeriod, penaltyPredicate, mc);
             final Money penaltyChargesWaived = calcChargeWaived(startDate, dueDate, loanCharge, currency, installmentChargeApplicable,
                     isFirstPeriod, penaltyPredicate);
             final Money penaltyChargesWrittenOff = calcChargeWrittenOff(startDate, dueDate, loanCharge, currency,
@@ -103,7 +109,7 @@ public class SingleLoanChargeRepaymentScheduleProcessingWrapper {
     @NotNull
     private Money calcChargeDue(final LocalDate periodStart, final LocalDate periodEnd, final LoanCharge loanCharge,
             final MonetaryCurrency currency, LoanRepaymentScheduleInstallment period, final Money totalPrincipal, final Money totalInterest,
-            boolean isInstallmentChargeApplicable, boolean isFirstPeriod, Predicate<LoanCharge> predicate) {
+            boolean isInstallmentChargeApplicable, boolean isFirstPeriod, Predicate<LoanCharge> predicate, final MathContext mc) {
         Money zero = Money.zero(currency);
         if (!predicate.test(loanCharge)) {
             return zero;
@@ -112,7 +118,7 @@ public class SingleLoanChargeRepaymentScheduleProcessingWrapper {
             return zero;
         }
         if (loanCharge.isInstalmentFee() && isInstallmentChargeApplicable) {
-            return Money.of(currency, getInstallmentFee(currency, period, loanCharge));
+            return Money.of(currency, getInstallmentFee(currency, period, loanCharge, mc));
         }
         if (!loanCharge.isDueInPeriod(periodStart, periodEnd, isFirstPeriod)) {
             return zero;
@@ -143,7 +149,7 @@ public class SingleLoanChargeRepaymentScheduleProcessingWrapper {
                 ? org.apache.fineract.portfolio.loanaccount.service.ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge,
                         loanCharge.getPercentage())
                 : loanCharge.getPercentage();
-        return Money.of(currency, MathUtil.percentageOf(baseAmount, effectivePercentage, MoneyHelper.getMathContext()));
+        return Money.of(currency, MathUtil.percentageOf(baseAmount, effectivePercentage, mc));
     }
 
     private Money calcChargeWaived(final LocalDate periodStart, final LocalDate periodEnd, final LoanCharge loanCharge,
@@ -180,12 +186,12 @@ public class SingleLoanChargeRepaymentScheduleProcessingWrapper {
         return zero;
     }
 
-    private BigDecimal getInstallmentFee(MonetaryCurrency currency, LoanRepaymentScheduleInstallment period, LoanCharge loanCharge) {
+    private BigDecimal getInstallmentFee(MonetaryCurrency currency, LoanRepaymentScheduleInstallment period, LoanCharge loanCharge,
+            final MathContext mc) {
         if (loanCharge.getChargeCalculation().isFlat()) {
             return loanCharge.amountOrPercentage();
         }
-        return MathUtil.percentageOf(getBaseAmount(currency, period, loanCharge, null), loanCharge.getPercentage(),
-                MoneyHelper.getMathContext());
+        return MathUtil.percentageOf(getBaseAmount(currency, period, loanCharge, null), loanCharge.getPercentage(), mc);
     }
 
     @NotNull

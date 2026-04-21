@@ -16,16 +16,14 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.portfolio.loanproduct.service;
+package org.apache.fineract.portfolio.loanproduct.exception;
 
-import org.apache.fineract.infrastructure.core.api.JsonCommand;
-import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.exception.AbstractPlatformDomainRuleException;
 
-public interface LoanProductWritePlatformService {
+public class InvalidLoanProductRoundingModeException extends AbstractPlatformDomainRuleException {
 
-    CommandProcessingResult createLoanProduct(JsonCommand command);
-
-    CommandProcessingResult updateLoanProduct(Long loanProductId, JsonCommand command);
-
-    CommandProcessingResult updateLoanProductRoundingMode(Long loanProductId, JsonCommand command);
+    public InvalidLoanProductRoundingModeException(String parameterName, Integer value) {
+        super("error.msg.loanproduct.roundingmode.invalid." + parameterName,
+                "Rounding mode for parameter '" + parameterName + "' must be between 0 and 6.", parameterName, value);
+    }
 }

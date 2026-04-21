@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.organisation.monetary.domain.Money;
-import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
@@ -37,6 +36,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplica
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleModel;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -44,9 +44,10 @@ import org.springframework.stereotype.Component;
 public class LoanMapper {
 
     private final LoanTermVariationsMapper loanTermVariationsMapper;
+    private final LoanProductRoundingModeService loanProductRoundingModeService;
 
     public LoanScheduleModel regenerateScheduleModel(final ScheduleGeneratorDTO scheduleGeneratorDTO, final Loan loan) {
-        final MathContext mc = MoneyHelper.getMathContext();
+        final MathContext mc = loanProductRoundingModeService.resolveMathContext(loan.getLoanProduct().getId());
 
         final LoanApplicationTerms loanApplicationTerms = loanTermVariationsMapper.constructLoanApplicationTerms(scheduleGeneratorDTO,
                 loan);

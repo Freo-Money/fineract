@@ -185,7 +185,7 @@ public class CumulativeDecliningBalanceInterestLoanScheduleGenerator extends Abs
 
         // adjust if needed
         principalForThisInstallment = loanApplicationTerms.adjustPrincipalIfLastRepaymentPeriod(principalForThisInstallment,
-                totalCumulativePrincipalToDate, periodNumber);
+                totalCumulativePrincipalToDate, periodNumber, mc);
 
         PrincipalInterest principalInterest = new PrincipalInterest(principalForThisInstallment, interestForThisInstallment,
                 interestBroughtFowardDueToGrace);
