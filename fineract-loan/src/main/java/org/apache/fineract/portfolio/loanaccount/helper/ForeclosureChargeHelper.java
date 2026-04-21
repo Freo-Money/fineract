@@ -46,6 +46,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.service.LoanChargeRoundingUtils;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeService;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
@@ -170,7 +171,11 @@ public class ForeclosureChargeHelper {
                 BigDecimal chargeAmount = calculationType.isPercentageBased()
                         ? calculatePercentageBasedCharge(loan, chargeDefinition, calculationType, percentage)
                         : percentage;
-                chargeAmount = chargeAmount.setScale(currency.getDigitsAfterDecimal(), RoundingMode.HALF_UP);
+                final int effectiveDigits = LoanChargeRoundingUtils.resolveDigitsAfterDecimal(chargeDefinition,
+                        currency.getDigitsAfterDecimal(), chargeAmount);
+                final RoundingMode effectiveRoundingMode = LoanChargeRoundingUtils.resolveRoundingMode(chargeDefinition,
+                        configurationDomainService);
+                chargeAmount = chargeAmount.setScale(effectiveDigits, effectiveRoundingMode);
                 totalFees = totalFees.plus(Money.of(currency, chargeAmount));
             } catch (Exception e) {
                 // Skip invalid charges
@@ -214,7 +219,11 @@ public class ForeclosureChargeHelper {
                 BigDecimal uncappedChargeAmount = calculationType.isPercentageBased()
                         ? calculatePercentageBasedCharge(loan, chargeDefinition, calculationType, amountOrPercentage)
                         : amountOrPercentage;
-                uncappedChargeAmount = uncappedChargeAmount.setScale(currency.getDigitsAfterDecimal(), RoundingMode.HALF_UP);
+                final int effectiveDigits = LoanChargeRoundingUtils.resolveDigitsAfterDecimal(chargeDefinition,
+                        currency.getDigitsAfterDecimal(), uncappedChargeAmount);
+                final RoundingMode effectiveRoundingMode = LoanChargeRoundingUtils.resolveRoundingMode(chargeDefinition,
+                        configurationDomainService);
+                uncappedChargeAmount = uncappedChargeAmount.setScale(effectiveDigits, effectiveRoundingMode);
                 LoanCharge loanCharge = loanChargeService.create(loan, chargeDefinition, loan.getPrincipal().getAmount(),
                         amountOrPercentage, ChargeTimeType.FORECLOSURE, calculationType, foreclosureDate, null, null, uncappedChargeAmount,
                         null);

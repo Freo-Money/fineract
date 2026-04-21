@@ -53,5 +53,7 @@ public class ChargeRequest implements Serializable {
     private BigDecimal maxCap;
     private BigDecimal maxCumulativePenaltyCap;
     private Long taxGroupId;
+    private Integer roundingMode;
+    private Integer digitsAfterDecimal;
 
 }

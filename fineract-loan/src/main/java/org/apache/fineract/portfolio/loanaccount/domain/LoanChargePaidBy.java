@@ -34,6 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
+import org.apache.fineract.portfolio.loanaccount.service.LoanChargeRoundingUtils;
 import org.apache.fineract.portfolio.tax.domain.TaxComponent;
 import org.apache.fineract.portfolio.tax.service.TaxUtils;
 
@@ -84,9 +85,8 @@ public class LoanChargePaidBy extends AbstractPersistableCustom<Long> {
     private void createTaxDetailsPaidBy(LocalDate transactionDate, RoundingMode roundingMode) {
         if (this.loanCharge.getTaxGroup() != null && this.amount.compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal incomeAmount = BigDecimal.ZERO;
-            int currencyScale = this.loanCharge.getLoan() != null && this.loanCharge.getLoan().getCurrency() != null
-                    ? this.loanCharge.getLoan().getCurrency().getDigitsAfterDecimal()
-                    : this.amount.scale();
+            final int currencyScale = LoanChargeRoundingUtils.resolveDigitsAfterDecimal(this.loanCharge, this.loanCharge.getCharge(),
+                    this.amount);
             Map<TaxComponent, BigDecimal> taxComponentsRaw = TaxUtils.splitTaxForLoanCharge(this.amount, transactionDate,
                     this.loanCharge.getTaxGroup().getTaxGroupMappings(), this.amount.scale(), roundingMode);
             Map<TaxComponent, BigDecimal> taxComponents = new HashMap<>(taxComponentsRaw.size());

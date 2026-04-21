@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -970,8 +971,12 @@ public class LoanChargeService {
 
     private void roundChargeAmountIfLoanAttached(final LoanCharge loanCharge) {
         if (loanCharge.getLoan() != null && loanCharge.getLoan().getCurrency() != null) {
-            LoanChargeTaxUtils.roundChargeAmountToCurrency(loanCharge, loanCharge.getLoan().getCurrency().getDigitsAfterDecimal(),
-                    configurationDomainService.getTaxRoundingMode());
+            final int effectiveDigits = LoanChargeRoundingUtils.resolveDigitsAfterDecimal(loanCharge, loanCharge.getCharge(),
+                    loanCharge.getAmount());
+            final RoundingMode effectiveRoundingMode = LoanChargeRoundingUtils.resolveRoundingMode(loanCharge.getCharge(),
+                    configurationDomainService);
+
+            LoanChargeTaxUtils.roundChargeAmountToCurrency(loanCharge, effectiveDigits, effectiveRoundingMode);
         }
     }
 

@@ -42,14 +42,20 @@ public final class LoanChargeTaxUtils {
         TaxGroup taxGroup = chargeDefinition.getTaxGroup();
         BigDecimal totalAmountInclusive = loanCharge.getAmount();
 
+        final int effectiveCurrencyDigits = LoanChargeRoundingUtils.resolveDigitsAfterDecimal(loanCharge, chargeDefinition,
+                totalAmountInclusive);
+        final RoundingMode effectiveRoundingMode = LoanChargeRoundingUtils.resolveRoundingMode(chargeDefinition, taxRoundingMode);
+
         if (taxGroup == null || totalAmountInclusive == null || totalAmountInclusive.compareTo(BigDecimal.ZERO) <= 0) {
             resetTaxFields(loanCharge);
+            roundChargeAmountToCurrency(loanCharge, effectiveCurrencyDigits, effectiveRoundingMode);
             return;
         }
 
         LocalDate taxCalculationDate = getTaxCalculationDate(chargeDate, loanCharge);
         loanCharge.setTaxGroup(taxGroup);
-        calculateAndApplyTax(loanCharge, taxGroup, totalAmountInclusive, taxCalculationDate, taxRoundingMode);
+        calculateAndApplyTax(loanCharge, taxGroup, totalAmountInclusive, taxCalculationDate, effectiveCurrencyDigits,
+                effectiveRoundingMode);
     }
 
     public static void calculateAndSetTaxDetails(final LoanCharge loanCharge, final Charge chargeDefinition, final LocalDate chargeDate,
@@ -57,15 +63,20 @@ public final class LoanChargeTaxUtils {
         TaxGroup taxGroup = chargeDefinition.getTaxGroup();
         BigDecimal totalAmountInclusive = loanCharge.getAmount();
 
+        final int effectiveCurrencyDigits = LoanChargeRoundingUtils.resolveDigitsAfterDecimal(chargeDefinition, currencyDigits,
+                totalAmountInclusive);
+        final RoundingMode effectiveRoundingMode = LoanChargeRoundingUtils.resolveRoundingMode(chargeDefinition, taxRoundingMode);
+
         if (taxGroup == null || totalAmountInclusive == null || totalAmountInclusive.compareTo(BigDecimal.ZERO) <= 0) {
             resetTaxFields(loanCharge);
-            roundChargeAmountToCurrency(loanCharge, currencyDigits, taxRoundingMode);
+            roundChargeAmountToCurrency(loanCharge, effectiveCurrencyDigits, effectiveRoundingMode);
             return;
         }
 
         LocalDate taxCalculationDate = getTaxCalculationDate(chargeDate, loanCharge);
         loanCharge.setTaxGroup(taxGroup);
-        calculateAndApplyTax(loanCharge, taxGroup, totalAmountInclusive, taxCalculationDate, currencyDigits, taxRoundingMode);
+        calculateAndApplyTax(loanCharge, taxGroup, totalAmountInclusive, taxCalculationDate, effectiveCurrencyDigits,
+                effectiveRoundingMode);
     }
 
     public static void roundChargeAmountToCurrency(final LoanCharge loanCharge, final int currencyDigits,
@@ -82,26 +93,24 @@ public final class LoanChargeTaxUtils {
             resetTaxFields(loanCharge);
             return;
         }
-        TaxGroup taxGroup = loanCharge.getCharge().getTaxGroup();
+        final Charge chargeDefinition = loanCharge.getCharge();
+        TaxGroup taxGroup = chargeDefinition.getTaxGroup();
+        final int effectiveCurrencyDigits = LoanChargeRoundingUtils.resolveDigitsAfterDecimal(loanCharge, chargeDefinition,
+                taxInclusiveAmount);
+        final RoundingMode effectiveRoundingMode = LoanChargeRoundingUtils.resolveRoundingMode(chargeDefinition, taxRoundingMode);
         if (taxInclusiveAmount == null || taxInclusiveAmount.compareTo(BigDecimal.ZERO) <= 0) {
             resetTaxFields(loanCharge);
+            roundChargeAmountToCurrency(loanCharge, effectiveCurrencyDigits, effectiveRoundingMode);
             return;
         }
         if (taxGroup == null) {
             resetTaxFields(loanCharge);
+            roundChargeAmountToCurrency(loanCharge, effectiveCurrencyDigits, effectiveRoundingMode);
             return;
         }
 
         loanCharge.setTaxGroup(taxGroup);
-        calculateAndApplyTax(loanCharge, taxGroup, taxInclusiveAmount, transactionDate, taxRoundingMode);
-    }
-
-    private static void calculateAndApplyTax(final LoanCharge loanCharge, final TaxGroup taxGroup, final BigDecimal taxInclusiveAmount,
-            final LocalDate transactionDate, final RoundingMode taxRoundingMode) {
-        int currencyScale = loanCharge.getLoan() != null && loanCharge.getLoan().getCurrency() != null
-                ? loanCharge.getLoan().getCurrency().getDigitsAfterDecimal()
-                : taxInclusiveAmount.scale();
-        calculateAndApplyTax(loanCharge, taxGroup, taxInclusiveAmount, transactionDate, currencyScale, taxRoundingMode);
+        calculateAndApplyTax(loanCharge, taxGroup, taxInclusiveAmount, transactionDate, effectiveCurrencyDigits, effectiveRoundingMode);
     }
 
     private static void calculateAndApplyTax(final LoanCharge loanCharge, final TaxGroup taxGroup, final BigDecimal taxInclusiveAmount,
