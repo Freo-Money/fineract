@@ -296,9 +296,10 @@ public class LoanAccountConfiguration {
     public LoanChargeAssembler loanChargeAssembler(final FromJsonHelper fromApiJsonHelper, final ChargeRepositoryWrapper chargeRepository,
             final LoanChargeRepository loanChargeRepository, final LoanProductRepository loanProductRepository,
             final ExternalIdFactory externalIdFactory, final LoanChargeService loanChargeService,
-            final ConfigurationDomainService configurationDomainService) {
+            final ConfigurationDomainService configurationDomainService,
+            final LoanProductRoundingModeService loanProductRoundingModeService) {
         return new LoanChargeAssembler(fromApiJsonHelper, chargeRepository, loanChargeRepository, loanProductRepository, externalIdFactory,
-                loanChargeService, configurationDomainService);
+                loanChargeService, configurationDomainService, loanProductRoundingModeService);
     }
 
     @Bean
@@ -506,10 +507,11 @@ public class LoanAccountConfiguration {
             LoanDisbursementValidator loanDisbursementValidator, ReprocessLoanTransactionsService reprocessLoanTransactionsService,
             LoanChargeService loanChargeService, LoanBalanceService loanBalanceService, LoanJournalEntryPoster journalEntryPoster,
             LoanTransactionRepository loanTransactionRepository, BusinessEventNotifierService businessEventNotifierService,
-            LoanDownPaymentHandlerService loanDownPaymentHandlerService, ConfigurationDomainService configurationDomainService) {
+            LoanDownPaymentHandlerService loanDownPaymentHandlerService, ConfigurationDomainService configurationDomainService,
+            LoanProductRoundingModeService loanProductRoundingModeService) {
         return new LoanDisbursementService(loanChargeValidator, loanDisbursementValidator, reprocessLoanTransactionsService,
                 loanChargeService, loanBalanceService, journalEntryPoster, loanTransactionRepository, businessEventNotifierService,
-                loanDownPaymentHandlerService, configurationDomainService);
+                loanDownPaymentHandlerService, configurationDomainService, loanProductRoundingModeService);
     }
 
     @Bean

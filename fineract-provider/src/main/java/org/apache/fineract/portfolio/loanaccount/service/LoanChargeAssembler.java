@@ -61,6 +61,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTrancheDisbursementC
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
 import org.apache.fineract.portfolio.loanproduct.exception.LoanProductNotFoundException;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 
 @RequiredArgsConstructor
 public class LoanChargeAssembler {
@@ -72,6 +73,7 @@ public class LoanChargeAssembler {
     private final ExternalIdFactory externalIdFactory;
     private final LoanChargeService loanChargeService;
     private final ConfigurationDomainService configurationDomainService;
+    private final LoanProductRoundingModeService loanProductRoundingModeService;
 
     public Set<LoanCharge> fromParsedJson(final JsonElement element, List<LoanDisbursementDetails> disbursementDetails) {
         JsonArray jsonDisbursement = this.fromApiJsonHelper.extractJsonArrayNamed("disbursementData", element);
@@ -236,12 +238,13 @@ public class LoanChargeAssembler {
         }
 
         final int currencyDigits = loanProduct.getCurrency().getDigitsAfterDecimal();
+        final java.math.RoundingMode taxRoundingMode = loanProductRoundingModeService.resolveTaxRoundingMode(loanProduct.getId());
         for (final LoanCharge loanCharge : loanCharges) {
             if (loanCharge.getCharge() != null) {
                 LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(), loanCharge.getDueLocalDate(),
-                        currencyDigits, configurationDomainService.getTaxRoundingMode());
+                        currencyDigits, taxRoundingMode);
             } else {
-                LoanChargeTaxUtils.roundChargeAmountToCurrency(loanCharge, currencyDigits, configurationDomainService.getTaxRoundingMode());
+                LoanChargeTaxUtils.roundChargeAmountToCurrency(loanCharge, currencyDigits, taxRoundingMode);
             }
         }
 

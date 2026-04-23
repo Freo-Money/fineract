@@ -105,6 +105,22 @@ public class LoanProductRoundingModeService {
         return MoneyHelper.createMathContext(RoundingMode.valueOf(resolveRoundingMode(productId)));
     }
 
+    public RoundingMode resolveTaxRoundingMode(Long productId) {
+        RoundingMode globalTaxRoundingMode = configurationDomainService.getTaxRoundingMode();
+        if (productId == null) {
+            return globalTaxRoundingMode;
+        }
+        return mappingRepository.findByLoanProductId(productId).map(mapping -> {
+            if (mapping.getTaxRoundingMode() != null && isValidRoundingMode(mapping.getTaxRoundingMode())) {
+                return RoundingMode.valueOf(mapping.getTaxRoundingMode());
+            }
+            if (mapping.getRoundingMode() != null && isValidRoundingMode(mapping.getRoundingMode())) {
+                return RoundingMode.valueOf(mapping.getRoundingMode());
+            }
+            return globalTaxRoundingMode;
+        }).orElse(globalTaxRoundingMode);
+    }
+
     public LoanProductRoundingModeData resolveAll(Long productId) {
         Integer globalRoundingMode = configurationDomainService.getRoundingMode();
         if (productId == null) {
