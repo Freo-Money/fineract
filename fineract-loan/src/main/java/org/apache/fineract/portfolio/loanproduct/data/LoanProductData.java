@@ -62,6 +62,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanSchedul
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
 import org.apache.fineract.portfolio.loanproduct.domain.AllocationType;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
+import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.CreditAllocationTransactionType;
 import org.apache.fineract.portfolio.loanproduct.domain.FutureInstallmentAllocationRule;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
@@ -273,6 +274,7 @@ public class LoanProductData implements Serializable {
     private List<ClassificationToGLAccountData> buydownFeeClassificationToIncomeAccountMappings;
     // Broken Period Interest Configuration
     private final BrokenPeriodConfigData brokenPeriodConfig;
+    private List<EnumOptionData> brokenPeriodInterestStrategyOptions;
     private boolean bpiCollectedAtDisbursement;
 
     /**
@@ -981,10 +983,11 @@ public class LoanProductData implements Serializable {
         this.buyDownFeeStrategy = buyDownFeeStrategy;
         this.buyDownFeeIncomeType = buyDownFeeIncomeType;
         this.merchantBuyDownFee = merchantBuyDownFee;
-        this.brokenPeriodConfig = brokenPeriodConfig;
-        this.installmentInterestCalculationType = installmentInterestCalculationType;
+        this.brokenPeriodConfig = brokenPeriodConfig != null ? brokenPeriodConfig : new BrokenPeriodConfigData("none", null, null);
         this.bpiCollectedAtDisbursement = bpiCollectedAtDisbursement;
-
+        this.precloseEmiRounding = precloseEmiRounding;
+        this.installmentInterestCalculationType = installmentInterestCalculationType;
+        this.brokenPeriodInterestStrategyOptions = BrokenPeriodInterestStrategy.getOptionDataList();
         this.chargeOptions = null;
         this.penaltyOptions = null;
         this.paymentTypeOptions = null;
@@ -1041,7 +1044,6 @@ public class LoanProductData implements Serializable {
 
         this.canDefineInstallmentAmount = canDefineInstallmentAmount;
         this.adjustInterestForRounding = adjustInterestForRounding;
-        this.precloseEmiRounding = precloseEmiRounding;
         this.installmentAmountInMultiplesOf = installmentAmountInMultiplesOf;
         this.preClosureInterestCalculationStrategyOptions = null;
         this.syncExpectedWithDisbursementDate = syncExpectedWithDisbursementDate;
@@ -1310,6 +1312,7 @@ public class LoanProductData implements Serializable {
         this.buydownFeeClassificationToIncomeAccountMappings = productData.buydownFeeClassificationToIncomeAccountMappings;
         this.capitalizedIncomeClassificationToIncomeAccountMappings = productData.capitalizedIncomeClassificationToIncomeAccountMappings;
         this.brokenPeriodConfig = productData.brokenPeriodConfig;
+        this.brokenPeriodInterestStrategyOptions = BrokenPeriodInterestStrategy.getOptionDataList();
     }
 
     private Collection<ChargeData> nullIfEmpty(final Collection<ChargeData> charges) {
@@ -1526,7 +1529,8 @@ public class LoanProductData implements Serializable {
         return isRatesEnabled;
     }
 
-    public boolean isBpiCollectedAtDisbursement() {
+    public Boolean isBpiCollectedAtDisbursement() {
         return bpiCollectedAtDisbursement;
     }
+
 }

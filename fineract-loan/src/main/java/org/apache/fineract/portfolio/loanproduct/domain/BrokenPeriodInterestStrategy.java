@@ -18,13 +18,24 @@
  */
 package org.apache.fineract.portfolio.loanproduct.domain;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+import org.apache.fineract.infrastructure.core.data.EnumOptionData;
+
 /**
  * Enum representing different strategies for handling broken period interest (BPI).
  */
+
 public enum BrokenPeriodInterestStrategy {
 
     /**
-     * Add partial interest to the first installment EMI
+     * No broken period interest strategy
+     */
+    NONE("none", "None"),
+
+    /**
+     * Add partial interest to the first installment EMI.
      */
     ADD_TO_FIRST_INSTALLMENT_EMI("add_to_first_installment_emi", "Add to First Installment EMI"),
 
@@ -50,6 +61,12 @@ public enum BrokenPeriodInterestStrategy {
         return this.displayName;
     }
 
+    public static List<EnumOptionData> getOptionDataList() {
+        return Arrays.stream(values())
+                .map(strategy -> new EnumOptionData((long) strategy.ordinal(), strategy.getCode(), strategy.getDisplayName()))
+                .collect(Collectors.toList());
+    }
+
     public static BrokenPeriodInterestStrategy fromCode(String strategy) {
         BrokenPeriodInterestStrategy result = ADD_TO_FIRST_INSTALLMENT_EMI;
         for (BrokenPeriodInterestStrategy s : values()) {
@@ -66,5 +83,9 @@ public enum BrokenPeriodInterestStrategy {
 
     public boolean isAddToFirstInstallmentWithPrincipalGrace() {
         return this == ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE;
+    }
+
+    public boolean isNone() {
+        return this == NONE;
     }
 }

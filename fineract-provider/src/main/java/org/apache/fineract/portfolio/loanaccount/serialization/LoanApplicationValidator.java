@@ -2315,7 +2315,8 @@ public final class LoanApplicationValidator {
             brokenPeriodMethodType = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element);
             baseDataValidator.reset().parameter(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE).value(brokenPeriodMethodType).notBlank()
                     .isOneOfTheseStringValues(BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_EMI.getCode(),
-                            BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE.getCode());
+                            BrokenPeriodInterestStrategy.ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE.getCode(),
+                            BrokenPeriodInterestStrategy.NONE.getCode());
         }
 
         if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, element)) {

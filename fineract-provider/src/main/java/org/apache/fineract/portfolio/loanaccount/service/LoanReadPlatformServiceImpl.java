@@ -1458,7 +1458,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, brokenPeriodInterest);
 
             // Set BPI configuration
+            String bpiMethodType = (brokenPeriodConfig != null && brokenPeriodConfig.getBrokenPeriodMethodType() != null)
+                    ? brokenPeriodConfig.getBrokenPeriodMethodType()
+                    : "none";
             loanAccountData.setBrokenPeriodConfig(brokenPeriodConfig);
+            loanAccountData.setBrokenPeriodMethodType(bpiMethodType);
             loanAccountData.setCustomScheduleDefined(customScheduleDefined);
             loanAccountData.setBpiCollectedAtDisbursement(bpiCollectedAtDisbursement);
 
