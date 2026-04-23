@@ -357,6 +357,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
 
             final LoanApplicationTerms loanApplicationTerms = loanTermVariationsMapper.constructLoanApplicationTerms(scheduleGeneratorDTO,
                     loan);
+            loanApplicationTerms.setRoundingModeConfig(loanProductRoundingModeService.resolveAll(loan.getLoanProduct().getId()));
 
             LocalDate rescheduleFromDate = null;
             List<LoanTermVariations> activeLoanTermVariations = loan.getActiveLoanTermVariations();

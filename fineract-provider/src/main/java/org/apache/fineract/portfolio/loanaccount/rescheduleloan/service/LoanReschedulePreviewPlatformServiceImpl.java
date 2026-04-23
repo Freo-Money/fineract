@@ -77,6 +77,7 @@ public class LoanReschedulePreviewPlatformServiceImpl implements LoanRescheduleP
         List<LoanTermVariationsData> removeLoanTermVariationsData = new ArrayList<>();
         final LoanApplicationTerms loanApplicationTerms = loanTermVariationsMapper.constructLoanApplicationTerms(scheduleGeneratorDTO,
                 loan);
+        loanApplicationTerms.setRoundingModeConfig(loanProductRoundingModeService.resolveAll(loan.getLoanProduct().getId()));
         LoanTermVariations dueDateVariationInCurrentRequest = loanRescheduleRequest.getDueDateTermVariationIfExists();
         if (dueDateVariationInCurrentRequest != null) {
             for (LoanTermVariationsData loanTermVariation : loanApplicationTerms.getLoanTermVariations().getDueDateVariation()) {

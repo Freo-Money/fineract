@@ -105,6 +105,29 @@ public class LoanProductRoundingModeService {
         return MoneyHelper.createMathContext(RoundingMode.valueOf(resolveRoundingMode(productId)));
     }
 
+    public LoanProductRoundingModeData resolveAll(Long productId) {
+        Integer globalRoundingMode = configurationDomainService.getRoundingMode();
+        if (productId == null) {
+            return new LoanProductRoundingModeData(null, globalRoundingMode, globalRoundingMode, globalRoundingMode, globalRoundingMode,
+                    globalRoundingMode, null);
+        }
+        return mappingRepository.findByLoanProductId(productId).map(mapping -> {
+            Integer effectiveRoundingMode = (mapping.getRoundingMode() != null && isValidRoundingMode(mapping.getRoundingMode()))
+                    ? mapping.getRoundingMode()
+                    : globalRoundingMode;
+            return new LoanProductRoundingModeData(productId, effectiveRoundingMode,
+                    resolveWithFallback(mapping.getInstallmentRoundingMode(), effectiveRoundingMode),
+                    resolveWithFallback(mapping.getTaxRoundingMode(), effectiveRoundingMode),
+                    resolveWithFallback(mapping.getAdjustedRoundingMode(), effectiveRoundingMode), effectiveRoundingMode,
+                    mapping.getLastModifiedDate().orElse(null));
+        }).orElseGet(() -> new LoanProductRoundingModeData(productId, globalRoundingMode, globalRoundingMode, globalRoundingMode,
+                globalRoundingMode, globalRoundingMode, null));
+    }
+
+    private Integer resolveWithFallback(Integer value, Integer fallback) {
+        return (value != null && isValidRoundingMode(value)) ? value : fallback;
+    }
+
     private void validateRoundingMode(Integer value, String parameterName) {
         if (value != null && !isValidRoundingMode(value)) {
             throw new InvalidLoanProductRoundingModeException(parameterName, value);

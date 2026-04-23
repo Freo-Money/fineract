@@ -210,6 +210,7 @@ public class LoanTransactionProcessingServiceImpl implements LoanTransactionProc
         final MathContext mc = loanProductRoundingModeService.resolveMathContext(loan.loanProduct().getId());
 
         final LoanApplicationTerms loanApplicationTerms = loanMapper.constructLoanApplicationTerms(generatorDTO, loan);
+        loanApplicationTerms.setRoundingModeConfig(loanProductRoundingModeService.resolveAll(loan.loanProduct().getId()));
 
         final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = getTransactionProcessor(
                 loan.getTransactionProcessingStrategyCode());
@@ -227,6 +228,7 @@ public class LoanTransactionProcessingServiceImpl implements LoanTransactionProc
 
             final InterestMethod interestMethod = loan.getLoanRepaymentScheduleDetail().getInterestMethod();
             final LoanApplicationTerms loanApplicationTerms = loanMapper.constructLoanApplicationTerms(scheduleGeneratorDTO, loan);
+            loanApplicationTerms.setRoundingModeConfig(loanProductRoundingModeService.resolveAll(loan.loanProduct().getId()));
 
             final LoanScheduleGenerator loanScheduleGenerator = scheduleGeneratorDTO.getLoanScheduleFactory()
                     .create(loanApplicationTerms.getLoanScheduleType(), interestMethod);

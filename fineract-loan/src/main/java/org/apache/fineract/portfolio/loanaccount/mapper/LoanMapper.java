@@ -51,6 +51,7 @@ public class LoanMapper {
 
         final LoanApplicationTerms loanApplicationTerms = loanTermVariationsMapper.constructLoanApplicationTerms(scheduleGeneratorDTO,
                 loan);
+        loanApplicationTerms.setRoundingModeConfig(loanProductRoundingModeService.resolveAll(loan.getLoanProduct().getId()));
         LoanScheduleGenerator loanScheduleGenerator;
         if (loanApplicationTerms.isEqualAmortization()) {
             if (loanApplicationTerms.getInterestMethod().isDecliningBalance()) {
