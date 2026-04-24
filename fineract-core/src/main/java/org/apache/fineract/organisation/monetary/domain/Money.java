@@ -157,6 +157,16 @@ public class Money implements Comparable<Money> {
         return amountScaled;
     }
 
+    public static BigDecimal roundToMultiplesOf(final BigDecimal existingVal, final Integer inMultiplesOf,
+            final RoundingMode roundingMode) {
+        BigDecimal amountScaled = existingVal;
+        BigDecimal inMultiplesOfValue = BigDecimal.valueOf(inMultiplesOf);
+        if (inMultiplesOfValue.compareTo(BigDecimal.ZERO) > 0) {
+            amountScaled = existingVal.divide(inMultiplesOfValue, 0, roundingMode).multiply(inMultiplesOfValue);
+        }
+        return amountScaled;
+    }
+
     public static Money roundToMultiplesOf(final Money existingVal, final Integer inMultiplesOf) {
         return roundToMultiplesOf(existingVal, inMultiplesOf, MoneyHelper.getMathContext());
     }

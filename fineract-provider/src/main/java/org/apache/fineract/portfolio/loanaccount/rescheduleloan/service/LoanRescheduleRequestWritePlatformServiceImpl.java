@@ -46,7 +46,6 @@ import org.apache.fineract.infrastructure.event.business.domain.loan.LoanBalance
 import org.apache.fineract.infrastructure.event.business.domain.loan.LoanRescheduledDueAdjustScheduleBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.service.BusinessEventNotifierService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
-import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.loanaccount.data.LoanTermVariationsData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
@@ -81,6 +80,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanChargeService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.loanaccount.service.ReprocessLoanTransactionsService;
 import org.apache.fineract.portfolio.loanaccount.service.schedule.LoanScheduleComponent;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -117,6 +117,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
     private final LoanScheduleComponent loanSchedule;
     private final LoanTransactionRepository loanTransactionRepository;
     private final LoanLifecycleStateMachine loanLifecycleStateMachine;
+    private final LoanProductRoundingModeService loanProductRoundingModeService;
 
     /**
      * create a new instance of the LoanRescheduleRequest object from the JsonCommand object and persist
@@ -356,6 +357,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
 
             final LoanApplicationTerms loanApplicationTerms = loanTermVariationsMapper.constructLoanApplicationTerms(scheduleGeneratorDTO,
                     loan);
+            loanApplicationTerms.setRoundingModeConfig(loanProductRoundingModeService.resolveAll(loan.getLoanProduct().getId()));
 
             LocalDate rescheduleFromDate = null;
             List<LoanTermVariations> activeLoanTermVariations = loan.getActiveLoanTermVariations();
@@ -417,7 +419,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
              * loanTermVariation.setApplicableFromDate(adjustedDate); } } }
              */
 
-            final MathContext mathContext = MoneyHelper.getMathContext();
+            final MathContext mathContext = loanProductRoundingModeService.resolveMathContext(loan.loanProduct().getId());
             final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = this.loanRepaymentScheduleTransactionProcessorFactory
                     .determineProcessor(loan.transactionProcessingStrategy());
             final LoanScheduleGenerator loanScheduleGenerator = this.loanScheduleFactory.create(loanApplicationTerms.getLoanScheduleType(),

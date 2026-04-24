@@ -16,16 +16,10 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.portfolio.loanproduct.service;
+package org.apache.fineract.portfolio.loanproduct.data;
 
-import org.apache.fineract.infrastructure.core.api.JsonCommand;
-import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import java.time.OffsetDateTime;
 
-public interface LoanProductWritePlatformService {
-
-    CommandProcessingResult createLoanProduct(JsonCommand command);
-
-    CommandProcessingResult updateLoanProduct(Long loanProductId, JsonCommand command);
-
-    CommandProcessingResult updateLoanProductRoundingMode(Long loanProductId, JsonCommand command);
+public record LoanProductRoundingModeData(Long productId, Integer roundingMode, Integer installmentRoundingMode, Integer taxRoundingMode,
+        Integer adjustedRoundingMode, Integer effectiveRoundingMode, OffsetDateTime lastModifiedOnUtc) {
 }

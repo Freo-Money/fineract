@@ -115,7 +115,7 @@ public final class LoanChargeTaxUtils {
 
     private static void calculateAndApplyTax(final LoanCharge loanCharge, final TaxGroup taxGroup, final BigDecimal taxInclusiveAmount,
             final LocalDate transactionDate, final int currencyDigits, final RoundingMode taxRoundingMode) {
-        int mathScale = taxInclusiveAmount.scale();
+        int mathScale = Math.max(taxInclusiveAmount.scale(), currencyDigits);
         Set<TaxGroupMappings> taxGroupMappings = taxGroup.getTaxGroupMappings();
 
         BigDecimal amountSansTaxRaw = TaxUtils.extractBaseAmountFromTaxInclusive(taxInclusiveAmount, transactionDate, taxGroupMappings,

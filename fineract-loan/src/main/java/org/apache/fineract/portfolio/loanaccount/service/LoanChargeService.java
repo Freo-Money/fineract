@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -59,6 +60,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.SingleLoanChargeRepaymen
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.MoneyHolder;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.TransactionCtx;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 
 @RequiredArgsConstructor
 public class LoanChargeService {
@@ -68,6 +70,7 @@ public class LoanChargeService {
     private final LoanLifecycleStateMachine loanLifecycleStateMachine;
     private final LoanBalanceService loanBalanceService;
     private final ConfigurationDomainService configurationDomainService;
+    private final LoanProductRoundingModeService loanProductRoundingModeService;
 
     public void recalculateAllCharges(final Loan loan) {
         Set<LoanCharge> charges = loan.getActiveCharges();
@@ -291,7 +294,8 @@ public class LoanChargeService {
 
         // store Id's of existing loan transactions and existing reversed loan transactions
         final SingleLoanChargeRepaymentScheduleProcessingWrapper wrapper = new SingleLoanChargeRepaymentScheduleProcessingWrapper();
-        wrapper.reprocess(loan.getCurrency(), loan.getDisbursementDate(), loan.getRepaymentScheduleInstallments(), loanCharge);
+        wrapper.reprocess(loan.getCurrency(), loan.getDisbursementDate(), loan.getRepaymentScheduleInstallments(), loanCharge,
+                resolveMathContext(loan));
         loanBalanceService.updateLoanSummaryDerivedFields(loan);
 
         loanLifecycleStateMachine.transition(LoanEvent.LOAN_CHARGE_ADDED, loan);
@@ -445,7 +449,7 @@ public class LoanChargeService {
             }
             if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
                 LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(), loanCharge.getDueLocalDate(),
-                        configurationDomainService.getTaxRoundingMode());
+                        resolveTaxRoundingMode(loanCharge.getLoan()));
                 roundChargeAmountIfLoanAttached(loanCharge);
             }
         }
@@ -492,7 +496,8 @@ public class LoanChargeService {
                     final BigDecimal effectivePercentage = loanCharge.isOverdueInstallmentCharge()
                             ? ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge, chargeAmount)
                             : chargeAmount;
-                    loanChargeAmount = LoanCharge.percentageOf(loanCharge.getAmountPercentageAppliedTo(), effectivePercentage);
+                    final MathContext mc = resolveMathContext(loanCharge.getLoan());
+                    loanChargeAmount = LoanCharge.percentageOf(loanCharge.getAmountPercentageAppliedTo(), effectivePercentage, mc);
                 }
                 loanCharge.setAmount(loanCharge.minimumAndMaximumCap(loanChargeAmount));
                 loanCharge.setAmountPaid(null);
@@ -580,8 +585,7 @@ public class LoanChargeService {
 
         populateDerivedFields(loanCharge, loanPrincipal, chargeAmount, numberOfRepayments, loanChargeAmount);
 
-        LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, chargeDefinition, dueDate,
-                configurationDomainService.getTaxRoundingMode());
+        LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, chargeDefinition, dueDate, resolveTaxRoundingMode(loan));
         roundChargeAmountIfLoanAttached(loanCharge);
 
         loanCharge.setPaid(loanCharge.determineIfFullyPaid());
@@ -883,7 +887,7 @@ public class LoanChargeService {
             }
             if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
                 LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(), loanCharge.getDueLocalDate(),
-                        configurationDomainService.getTaxRoundingMode());
+                        resolveTaxRoundingMode(loanCharge.getLoan()));
                 roundChargeAmountIfLoanAttached(loanCharge);
             }
         }
@@ -930,7 +934,7 @@ public class LoanChargeService {
             if (loanCharge.getCharge() != null && loanCharge.getAmount() != null) {
                 LoanChargeTaxUtils.calculateAndSetTaxDetails(loanCharge, loanCharge.getCharge(),
                         transactionDate != null ? transactionDate : loanCharge.getDueLocalDate(),
-                        configurationDomainService.getTaxRoundingMode());
+                        resolveTaxRoundingMode(loanCharge.getLoan()));
                 roundChargeAmountIfLoanAttached(loanCharge);
             }
         }
@@ -965,8 +969,9 @@ public class LoanChargeService {
             case PERCENT_OF_DISBURSEMENT_AMOUNT, INVALID, FLAT -> Money.zero(loan.getCurrency());
 
         };
+        final MathContext mc = resolveMathContext(loan);
         return Money.zero(loan.getCurrency()) //
-                .plus(LoanCharge.percentageOf(percentOf.getAmount(), percentage));
+                .plus(LoanCharge.percentageOf(percentOf.getAmount(), percentage, mc));
     }
 
     private void roundChargeAmountIfLoanAttached(final LoanCharge loanCharge) {
@@ -974,7 +979,7 @@ public class LoanChargeService {
             final int effectiveDigits = LoanChargeRoundingUtils.resolveDigitsAfterDecimal(loanCharge, loanCharge.getCharge(),
                     loanCharge.getAmount());
             final RoundingMode effectiveRoundingMode = LoanChargeRoundingUtils.resolveRoundingMode(loanCharge.getCharge(),
-                    configurationDomainService);
+                    resolveTaxRoundingMode(loanCharge.getLoan()));
 
             LoanChargeTaxUtils.roundChargeAmountToCurrency(loanCharge, effectiveDigits, effectiveRoundingMode);
         }
@@ -998,6 +1003,20 @@ public class LoanChargeService {
             }
         }
         return amount;
+    }
+
+    private MathContext resolveMathContext(final Loan loan) {
+        if (loan != null && loan.getLoanProduct() != null) {
+            return loanProductRoundingModeService.resolveMathContext(loan.getLoanProduct().getId());
+        }
+        return loanProductRoundingModeService.resolveMathContext(null);
+    }
+
+    private RoundingMode resolveTaxRoundingMode(final Loan loan) {
+        if (loan != null && loan.getLoanProduct() != null) {
+            return loanProductRoundingModeService.resolveTaxRoundingMode(loan.getLoanProduct().getId());
+        }
+        return loanProductRoundingModeService.resolveTaxRoundingMode(null);
     }
 
 }

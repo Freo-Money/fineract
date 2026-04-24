@@ -338,11 +338,14 @@ public class LoanCharge extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     }
 
     public static BigDecimal percentageOf(final BigDecimal value, final BigDecimal percentage) {
+        return percentageOf(value, percentage, MoneyHelper.getMathContext());
+    }
+
+    public static BigDecimal percentageOf(final BigDecimal value, final BigDecimal percentage, final MathContext mc) {
 
         BigDecimal percentageOf = BigDecimal.ZERO;
 
         if (isGreaterThanZero(value)) {
-            final MathContext mc = MoneyHelper.getMathContext();
             final BigDecimal multiplicand = percentage.divide(BigDecimal.valueOf(100L), mc);
             percentageOf = value.multiply(multiplicand, mc);
         }

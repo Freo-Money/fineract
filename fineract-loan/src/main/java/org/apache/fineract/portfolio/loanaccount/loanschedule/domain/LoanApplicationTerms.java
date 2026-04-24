@@ -21,6 +21,7 @@ package org.apache.fineract.portfolio.loanaccount.loanschedule.domain;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -56,6 +57,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeTyp
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeOffBehaviour;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductRelatedDetailMinimumData;
+import org.apache.fineract.portfolio.loanproduct.data.LoanProductRoundingModeData;
 import org.apache.fineract.portfolio.loanproduct.domain.AmortizationMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
@@ -180,6 +182,7 @@ public final class LoanApplicationTerms {
 
     private BigDecimal principalThresholdForLastInstalment;
     private Integer installmentAmountInMultiplesOf;
+    private LoanProductRoundingModeData roundingModeConfig;
     private boolean adjustInterestForRounding;
 
     private LoanPreCloseInterestCalculationStrategy preClosureInterestCalculationStrategy;
@@ -855,7 +858,7 @@ public final class LoanApplicationTerms {
     }
 
     public Money adjustPrincipalIfLastRepaymentPeriod(final Money principalForPeriod, final Money totalCumulativePrincipalToDate,
-            final int periodNumber) {
+            final int periodNumber, final MathContext mc) {
 
         Money adjusted = principalForPeriod;
 
@@ -866,8 +869,7 @@ public final class LoanApplicationTerms {
             adjusted = principalForPeriod.minus(totalPrincipalRemaining.abs());
         } else if (this.actualFixedEmiAmount != null) {
             final Money difference = this.principal.minus(totalCumulativePrincipalToDate);
-            final Money principalThreshold = principalForPeriod.multipliedBy(this.principalThresholdForLastInstalment).dividedBy(100,
-                    MoneyHelper.getMathContext());
+            final Money principalThreshold = principalForPeriod.multipliedBy(this.principalThresholdForLastInstalment).dividedBy(100, mc);
             if (difference.isLessThan(principalThreshold)) {
                 adjusted = principalForPeriod.plus(difference.abs());
             }
@@ -1619,7 +1621,10 @@ public final class LoanApplicationTerms {
 
             BigDecimal fixedEmiAmount = BigDecimal.valueOf(installmentAmount);
             if (this.installmentAmountInMultiplesOf != null) {
-                fixedEmiAmount = Money.roundToMultiplesOf(fixedEmiAmount, this.installmentAmountInMultiplesOf);
+                RoundingMode rm = (this.roundingModeConfig != null && this.roundingModeConfig.installmentRoundingMode() != null)
+                        ? RoundingMode.valueOf(this.roundingModeConfig.installmentRoundingMode())
+                        : MoneyHelper.getRoundingMode();
+                fixedEmiAmount = Money.roundToMultiplesOf(fixedEmiAmount, this.installmentAmountInMultiplesOf, rm);
             }
             setFixedEmiAmount(fixedEmiAmount);
         }
@@ -2363,6 +2368,14 @@ public final class LoanApplicationTerms {
 
     public Integer getInstallmentAmountInMultiplesOf() {
         return installmentAmountInMultiplesOf;
+    }
+
+    public LoanProductRoundingModeData getRoundingModeConfig() {
+        return roundingModeConfig;
+    }
+
+    public void setRoundingModeConfig(LoanProductRoundingModeData roundingModeConfig) {
+        this.roundingModeConfig = roundingModeConfig;
     }
 
     public LoanScheduleType getLoanScheduleType() {

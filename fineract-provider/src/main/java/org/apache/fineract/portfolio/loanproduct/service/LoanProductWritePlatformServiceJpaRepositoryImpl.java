@@ -23,6 +23,7 @@ import com.google.gson.JsonObject;
 import jakarta.persistence.PersistenceException;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -105,6 +106,7 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
     private final LoanProductUpdateUtil loanProductUpdateUtil;
     private final LoanProductConfigMappingRepository loanProductConfigMappingRepository;
     private final FromJsonHelper fromApiJsonHelper;
+    private final LoanProductRoundingModeService loanProductRoundingModeService;
     private final LoanProductPaymentAllocationRuleMerger loanProductPaymentAllocationRuleMerger = new LoanProductPaymentAllocationRuleMerger();
     private final LoanProductCreditAllocationRuleMerger loanProductCreditAllocationRuleMerger = new LoanProductCreditAllocationRuleMerger();
 
@@ -476,5 +478,19 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
 
     private void logAsErrorUnexpectedDataIntegrityException(final Exception dve) {
         log.error("Error occurred.", dve);
+    }
+
+    @Transactional
+    @Override
+    public CommandProcessingResult updateLoanProductRoundingMode(final Long loanProductId, final JsonCommand command) {
+        this.context.authenticatedUser();
+        final var data = loanProductRoundingModeService.upsert(loanProductId, command.json());
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("roundingMode", data.roundingMode());
+        changes.put("installmentRoundingMode", data.installmentRoundingMode());
+        changes.put("taxRoundingMode", data.taxRoundingMode());
+        changes.put("adjustedRoundingMode", data.adjustedRoundingMode());
+        changes.put("effectiveRoundingMode", data.effectiveRoundingMode());
+        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(loanProductId).with(changes).build();
     }
 }

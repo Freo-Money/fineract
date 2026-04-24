@@ -44,6 +44,7 @@ import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatfor
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformServiceImpl;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformServiceImpl;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductWritePlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductWritePlatformServiceJpaRepositoryImpl;
 import org.apache.fineract.portfolio.rate.domain.RateRepositoryWrapper;
@@ -85,11 +86,13 @@ public class LoanProductConfiguration {
             LoanRepaymentScheduleTransactionProcessorFactory loanRepaymentScheduleTransactionProcessorFactory,
             AdvancedPaymentAllocationsJsonParser advancedPaymentJsonParser, CreditAllocationsJsonParser creditAllocationsJsonParser,
             LoanProductAssembler loanProductAssembler, LoanProductUpdateUtil loanProductUpdateUtil,
-            LoanProductConfigMappingRepository loanProductConfigMappingRepository, FromJsonHelper fromApiJsonHelper) {
+            LoanProductConfigMappingRepository loanProductConfigMappingRepository, FromJsonHelper fromApiJsonHelper,
+            LoanProductRoundingModeService loanProductRoundingModeService) {
         return new LoanProductWritePlatformServiceJpaRepositoryImpl(context, fromApiJsonDeserializer, loanProductRepository, aprCalculator,
                 fundRepository, chargeRepository, rateRepository, accountMappingWritePlatformService, fineractEntityAccessUtil,
                 floatingRateRepository, loanRepositoryWrapper, businessEventNotifierService, delinquencyBucketRepository,
                 loanRepaymentScheduleTransactionProcessorFactory, advancedPaymentJsonParser, creditAllocationsJsonParser,
-                loanProductAssembler, loanProductUpdateUtil, loanProductConfigMappingRepository, fromApiJsonHelper);
+                loanProductAssembler, loanProductUpdateUtil, loanProductConfigMappingRepository, fromApiJsonHelper,
+                loanProductRoundingModeService);
     }
 }

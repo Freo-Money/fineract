@@ -174,6 +174,7 @@ import org.apache.fineract.portfolio.loanaccount.service.strategy.OverdueChargeC
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.portfolio.note.service.NoteWritePlatformService;
 import org.apache.fineract.portfolio.paymentdetail.service.PaymentDetailWritePlatformService;
@@ -295,9 +296,10 @@ public class LoanAccountConfiguration {
     public LoanChargeAssembler loanChargeAssembler(final FromJsonHelper fromApiJsonHelper, final ChargeRepositoryWrapper chargeRepository,
             final LoanChargeRepository loanChargeRepository, final LoanProductRepository loanProductRepository,
             final ExternalIdFactory externalIdFactory, final LoanChargeService loanChargeService,
-            final ConfigurationDomainService configurationDomainService) {
+            final ConfigurationDomainService configurationDomainService,
+            final LoanProductRoundingModeService loanProductRoundingModeService) {
         return new LoanChargeAssembler(fromApiJsonHelper, chargeRepository, loanChargeRepository, loanProductRepository, externalIdFactory,
-                loanChargeService, configurationDomainService);
+                loanChargeService, configurationDomainService, loanProductRoundingModeService);
     }
 
     @Bean
@@ -505,10 +507,11 @@ public class LoanAccountConfiguration {
             LoanDisbursementValidator loanDisbursementValidator, ReprocessLoanTransactionsService reprocessLoanTransactionsService,
             LoanChargeService loanChargeService, LoanBalanceService loanBalanceService, LoanJournalEntryPoster journalEntryPoster,
             LoanTransactionRepository loanTransactionRepository, BusinessEventNotifierService businessEventNotifierService,
-            LoanDownPaymentHandlerService loanDownPaymentHandlerService, ConfigurationDomainService configurationDomainService) {
+            LoanDownPaymentHandlerService loanDownPaymentHandlerService, ConfigurationDomainService configurationDomainService,
+            LoanProductRoundingModeService loanProductRoundingModeService) {
         return new LoanDisbursementService(loanChargeValidator, loanDisbursementValidator, reprocessLoanTransactionsService,
                 loanChargeService, loanBalanceService, journalEntryPoster, loanTransactionRepository, businessEventNotifierService,
-                loanDownPaymentHandlerService, configurationDomainService);
+                loanDownPaymentHandlerService, configurationDomainService, loanProductRoundingModeService);
     }
 
     @Bean
@@ -516,9 +519,10 @@ public class LoanAccountConfiguration {
     public LoanChargeService loanChargeService(final LoanChargeValidator loanChargeValidator,
             final LoanTransactionProcessingService loanTransactionProcessingService,
             final LoanLifecycleStateMachine loanLifecycleStateMachine, final LoanBalanceService loanBalanceService,
-            final ConfigurationDomainService configurationDomainService) {
+            final ConfigurationDomainService configurationDomainService,
+            final LoanProductRoundingModeService loanProductRoundingModeService) {
         return new LoanChargeService(loanChargeValidator, loanTransactionProcessingService, loanLifecycleStateMachine, loanBalanceService,
-                configurationDomainService);
+                configurationDomainService, loanProductRoundingModeService);
     }
 
     @Bean

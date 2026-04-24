@@ -78,7 +78,7 @@ public class CumulativeFlatInterestLoanScheduleGenerator extends AbstractCumulat
 
         // adjust if needed
         principalForThisInstallment = loanApplicationTerms.adjustPrincipalIfLastRepaymentPeriod(principalForThisInstallment,
-                totalCumulativePrincipalToDate, periodNumber);
+                totalCumulativePrincipalToDate, periodNumber, mc);
 
         // totalCumulativeInterest from partial schedule generation for multi
         // rescheduling

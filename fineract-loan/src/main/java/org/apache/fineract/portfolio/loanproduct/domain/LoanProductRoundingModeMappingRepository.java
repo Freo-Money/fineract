@@ -16,16 +16,14 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.portfolio.loanproduct.service;
+package org.apache.fineract.portfolio.loanproduct.domain;
 
-import org.apache.fineract.infrastructure.core.api.JsonCommand;
-import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
-public interface LoanProductWritePlatformService {
+@Repository
+public interface LoanProductRoundingModeMappingRepository extends JpaRepository<LoanProductRoundingModeMapping, Long> {
 
-    CommandProcessingResult createLoanProduct(JsonCommand command);
-
-    CommandProcessingResult updateLoanProduct(Long loanProductId, JsonCommand command);
-
-    CommandProcessingResult updateLoanProductRoundingMode(Long loanProductId, JsonCommand command);
+    Optional<LoanProductRoundingModeMapping> findByLoanProductId(Long loanProductId);
 }

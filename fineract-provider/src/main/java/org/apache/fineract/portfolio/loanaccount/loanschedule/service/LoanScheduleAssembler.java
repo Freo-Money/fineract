@@ -59,7 +59,6 @@ import org.apache.fineract.organisation.monetary.domain.ApplicationCurrency;
 import org.apache.fineract.organisation.monetary.domain.ApplicationCurrencyRepositoryWrapper;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
-import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.organisation.workingdays.domain.WorkingDays;
 import org.apache.fineract.organisation.workingdays.domain.WorkingDaysRepositoryWrapper;
 import org.apache.fineract.organisation.workingdays.service.WorkingDaysUtil;
@@ -141,6 +140,7 @@ import org.apache.fineract.portfolio.loanproduct.domain.RecalculationFrequencyTy
 import org.apache.fineract.portfolio.loanproduct.domain.RepaymentStartDateType;
 import org.apache.fineract.portfolio.loanproduct.exception.LoanProductNotFoundException;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.stereotype.Service;
 
@@ -172,6 +172,7 @@ public class LoanScheduleAssembler {
     private final LoanChargeService loanChargeService;
     private final LoanScheduleService loanScheduleService;
     private final LoanProductRelatedDetailUpdateUtil relatedDetailUpdateUtil;
+    private final LoanProductRoundingModeService loanProductRoundingModeService;
 
     public LoanApplicationTerms assembleLoanTerms(final JsonElement element) {
         final Long loanProductId = this.fromApiJsonHelper.extractLongNamed("productId", element);
@@ -596,6 +597,7 @@ public class LoanScheduleAssembler {
                 loanProduct.getLoanProductRelatedDetail().getBuyDownFeeIncomeType(),
                 loanProduct.getLoanProductRelatedDetail().isMerchantBuyDownFee(),
                 loanProduct.getLoanProductRelatedDetail().getInstallmentInterestCalculationType(), bpiConfig);
+        loanApplicationTerms.setRoundingModeConfig(this.loanProductRoundingModeService.resolveAll(loanProduct.getId()));
         boolean isAdditionalPrincipalGracePeriodRequired = LoanScheduleUtilService
                 .isAdditionalPrincipalGracePeriodRequired(loanApplicationTerms);
         loanApplicationTerms.addAdditionalPrincipalGracePeriod(isAdditionalPrincipalGracePeriodRequired);
@@ -783,7 +785,8 @@ public class LoanScheduleAssembler {
         final Set<LoanCharge> nonCompoundingCharges = validateDisbursementPercentageCharges(loanCharges);
         loanCharges.removeAll(nonCompoundingCharges);
 
-        final MathContext mc = MoneyHelper.getMathContext();
+        final Long loanProductId = this.fromApiJsonHelper.extractLongNamed("productId", element);
+        final MathContext mc = this.loanProductRoundingModeService.resolveMathContext(loanProductId);
         HolidayDetailDTO detailDTO = new HolidayDetailDTO(isHolidayEnabled, holidays, workingDays);
 
         LoanScheduleGenerator loanScheduleGenerator = this.loanScheduleFactory.create(loanApplicationTerms.getLoanScheduleType(),
@@ -819,7 +822,7 @@ public class LoanScheduleAssembler {
             Loan loan, final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor,
             final LocalDate rescheduleFrom) {
 
-        final MathContext mc = MoneyHelper.getMathContext();
+        final MathContext mc = this.loanProductRoundingModeService.resolveMathContext(loan.getLoanProduct().getId());
         final boolean isHolidayEnabled = this.configurationDomainService.isRescheduleRepaymentsOnHolidaysEnabled();
 
         final List<Holiday> holidays = this.holidayRepository.findByOfficeIdAndGreaterThanDate(officeId,
@@ -839,7 +842,7 @@ public class LoanScheduleAssembler {
         final LoanScheduleGenerator loanScheduleGenerator = this.loanScheduleFactory.create(loanApplicationTerms.getLoanScheduleType(),
                 loanApplicationTerms.getInterestMethod());
 
-        final MathContext mc = MoneyHelper.getMathContext();
+        final MathContext mc = this.loanProductRoundingModeService.resolveMathContext(loan.getLoanProduct().getId());
 
         final boolean isHolidayEnabled = this.configurationDomainService.isRescheduleRepaymentsOnHolidaysEnabled();
         final List<Holiday> holidays = this.holidayRepository.findByOfficeIdAndGreaterThanDate(officeId,

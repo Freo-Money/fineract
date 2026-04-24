@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+    <changeSet author="fineract" id="1">
+        <preConditions onFail="CONTINUE">
+            <not>
+                <tableExists tableName="fr_loan_product_rounding_mode_mapping"/>
+            </not>
+        </preConditions>
+        <createTable tableName="fr_loan_product_rounding_mode_mapping">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true" primaryKeyName="PK_fr_loan_product_rounding_mode_mapping"/>
+            </column>
+            <column name="product_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="rounding_mode" type="INT"/>
+            <column name="installment_rounding_mode" type="INT"/>
+            <column name="tax_rounding_mode" type="INT"/>
+            <column name="adjusted_rounding_mode" type="INT"/>
+            <column name="created_by" type="BIGINT"/>
+            <column name="created_on_utc" type="DATETIME"/>
+            <column name="last_modified_by" type="BIGINT"/>
+            <column name="last_modified_on_utc" type="DATETIME"/>
+        </createTable>
+        <addUniqueConstraint columnNames="product_id" constraintName="fr_loan_product_rounding_mode_mapping_product_id_uk"
+                             tableName="fr_loan_product_rounding_mode_mapping"/>
+        <createIndex indexName="INX_f_loan_product_rounding_mode_mapping_last_modified_on_utc"
+                     tableName="fr_loan_product_rounding_mode_mapping">
+            <column name="last_modified_on_utc"/>
+        </createIndex>
+        <addForeignKeyConstraint baseColumnNames="product_id"
+                                 baseTableName="fr_loan_product_rounding_mode_mapping"
+                                 constraintName="FK1_product_rounding_mode_mapping_m_product_loan"
+                                 onDelete="CASCADE"
+                                 referencedColumnNames="id"
+                                 referencedTableName="m_product_loan"/>
+        <addForeignKeyConstraint baseColumnNames="created_by"
+                                 baseTableName="fr_loan_product_rounding_mode_mapping"
+                                 constraintName="FK_fr_lprmm_created_by"
+                                 onDelete="RESTRICT"
+                                 onUpdate="RESTRICT"
+                                 referencedColumnNames="id"
+                                 referencedTableName="m_appuser"/>
+        <addForeignKeyConstraint baseColumnNames="last_modified_by"
+                                 baseTableName="fr_loan_product_rounding_mode_mapping"
+                                 constraintName="FK_fr_lprmm_last_modified_by"
+                                 onDelete="RESTRICT"
+                                 onUpdate="RESTRICT"
+                                 referencedColumnNames="id"
+                                 referencedTableName="m_appuser"/>
+    </changeSet>
+</databaseChangeLog>

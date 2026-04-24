@@ -63,6 +63,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepositor
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDisbursementValidator;
 import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
 import org.springframework.lang.NonNull;
 
@@ -80,6 +81,7 @@ public class LoanDisbursementService {
     private final BusinessEventNotifierService businessEventNotifierService;
     private final LoanDownPaymentHandlerService loanDownPaymentHandlerService;
     private final ConfigurationDomainService configurationDomainService;
+    private final LoanProductRoundingModeService loanProductRoundingModeService;
 
     public void updateDisbursementDetails(final Loan loan, final JsonCommand jsonCommand, final Map<String, Object> actualChanges) {
         final List<Long> disbursementList = loan.fetchDisbursementIds();
@@ -229,7 +231,8 @@ public class LoanDisbursementService {
 
         // Recalculate tax for all charges with actual disbursement date
         for (LoanCharge loanCharge : loan.getActiveCharges()) {
-            loanCharge.updateLoanChargeTaxDetails(disbursedOn, loanCharge.amount(), configurationDomainService.getTaxRoundingMode());
+            loanCharge.updateLoanChargeTaxDetails(disbursedOn, loanCharge.amount(),
+                    loanProductRoundingModeService.resolveTaxRoundingMode(loan.getLoanProduct().getId()));
         }
 
         // Calculate disbursement charges and BPI amount

@@ -29,7 +29,6 @@ import org.apache.commons.lang3.tuple.Pair;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
-import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.loanaccount.data.OutstandingAmountsDTO;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
@@ -51,6 +50,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanSchedul
 import org.apache.fineract.portfolio.loanaccount.mapper.LoanTermVariationsMapper;
 import org.apache.fineract.portfolio.loanproduct.calc.data.ProgressiveLoanInterestScheduleModel;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.ObjectUtils;
@@ -64,6 +64,7 @@ public class LoanTransactionProcessingServiceImpl implements LoanTransactionProc
     private final InterestScheduleModelRepositoryWrapper modelRepository;
     private final LoanBalanceService loanBalanceService;
     private final LoanTransactionService loanTransactionService;
+    private final LoanProductRoundingModeService loanProductRoundingModeService;
 
     @Override
     public boolean canProcessLatestTransactionOnly(Loan loan, LoanTransaction loanTransaction,
@@ -206,9 +207,10 @@ public class LoanTransactionProcessingServiceImpl implements LoanTransactionProc
         final LoanScheduleGenerator loanScheduleGenerator = generatorDTO.getLoanScheduleFactory()
                 .create(loan.getLoanRepaymentScheduleDetail().getLoanScheduleType(), interestMethod);
 
-        final MathContext mc = MoneyHelper.getMathContext();
+        final MathContext mc = loanProductRoundingModeService.resolveMathContext(loan.loanProduct().getId());
 
         final LoanApplicationTerms loanApplicationTerms = loanMapper.constructLoanApplicationTerms(generatorDTO, loan);
+        loanApplicationTerms.setRoundingModeConfig(loanProductRoundingModeService.resolveAll(loan.loanProduct().getId()));
 
         final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = getTransactionProcessor(
                 loan.getTransactionProcessingStrategyCode());
@@ -222,10 +224,11 @@ public class LoanTransactionProcessingServiceImpl implements LoanTransactionProc
         OutstandingAmountsDTO outstandingAmounts;
 
         if (loan.isInterestBearingAndInterestRecalculationEnabled() && !loan.isChargeOffOnDate(onDate)) {
-            final MathContext mc = MoneyHelper.getMathContext();
+            final MathContext mc = loanProductRoundingModeService.resolveMathContext(loan.loanProduct().getId());
 
             final InterestMethod interestMethod = loan.getLoanRepaymentScheduleDetail().getInterestMethod();
             final LoanApplicationTerms loanApplicationTerms = loanMapper.constructLoanApplicationTerms(scheduleGeneratorDTO, loan);
+            loanApplicationTerms.setRoundingModeConfig(loanProductRoundingModeService.resolveAll(loan.loanProduct().getId()));
 
             final LoanScheduleGenerator loanScheduleGenerator = scheduleGeneratorDTO.getLoanScheduleFactory()
                     .create(loanApplicationTerms.getLoanScheduleType(), interestMethod);

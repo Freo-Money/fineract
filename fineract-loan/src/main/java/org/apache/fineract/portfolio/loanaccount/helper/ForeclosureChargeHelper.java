@@ -22,6 +22,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -48,6 +49,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleIns
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeRoundingUtils;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeService;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
@@ -63,13 +65,16 @@ public class ForeclosureChargeHelper {
     private final ChargeRepositoryWrapper chargeRepositoryWrapper;
     private final LoanChargeService loanChargeService;
     private final ConfigurationDomainService configurationDomainService;
+    private final LoanProductRoundingModeService loanProductRoundingModeService;
 
     public ForeclosureChargeHelper(ChargeReadPlatformService chargeReadPlatformService, ChargeRepositoryWrapper chargeRepositoryWrapper,
-            @Lazy LoanChargeService loanChargeService, ConfigurationDomainService configurationDomainService) {
+            @Lazy LoanChargeService loanChargeService, ConfigurationDomainService configurationDomainService,
+            LoanProductRoundingModeService loanProductRoundingModeService) {
         this.chargeReadPlatformService = chargeReadPlatformService;
         this.chargeRepositoryWrapper = chargeRepositoryWrapper;
         this.loanChargeService = loanChargeService;
         this.configurationDomainService = configurationDomainService;
+        this.loanProductRoundingModeService = loanProductRoundingModeService;
     }
 
     public Map<Long, BigDecimal> extractChargePercentagesFromJsonElement(JsonElement element, String paramName) {
@@ -193,7 +198,8 @@ public class ForeclosureChargeHelper {
         tempLoanCharge.setChargeCalculation(calculationType.getValue());
         tempLoanCharge.setPercentage(percentage);
         BigDecimal baseAmount = loanChargeService.calculateAmountPercentageAppliedTo(loan, tempLoanCharge);
-        return LoanCharge.percentageOf(baseAmount, percentage);
+        final MathContext mc = loanProductRoundingModeService.resolveMathContext(loan.getLoanProduct().getId());
+        return LoanCharge.percentageOf(baseAmount, percentage, mc);
     }
 
     public List<LoanCharge> createAndAddForeclosureChargesToLoan(Loan loan, Map<Long, BigDecimal> mergedChargePercentages,

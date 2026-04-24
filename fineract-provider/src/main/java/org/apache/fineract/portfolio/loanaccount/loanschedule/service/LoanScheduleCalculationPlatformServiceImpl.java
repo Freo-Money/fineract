@@ -47,6 +47,7 @@ import org.apache.fineract.portfolio.loanaccount.mapper.LoanTermVariationsMapper
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanApplicationValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanScheduleValidator;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
+import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,6 +64,7 @@ public class LoanScheduleCalculationPlatformServiceImpl implements LoanScheduleC
     private final LoanUtilService loanUtilService;
     private final LoanRepositoryWrapper loanRepository;
     private final LoanTermVariationsMapper loanTermVariationsMapper;
+    private final LoanProductRoundingModeService loanProductRoundingModeService;
 
     @Override
     public LoanScheduleModel calculateLoanSchedule(final JsonQuery query, Boolean validateParams, Boolean includeLoanChargeDetails) {
@@ -203,7 +205,10 @@ public class LoanScheduleCalculationPlatformServiceImpl implements LoanScheduleC
 
     private LoanApplicationTerms constructLoanApplicationTerms(final Loan loan) {
         final ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, null);
-        return loanTermVariationsMapper.constructLoanApplicationTerms(scheduleGeneratorDTO, loan);
+        final LoanApplicationTerms loanApplicationTerms = loanTermVariationsMapper.constructLoanApplicationTerms(scheduleGeneratorDTO,
+                loan);
+        loanApplicationTerms.setRoundingModeConfig(loanProductRoundingModeService.resolveAll(loan.getLoanProduct().getId()));
+        return loanApplicationTerms;
     }
 
     private Loan fetchLoan(final Long accountId) {
