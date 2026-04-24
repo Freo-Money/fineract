@@ -41,16 +41,13 @@ public final class TaxUtils {
             final Set<TaxGroupMappings> taxGroupMappings, final int scale) {
         Map<TaxComponent, BigDecimal> map = new HashMap<>(3);
         if (amount != null) {
-            final double amountVal = amount.doubleValue();
-            double cent_percentage = Double.parseDouble("100.0");
             for (TaxGroupMappings groupMappings : taxGroupMappings) {
                 if (groupMappings.occursOnDayFromAndUpToAndIncluding(date)) {
                     TaxComponent component = groupMappings.getTaxComponent();
                     BigDecimal percentage = component.getApplicablePercentage(date);
                     if (percentage != null) {
-                        double percentageVal = percentage.doubleValue();
-                        double tax = amountVal * percentageVal / cent_percentage;
-                        map.put(component, BigDecimal.valueOf(tax));
+                        BigDecimal tax = amount.multiply(percentage).divide(HUNDRED, scale + 4, RoundingMode.HALF_EVEN);
+                        map.put(component, tax);
                     }
                 }
             }
@@ -62,16 +59,14 @@ public final class TaxUtils {
             final Set<TaxGroupMappingsData> taxGroupMappings, final int scale, final RoundingMode roundingMode) {
         Map<TaxComponentData, BigDecimal> map = new HashMap<>(3);
         if (amount != null) {
-            final double amountVal = amount.doubleValue();
-            double cent_percentage = Double.parseDouble("100.0");
             for (TaxGroupMappingsData groupMappings : taxGroupMappings) {
                 if (groupMappings.occursOnDayFromAndUpToAndIncluding(date)) {
                     TaxComponentData component = groupMappings.getTaxComponent();
                     BigDecimal percentage = component.getApplicablePercentage(date);
                     if (percentage != null) {
-                        double percentageVal = percentage.doubleValue();
-                        double tax = amountVal * percentageVal / cent_percentage;
-                        map.put(component, BigDecimal.valueOf(tax).setScale(scale, roundingMode));
+                        BigDecimal tax = amount.multiply(percentage).divide(HUNDRED, scale + 4, RoundingMode.HALF_EVEN).setScale(scale,
+                                roundingMode);
+                        map.put(component, tax);
                     }
                 }
             }
