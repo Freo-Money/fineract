@@ -21,7 +21,9 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
@@ -31,9 +33,10 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeTaxDetails;
 import org.apache.fineract.portfolio.tax.domain.TaxComponent;
 import org.apache.fineract.portfolio.tax.domain.TaxGroup;
 import org.apache.fineract.portfolio.tax.domain.TaxGroupMappings;
-import org.apache.fineract.portfolio.tax.service.TaxUtils;
 
 public final class LoanChargeTaxUtils {
+
+    private static final BigDecimal HUNDRED = BigDecimal.valueOf(100);
 
     private LoanChargeTaxUtils() {}
 
@@ -115,35 +118,71 @@ public final class LoanChargeTaxUtils {
 
     private static void calculateAndApplyTax(final LoanCharge loanCharge, final TaxGroup taxGroup, final BigDecimal taxInclusiveAmount,
             final LocalDate transactionDate, final int currencyDigits, final RoundingMode taxRoundingMode) {
-        int mathScale = taxInclusiveAmount.scale();
-        Set<TaxGroupMappings> taxGroupMappings = taxGroup.getTaxGroupMappings();
+        final Set<TaxGroupMappings> taxGroupMappings = taxGroup.getTaxGroupMappings();
+        final BigDecimal inclusiveRounded = taxInclusiveAmount.setScale(currencyDigits, taxRoundingMode);
 
-        BigDecimal amountSansTaxRaw = TaxUtils.extractBaseAmountFromTaxInclusive(taxInclusiveAmount, transactionDate, taxGroupMappings,
-                mathScale, taxRoundingMode);
-        Map<TaxComponent, BigDecimal> taxSplitRaw = TaxUtils.splitTax(amountSansTaxRaw, transactionDate, taxGroupMappings, mathScale);
+        if (taxGroupMappings == null || taxGroupMappings.isEmpty()) {
+            loanCharge.setAmount(inclusiveRounded);
+            loanCharge.setAmountOutstanding(loanCharge.calculateOutstanding());
+            loanCharge.setAmountSansTax(inclusiveRounded);
+            loanCharge.setTaxAmount(null);
+            loanCharge.getLoanChargeTaxDetails().clear();
+            return;
+        }
 
-        Map<TaxComponent, BigDecimal> taxSplitRounded = new HashMap<>(taxSplitRaw.size());
-        BigDecimal totalTaxAmount = BigDecimal.ZERO;
-        for (Map.Entry<TaxComponent, BigDecimal> entry : taxSplitRaw.entrySet()) {
-            if (entry.getValue() == null) {
+        // Required calculation sequence:
+        // 1) sansTaxRaw = inclusive * 100 / (100 + sum(componentPercentages))
+        // 2) taxComponent_i = sansTaxRaw * component% / 100
+        // 3) round each component with currencyDigits + roundingMode
+        // 4) totalTax = sum(roundedComponents)
+        // 5) sansTax = roundedInclusive - totalTax
+
+        // Single pass: resolve each mapping once, collect (component, percentage) pairs and their sum.
+        // This halves the getApplicablePercentage/occursOnDay calls vs. separate total + split loops,
+        // and applies a consistent filter to both the sum and the per-component split.
+        final List<Map.Entry<TaxComponent, BigDecimal>> activeComponents = new ArrayList<>(taxGroupMappings.size());
+        BigDecimal totalPercentage = BigDecimal.ZERO;
+        for (TaxGroupMappings groupMappings : taxGroupMappings) {
+            if (groupMappings == null || !groupMappings.occursOnDayFromAndUpToAndIncluding(transactionDate)) {
                 continue;
             }
-            BigDecimal rounded = entry.getValue().setScale(currencyDigits, taxRoundingMode);
-            if (rounded.compareTo(BigDecimal.ZERO) > 0) {
+            final TaxComponent component = groupMappings.getTaxComponent();
+            if (component == null) {
+                continue;
+            }
+            final BigDecimal percentage = component.getApplicablePercentage(transactionDate);
+            if (percentage == null || percentage.signum() <= 0) {
+                continue;
+            }
+            activeComponents.add(Map.entry(component, percentage));
+            totalPercentage = totalPercentage.add(percentage);
+        }
+
+        // Use a higher intermediate scale to avoid drift before rounding each component.
+        final int intermediateScale = Math.max(taxInclusiveAmount.scale(), currencyDigits) + 6;
+
+        final BigDecimal amountSansTaxRaw = totalPercentage.signum() <= 0 ? taxInclusiveAmount
+                : taxInclusiveAmount.multiply(HUNDRED).divide(HUNDRED.add(totalPercentage), intermediateScale, taxRoundingMode);
+
+        final Map<TaxComponent, BigDecimal> taxSplitRaw = new HashMap<>(activeComponents.size());
+        final Map<TaxComponent, BigDecimal> taxSplitRounded = new HashMap<>(activeComponents.size());
+        BigDecimal totalTaxAmount = BigDecimal.ZERO;
+        for (Map.Entry<TaxComponent, BigDecimal> entry : activeComponents) {
+            final BigDecimal raw = amountSansTaxRaw.multiply(entry.getValue()).divide(HUNDRED, intermediateScale, taxRoundingMode);
+            final BigDecimal rounded = raw.setScale(currencyDigits, taxRoundingMode);
+            if (rounded.signum() > 0) {
+                taxSplitRaw.put(entry.getKey(), raw);
                 taxSplitRounded.put(entry.getKey(), rounded);
                 totalTaxAmount = totalTaxAmount.add(rounded);
             }
         }
 
-        BigDecimal inclusiveRounded = taxInclusiveAmount.setScale(currencyDigits, taxRoundingMode);
-        BigDecimal amountSansTaxRounded = inclusiveRounded.subtract(totalTaxAmount);
-
         loanCharge.setAmount(inclusiveRounded);
         loanCharge.setAmountOutstanding(loanCharge.calculateOutstanding());
 
-        if (totalTaxAmount.compareTo(BigDecimal.ZERO) > 0) {
+        if (totalTaxAmount.signum() > 0) {
             loanCharge.setTaxAmount(totalTaxAmount);
-            loanCharge.setAmountSansTax(amountSansTaxRounded);
+            loanCharge.setAmountSansTax(inclusiveRounded.subtract(totalTaxAmount));
             createTaxDetails(loanCharge, taxSplitRounded, taxSplitRaw);
         } else {
             loanCharge.setAmountSansTax(inclusiveRounded);
