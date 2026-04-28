@@ -54,6 +54,7 @@ import org.apache.fineract.organisation.workingdays.domain.WorkingDays;
 import org.apache.fineract.portfolio.common.domain.DaysInMonthType;
 import org.apache.fineract.portfolio.common.domain.DaysInYearType;
 import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
+import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -172,7 +173,8 @@ public class DefaultScheduledDateGeneratorTest {
                 EMPTY_LIST, BigDecimal.valueOf(36_000L), null, DaysInMonthType.ACTUAL, DaysInYearType.ACTUAL, false, null, null, null, null,
                 null, ZERO, null, false, NONE, null, ZERO, EMPTY_LIST, true, 0, false, holidayDetailDTO, false, false, false, null, false,
                 false, null, false, DISBURSEMENT_DATE, submittedOnDate, CUMULATIVE, LoanScheduleProcessingType.HORIZONTAL, null, false,
-                null, null, false, null, false, null, null, null, false, null, null, null, false, SAME_AS_REPAYMENT_PERIOD, null);
+                null, null, false, null, false, null, null, null, false, null, null, null, false, SAME_AS_REPAYMENT_PERIOD,
+                (BrokenPeriodInterestConfigDTO) null);
     }
 
     private HolidayDetailDTO createHolidayDTO() {

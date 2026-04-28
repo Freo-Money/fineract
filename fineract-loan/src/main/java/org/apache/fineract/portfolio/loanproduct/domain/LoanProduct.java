@@ -347,12 +347,12 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
                 considerPartialPeriodInterest, repayEvery, repaymentFrequencyType, defaultNumberOfInstallments, graceOnPrincipalPayment,
                 recurringMoratoriumOnPrincipalPeriods, graceOnInterestPayment, graceOnInterestCharged, amortizationMethod,
                 inArrearsTolerance, graceOnArrearsAgeing, daysInMonthType.getValue(), daysInYearType.getValue(),
-                isInterestRecalculationEnabled, isEqualAmortization, enableDownPayment, enableScheduleArchive, disbursedAmountPercentageForDownPayment,
-                enableAutoRepaymentForDownPayment, loanScheduleType, loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting,
-                supportedInterestRefundTypes, chargeOffBehaviour, isInterestRecognitionOnDisbursementDate, daysInYearCustomStrategy,
-                enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType,
-                installmentAmountInMultiplesOf, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                merchantBuyDownFee,
+                isInterestRecalculationEnabled, isEqualAmortization, enableDownPayment, enableScheduleArchive,
+                disbursedAmountPercentageForDownPayment, enableAutoRepaymentForDownPayment, loanScheduleType, loanScheduleProcessingType,
+                fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour,
+                isInterestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
+                capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, installmentAmountInMultiplesOf,
+                enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee,
                 installmentInterestCalculationType != null ? InterestCalculationPeriodMethod.fromInt(installmentInterestCalculationType)
                         : null,
                 bpiCollectedAtDisbursement);

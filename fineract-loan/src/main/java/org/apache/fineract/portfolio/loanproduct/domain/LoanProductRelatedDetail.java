@@ -248,12 +248,12 @@ public class LoanProductRelatedDetail implements LoanProductMinimumRepaymentSche
                 repaymentEvery, repaymentPeriodFrequencyType, numberOfRepayments, graceOnPrincipalPayment,
                 recurringMoratoriumOnPrincipalPeriods, graceOnInterestPayment, graceOnInterestCharged, amortizationMethod,
                 inArrearsTolerance, graceOnArrearsAgeing, daysInMonthType, daysInYearType, isInterestRecalculationEnabled,
-                isEqualAmortization, enableDownPayment, enableScheduleArchive, disbursedAmountPercentageForDownPayment, enableAutoRepaymentForDownPayment,
-                loanScheduleType, loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes,
-                chargeOffBehaviour, interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
-                capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, installmentAmountInMultiplesOf,
-                enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee,
-                installmentInterestCalculationType, bpiCollectedAtDisbursement);
+                isEqualAmortization, enableDownPayment, enableScheduleArchive, disbursedAmountPercentageForDownPayment,
+                enableAutoRepaymentForDownPayment, loanScheduleType, loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting,
+                supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate, daysInYearCustomStrategy,
+                enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType,
+                installmentAmountInMultiplesOf, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
+                merchantBuyDownFee, installmentInterestCalculationType, bpiCollectedAtDisbursement);
     }
 
     protected LoanProductRelatedDetail() {
