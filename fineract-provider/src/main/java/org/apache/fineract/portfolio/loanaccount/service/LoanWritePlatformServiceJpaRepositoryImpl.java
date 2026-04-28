@@ -418,11 +418,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             regenerateScheduleOnDisbursement(command, loan, recalculateSchedule, scheduleGeneratorDTO, nextPossibleRepaymentDate,
                     rescheduledRepaymentDate);
             boolean downPaymentEnabled = loan.getLoanProductRelatedDetail().isEnableDownPayment();
-            if (loan.isInterestBearingAndInterestRecalculationEnabled() || downPaymentEnabled) {
+            boolean scheduleArchiveEnabled = loan.getLoanProductRelatedDetail().isEnableScheduleArchive();
+            if (loan.isInterestBearingAndInterestRecalculationEnabled() || downPaymentEnabled || scheduleArchiveEnabled) {
                 createAndSaveLoanScheduleArchive(loan, scheduleGeneratorDTO);
             }
-            disburseLoan(command, isPaymentTypeApplicableForDisbursementCharge, paymentDetail, loan, currentUser, changes,
-                    scheduleGeneratorDTO);
+            applyDisbursementChargesAndTransitionState(command, isPaymentTypeApplicableForDisbursementCharge, paymentDetail, loan,
+                    currentUser, changes, scheduleGeneratorDTO);
             // amountToDisburse is already principal minus disbursement charges (and BPI); set net directly to avoid
             // double deduction
             loan.setNetDisbursalAmount(amountToDisburse.getAmount());
@@ -551,8 +552,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
     }
 
-    private void disburseLoan(JsonCommand command, boolean isPaymentTypeApplicableForDisbursementCharge, PaymentDetail paymentDetail,
-            Loan loan, AppUser currentUser, Map<String, Object> changes, ScheduleGeneratorDTO scheduleGeneratorDTO) {
+    private void applyDisbursementChargesAndTransitionState(JsonCommand command,
+            boolean isPaymentTypeApplicableForDisbursementCharge, PaymentDetail paymentDetail, Loan loan, AppUser currentUser,
+            Map<String, Object> changes, ScheduleGeneratorDTO scheduleGeneratorDTO) {
         final PaymentDetail paymentDetail1 = isPaymentTypeApplicableForDisbursementCharge ? paymentDetail : null;
         final LocalDate actualDisbursementDate1 = command.localDateValueOfParameterNamed(ACTUAL_DISBURSEMENT_DATE);
 
@@ -797,11 +799,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 regenerateScheduleOnDisbursement(command, loan, recalculateSchedule, scheduleGeneratorDTO, nextPossibleRepaymentDate,
                         rescheduledRepaymentDate);
                 boolean downPaymentEnabled = loan.getLoanProductRelatedDetail().isEnableDownPayment();
-                if (loan.isInterestBearingAndInterestRecalculationEnabled() || downPaymentEnabled) {
+                boolean scheduleArchiveEnabled = loan.getLoanProductRelatedDetail().isEnableScheduleArchive();
+
+                if (loan.isInterestBearingAndInterestRecalculationEnabled() || downPaymentEnabled || scheduleArchiveEnabled) {
                     createAndSaveLoanScheduleArchive(loan, scheduleGeneratorDTO);
                 }
-                disburseLoan(command, configurationDomainService.isPaymentTypeApplicableForDisbursementCharge(), paymentDetail, loan,
-                        currentUser, changes, scheduleGeneratorDTO);
+                applyDisbursementChargesAndTransitionState(command, configurationDomainService.isPaymentTypeApplicableForDisbursementCharge(),
+                        paymentDetail, loan, currentUser, changes, scheduleGeneratorDTO);
 
                 loanAccrualsProcessingService.reprocessExistingAccruals(loan, true);
 

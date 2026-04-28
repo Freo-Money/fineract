@@ -272,6 +272,7 @@ public class LoanProductAssembler {
                 .integerValueOfParameterNamed(LoanProductConstants.OVER_DUE_DAYS_FOR_REPAYMENT_EVENT);
 
         final boolean enableDownPayment = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.ENABLE_DOWN_PAYMENT);
+        final boolean enableScheduleArchive = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.ENABLE_SCHEDULE_ARCHIVE);
         final BigDecimal disbursedAmountPercentageDownPayment = command
                 .bigDecimalValueOfParameterNamed(LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT);
         final boolean enableAutoRepaymentForDownPayment = command
@@ -373,7 +374,7 @@ public class LoanProductAssembler {
                 isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed, minimumGapBetweenInstallments,
                 maximumGapBetweenInstallments, syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, productRates,
                 fixedPrincipalPercentagePerInstallment, disallowExpectedDisbursements, allowApprovedDisbursedAmountsOverApplied,
-                overAppliedCalculationType, overAppliedNumber, dueDaysForRepaymentEvent, overDueDaysForRepaymentEvent, enableDownPayment,
+                overAppliedCalculationType, overAppliedNumber, dueDaysForRepaymentEvent, overDueDaysForRepaymentEvent, enableDownPayment, enableScheduleArchive,
                 disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment, repaymentStartDateType,
                 enableInstallmentLevelDelinquency, loanScheduleType, loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting,
                 supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate, daysInYearCustomStrategy,
