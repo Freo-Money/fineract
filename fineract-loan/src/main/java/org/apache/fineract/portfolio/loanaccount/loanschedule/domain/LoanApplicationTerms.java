@@ -1621,10 +1621,8 @@ public final class LoanApplicationTerms {
 
             BigDecimal fixedEmiAmount = BigDecimal.valueOf(installmentAmount);
             if (this.installmentAmountInMultiplesOf != null) {
-                RoundingMode rm = (this.roundingModeConfig != null && this.roundingModeConfig.installmentRoundingMode() != null)
-                        ? RoundingMode.valueOf(this.roundingModeConfig.installmentRoundingMode())
-                        : MoneyHelper.getRoundingMode();
-                fixedEmiAmount = Money.roundToMultiplesOf(fixedEmiAmount, this.installmentAmountInMultiplesOf, rm);
+                fixedEmiAmount = Money.roundToMultiplesOf(fixedEmiAmount, this.installmentAmountInMultiplesOf,
+                        getInstallmentRoundingMode());
             }
             setFixedEmiAmount(fixedEmiAmount);
         }
@@ -1805,12 +1803,8 @@ public final class LoanApplicationTerms {
     }
 
     private Money calculatePrincipalDueForInstallment(final int periodNumber, final Money totalDuePerInstallment,
-            final Money periodInterest, final Money brokenPeriodInterestForInstallment) {
+            final Money periodInterest, @SuppressWarnings("unused") final Money brokenPeriodInterestForInstallment) {
         Money principal = totalDuePerInstallment.minus(periodInterest);
-        if (this.bpiConfig != null && this.bpiConfig.getStrategy() != null && this.bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
-                && periodInterest.isGreaterThan(brokenPeriodInterestForInstallment)) {
-            principal = totalDuePerInstallment.minus(periodInterest.minus(brokenPeriodInterestForInstallment));
-        }
         if (isPrincipalGraceApplicableForThisPeriod(periodNumber)) {
             principal = principal.zero();
         }
@@ -2372,6 +2366,13 @@ public final class LoanApplicationTerms {
 
     public LoanProductRoundingModeData getRoundingModeConfig() {
         return roundingModeConfig;
+    }
+
+    public RoundingMode getInstallmentRoundingMode() {
+        if (this.roundingModeConfig != null && this.roundingModeConfig.installmentRoundingMode() != null) {
+            return RoundingMode.valueOf(this.roundingModeConfig.installmentRoundingMode());
+        }
+        return MoneyHelper.getRoundingMode();
     }
 
     public void setRoundingModeConfig(LoanProductRoundingModeData roundingModeConfig) {

@@ -91,6 +91,7 @@ public class CumulativeFlatInterestLoanScheduleGenerator extends AbstractCumulat
         interestForThisInstallment = loanApplicationTerms.adjustInterestIfLastRepaymentPeriod(interestForThisInstallment,
                 totalCumulativeInterestToDate, totalInterestDueForLoan, periodNumber);
 
-        return new PrincipalInterest(principalForThisInstallment, interestForThisInstallment, interestBroughtForwardDueToGrace);
+        return new PrincipalInterest(principalForThisInstallment, interestForThisInstallment, interestBroughtForwardDueToGrace,
+                result.getBrokenPeriodInterest());
     }
 }

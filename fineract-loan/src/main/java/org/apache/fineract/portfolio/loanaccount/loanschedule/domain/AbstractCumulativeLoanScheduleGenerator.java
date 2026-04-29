@@ -325,7 +325,14 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
             }
 
             // update cumulative fields for principal & interest
-            currentPeriodParams.setInterestForThisPeriod(principalInterestForThisPeriod.interest());
+            Money interestForPeriod = principalInterestForThisPeriod.interest();
+            Money brokenPeriodInterest = principalInterestForThisPeriod.getBrokenPeriodInterest();
+            if (brokenPeriodInterest != null && brokenPeriodInterest.isGreaterThanZero() && loanApplicationTerms.getBpiConfig() != null
+                    && loanApplicationTerms.getBpiConfig().getStrategy() != null
+                    && loanApplicationTerms.getBpiConfig().getStrategy().isAddToFirstInstallmentEmi()) {
+                interestForPeriod = interestForPeriod.plus(brokenPeriodInterest);
+            }
+            currentPeriodParams.setInterestForThisPeriod(interestForPeriod);
 
             Money lastTotalOutstandingInterestPaymentDueToGrace = scheduleParams.getTotalOutstandingInterestPaymentDueToGrace();
             scheduleParams.setTotalOutstandingInterestPaymentDueToGrace(principalInterestForThisPeriod.interestPaymentDueToGrace());
@@ -359,7 +366,7 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
 
             if (shouldRoundLastInstallment) {
                 Money roundedTotalInstallmentDue = Money.roundToMultiplesOf(totalInstallmentDue,
-                        loanApplicationTerms.getInstallmentAmountInMultiplesOf());
+                        loanApplicationTerms.getInstallmentAmountInMultiplesOf(), loanApplicationTerms.getInstallmentRoundingMode());
                 Money emiDelta = roundedTotalInstallmentDue.minus(totalInstallmentDue);
                 if (!emiDelta.isZero()) {
                     Money adjustedInterest = currentPeriodParams.getInterestForThisPeriod().plus(emiDelta);
