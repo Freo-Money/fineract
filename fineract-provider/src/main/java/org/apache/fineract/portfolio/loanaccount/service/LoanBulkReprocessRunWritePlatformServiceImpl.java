@@ -21,6 +21,9 @@ package org.apache.fineract.portfolio.loanaccount.service;
 import java.sql.Timestamp;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.core.api.JsonCommand;
+import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.exception.PlatformInternalServerException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
@@ -55,23 +58,27 @@ public class LoanBulkReprocessRunWritePlatformServiceImpl implements LoanBulkRep
     private final JdbcTemplate jdbcTemplate;
     private final JobLauncher jobLauncher;
     private final JobLocator jobLocator;
+    private final LoanBulkReprocessRequestParser requestParser;
 
     public LoanBulkReprocessRunWritePlatformServiceImpl(final PlatformSecurityContext securityContext,
             final LoanBulkReprocessRunRepository runRepository, final JdbcTemplate jdbcTemplate,
             // Inject the dedicated async launcher so the API thread does not block on the run.
-            @Qualifier(LoanBulkReprocessConstants.JOB_LAUNCHER_BEAN_NAME) final JobLauncher jobLauncher, final JobLocator jobLocator) {
+            @Qualifier(LoanBulkReprocessConstants.JOB_LAUNCHER_BEAN_NAME) final JobLauncher jobLauncher, final JobLocator jobLocator,
+            final LoanBulkReprocessRequestParser requestParser) {
         this.securityContext = securityContext;
         this.runRepository = runRepository;
         this.jdbcTemplate = jdbcTemplate;
         this.jobLauncher = jobLauncher;
         this.jobLocator = jobLocator;
+        this.requestParser = requestParser;
     }
 
     @Override
     @Transactional
-    public LoanBulkReprocessRun submitAsyncRun(final LoanBulkReprocessRequestData request) {
+    public CommandProcessingResult submitAsyncRun(final JsonCommand command) {
         // Pre-resolve to fail fast on no auth — auditing will populate createdBy/createdOnUtc on save.
-        securityContext.authenticatedUser();
+        final Long submittingUserId = securityContext.authenticatedUser().getId();
+        final LoanBulkReprocessRequestData request = requestParser.parse(command.json());
         final int resolvedBatchSize = resolveBatchSize(request.getBatchSize());
 
         final LoanBulkReprocessRun run = new LoanBulkReprocessRun();
@@ -97,7 +104,7 @@ public class LoanBulkReprocessRunWritePlatformServiceImpl implements LoanBulkRep
                 // "Existing transaction detected in JobRepository". Use this hook (not afterCommit) so the
                 // rollback branch below can still mark the run FAILED.
                 if (status == TransactionSynchronization.STATUS_COMMITTED) {
-                    launchJobOrMarkFailed(saved.getId());
+                    launchJobOrMarkFailed(saved.getId(), submittingUserId);
                 } else {
                     try {
                         runRepository.finish(saved.getId(), LoanBulkReprocessRunStatus.FAILED, DateUtils.getLocalDateTimeOfTenant(),
@@ -108,7 +115,9 @@ public class LoanBulkReprocessRunWritePlatformServiceImpl implements LoanBulkRep
                 }
             }
         });
-        return saved;
+        // resourceId carries the run id; CommandSource framework persists this on m_portfolio_command_source.
+        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withResourceIdAsString(saved.getId().toString())
+                .withEntityId(saved.getId()).build();
     }
 
     @Override
@@ -118,7 +127,14 @@ public class LoanBulkReprocessRunWritePlatformServiceImpl implements LoanBulkRep
 
     @Override
     @Transactional
-    public int releasePendingItems(final Long runId) {
+    public CommandProcessingResult releasePendingItems(final JsonCommand command) {
+        final Long runId = command.entityId();
+        doReleasePendingItems(runId);
+        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withResourceIdAsString(runId.toString())
+                .withEntityId(runId).build();
+    }
+
+    private int doReleasePendingItems(final Long runId) {
         final LoanBulkReprocessRun run = runRepository.findById(runId).orElseThrow(() -> new LoanBulkReprocessRunNotFoundException(runId));
         // Refuse if the run is still RUNNING. The operator endpoint is for stuck runs only — releasing while a worker
         // is alive races with the cursor reader and the chunk writer's status flips.
@@ -175,9 +191,9 @@ public class LoanBulkReprocessRunWritePlatformServiceImpl implements LoanBulkRep
      * in {@code SUBMITTED} — Spring's transaction synchronization swallows callback exceptions, so we record FAILED
      * ourselves.
      */
-    private void launchJobOrMarkFailed(final Long runId) {
+    private void launchJobOrMarkFailed(final Long runId, final Long submittingUserId) {
         try {
-            launchJob(runId);
+            launchJob(runId, submittingUserId);
         } catch (RuntimeException e) {
             log.error("Failed to launch bulk loan reprocess job for runId {}", runId, e);
             // Always include the exception type so triage doesn't depend on a useful getMessage().
@@ -191,7 +207,7 @@ public class LoanBulkReprocessRunWritePlatformServiceImpl implements LoanBulkRep
         }
     }
 
-    private void launchJob(final Long runId) {
+    private void launchJob(final Long runId, final Long submittingUserId) {
         final LoanBulkReprocessRun run = runRepository.findById(runId).orElseThrow(() -> new LoanBulkReprocessRunNotFoundException(runId));
         final Job job;
         try {
@@ -209,7 +225,7 @@ public class LoanBulkReprocessRunWritePlatformServiceImpl implements LoanBulkRep
         final JobParameters jobParameters = new JobParametersBuilder().addLong("runId", runId)
                 .addLong("batchSize",
                         run.getBatchSize() != null ? run.getBatchSize().longValue() : LoanBulkReprocessConstants.DEFAULT_BATCH_SIZE)
-                .addString("tenantIdentifier", tenantIdentifier)
+                .addString("tenantIdentifier", tenantIdentifier).addLong("submittedByUserId", submittingUserId)
                 // ensure uniqueness per submission
                 .addLong("submittedAt", System.currentTimeMillis()).toJobParameters();
         try {

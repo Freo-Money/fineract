@@ -16,17 +16,25 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.portfolio.loanaccount.service;
+package org.apache.fineract.portfolio.loanaccount.handler.loan.bulkreprocess;
 
+import lombok.RequiredArgsConstructor;
+import org.apache.fineract.commands.annotation.CommandType;
+import org.apache.fineract.commands.handler.NewCommandSourceHandler;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
-import org.apache.fineract.portfolio.loanaccount.domain.bulkreprocess.LoanBulkReprocessRun;
+import org.apache.fineract.portfolio.loanaccount.service.LoanBulkReprocessRunWritePlatformService;
+import org.springframework.stereotype.Service;
 
-public interface LoanBulkReprocessRunWritePlatformService {
+@Service
+@RequiredArgsConstructor
+@CommandType(entity = "LOAN", action = "BULKREPROCESS")
+public class LoanBulkReprocessSubmitCommandHandler implements NewCommandSourceHandler {
 
-    CommandProcessingResult submitAsyncRun(JsonCommand command);
+    private final LoanBulkReprocessRunWritePlatformService writePlatformService;
 
-    LoanBulkReprocessRun getRun(Long runId);
-
-    CommandProcessingResult releasePendingItems(JsonCommand command);
+    @Override
+    public CommandProcessingResult processCommand(JsonCommand command) {
+        return writePlatformService.submitAsyncRun(command);
+    }
 }

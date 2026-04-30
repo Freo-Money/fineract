@@ -18,8 +18,11 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.portfolio.loanaccount.data.LoanBulkReprocessFailurePageData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanBulkReprocessRunData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanReprocessFailureData;
@@ -75,9 +78,13 @@ public class LoanBulkReprocessRunReadPlatformServiceImpl implements LoanBulkRepr
         data.setProcessedCount(run.getProcessedCount());
         data.setFailedCount(run.getFailedCount());
         data.setCreatedDate(run.getCreatedDate().orElse(null));
-        data.setStartedDate(run.getStartedDate());
-        data.setFinishedDate(run.getFinishedDate());
+        data.setStartedDate(toOffset(run.getStartedDate()));
+        data.setFinishedDate(toOffset(run.getFinishedDate()));
         data.setErrorMessage(run.getErrorMessage());
         return data;
+    }
+
+    private static OffsetDateTime toOffset(final LocalDateTime ldt) {
+        return ldt == null ? null : ldt.atZone(DateUtils.getDateTimeZoneOfTenant()).toOffsetDateTime();
     }
 }

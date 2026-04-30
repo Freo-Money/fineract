@@ -29,8 +29,12 @@ public final class LoanBulkReprocessConstants {
     public static final int MIN_BATCH_SIZE = 1;
     public static final int MAX_BATCH_SIZE = 500;
 
-    /** Reject requests larger than this (after deduplication) to protect the server. */
-    public static final int MAX_LOAN_IDS_PER_REQUEST = 100_000;
+    /**
+     * Reject requests larger than this (after deduplication) to protect the server. Bounds the synchronous batch-insert
+     * in {@code submitAsyncRun} (which pins one DB connection and blocks the API thread for the duration) and the
+     * in-memory dedup. Larger logical runs should be split client-side into multiple submissions.
+     */
+    public static final int MAX_LOAN_IDS_PER_REQUEST = 10_000;
 
     /** Maximum failure rows returned in a single response (used by failures paging limit clamp). */
     public static final int MAX_FAILURE_DETAILS_IN_RESPONSE = 5_000;

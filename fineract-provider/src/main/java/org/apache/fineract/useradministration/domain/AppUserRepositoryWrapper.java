@@ -33,6 +33,10 @@ public class AppUserRepositoryWrapper {
         this.appUserRepository = appUserRepository;
     }
 
+    public AppUser fetchUser(final Long userId) {
+        return this.appUserRepository.findById(userId).orElseThrow(() -> new UserNotFoundException(userId));
+    }
+
     public AppUser fetchSystemUser() {
         AppUser user = this.appUserRepository.findAppUserByName(AppUserConstants.SYSTEM_USER_NAME);
         if (user == null) {

@@ -18,7 +18,6 @@
  */
 package org.apache.fineract.portfolio.loanaccount.data;
 
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -36,7 +35,7 @@ public class LoanBulkReprocessRunData {
     private Integer processedCount;
     private Integer failedCount;
     private OffsetDateTime createdDate;
-    private LocalDateTime startedDate;
-    private LocalDateTime finishedDate;
+    private OffsetDateTime startedDate;
+    private OffsetDateTime finishedDate;
     private String errorMessage;
 }

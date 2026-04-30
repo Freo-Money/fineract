@@ -95,7 +95,8 @@ public class LoanBulkReprocessRunJobListener implements JobExecutionListener {
         final String tenantIdentifier = jobExecution.getJobParameters().getString("tenantIdentifier");
         final FineractPlatformTenant tenant = tenantDetailsService.loadTenantById(tenantIdentifier);
         ThreadLocalContextUtil.setTenant(tenant);
-        AppUser user = this.userRepository.fetchSystemUser();
+        final Long submittingUserId = jobExecution.getJobParameters().getLong("submittedByUserId");
+        final AppUser user = this.userRepository.fetchUser(submittingUserId);
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user, user.getPassword(), user.getAuthorities());
         SecurityContextHolder.getContext().setAuthentication(auth);
         HashMap<BusinessDateType, LocalDate> businessDates = new HashMap<>(businessDateReadPlatformService.getBusinessDates());
