@@ -82,6 +82,9 @@ public class LoanBulkReprocessRunWritePlatformServiceImpl implements LoanBulkRep
         final int resolvedBatchSize = resolveBatchSize(request.getBatchSize());
 
         final LoanBulkReprocessRun run = new LoanBulkReprocessRun();
+        // in this command-processing path (AuditorAwareImpl otherwise falls back to ADMIN_USER_ID=1).
+        run.setCreatedBy(submittingUserId);
+        run.setLastModifiedBy(submittingUserId);
         run.setStatus(LoanBulkReprocessRunStatus.SUBMITTED);
         run.setBatchSize(resolvedBatchSize);
         run.setTotalLoanIds(request.getDistinctLoanIds().size());
@@ -91,28 +94,18 @@ public class LoanBulkReprocessRunWritePlatformServiceImpl implements LoanBulkRep
 
         batchInsertItems(saved.getId(), request.getDistinctLoanIds());
 
-        // Defer the launch to afterCompletion (committed branch) so the job sees the persisted run+items.
-        // The injected jobLauncher is wired with its own ThreadPoolTaskExecutor (see
-        // LoanBulkReprocessRunJobConfiguration),
-        // so .run() hands off to that executor and returns immediately — the API request does not block.
+        // Defer the launch to afterCommit so the job sees the persisted run+items rows AND the
+        // m_portfolio_command_source audit row (we run inside CommandSource's outer tx via REQUIRED propagation).
+        // afterCommit runs after transaction resources are unbound, so the launcher's call into Spring Batch's
+        // JobRepository does not see an "Existing transaction detected" error.
+        // No rollback branch: if the outer tx rolls back, the run row is rolled back too (same tx), so any UPDATE
+        // we'd try here would silently no-op against a missing row. The failure record lives on
+        // m_portfolio_command_source.
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
 
             @Override
-            public void afterCompletion(int status) {
-                // Spring Batch's JobRepository rejects job launches when an ambient transaction exists.
-                // afterCompletion runs after transaction resources are unbound, so launching the job from here avoids:
-                // "Existing transaction detected in JobRepository". Use this hook (not afterCommit) so the
-                // rollback branch below can still mark the run FAILED.
-                if (status == TransactionSynchronization.STATUS_COMMITTED) {
-                    launchJobOrMarkFailed(saved.getId(), submittingUserId);
-                } else {
-                    try {
-                        runRepository.finish(saved.getId(), LoanBulkReprocessRunStatus.FAILED, DateUtils.getLocalDateTimeOfTenant(),
-                                "Bulk reprocess submission transaction rolled back; job was not launched");
-                    } catch (RuntimeException inner) {
-                        log.error("Failed to mark run {} as FAILED after rollback", saved.getId(), inner);
-                    }
-                }
+            public void afterCommit() {
+                launchJobOrMarkFailed(saved.getId(), submittingUserId);
             }
         });
         // resourceId carries the run id; CommandSource framework persists this on m_portfolio_command_source.
@@ -187,9 +180,8 @@ public class LoanBulkReprocessRunWritePlatformServiceImpl implements LoanBulkRep
     }
 
     /**
-     * Called from the {@code afterCompletion} committed branch. Catches launch failures so the run does not stay stuck
-     * in {@code SUBMITTED} — Spring's transaction synchronization swallows callback exceptions, so we record FAILED
-     * ourselves.
+     * Called from {@code afterCommit}. Catches launch failures so the run does not stay stuck in {@code SUBMITTED} —
+     * Spring's transaction synchronization swallows callback exceptions, so we record FAILED ourselves.
      */
     private void launchJobOrMarkFailed(final Long runId, final Long submittingUserId) {
         try {
