@@ -180,6 +180,15 @@ public class Money implements Comparable<Money> {
         return Money.of(existingVal.getCurrencyData(), amountScaled);
     }
 
+    public static Money roundToMultiplesOf(final Money existingVal, final Integer inMultiplesOf, final RoundingMode roundingMode) {
+        BigDecimal amountScaled = existingVal.getAmount();
+        BigDecimal inMultiplesOfValue = BigDecimal.valueOf(inMultiplesOf);
+        if (inMultiplesOfValue.compareTo(BigDecimal.ZERO) > 0) {
+            amountScaled = amountScaled.divide(inMultiplesOfValue, 0, roundingMode).multiply(inMultiplesOfValue);
+        }
+        return Money.of(existingVal.getCurrencyData(), amountScaled);
+    }
+
     public static Money ceilToMultiplesOf(final Money existingVal, final Integer inMultiplesOf) {
         return ceilToMultiplesOf(existingVal, inMultiplesOf, MoneyHelper.getMathContext());
     }
