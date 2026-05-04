@@ -252,4 +252,7 @@
     <include file="parts/1054_add_charge_rounding_override_columns.xml" relativeToChangelogFile="true" />
     <include file="parts/1050_add_loan_product_rounding_mode_mapping.xml" relativeToChangelogFile="true" />
     <include file="parts/1051_add_loan_product_rounding_mode_permissions.xml" relativeToChangelogFile="true" />
+    <include file="parts/1055_create_exception_logs_table.xml" relativeToChangelogFile="true" />
+    <include file="parts/1056_add_exception_log_permissions.xml" relativeToChangelogFile="true" />
+    <include file="parts/1057_add_exception_log_configuration.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

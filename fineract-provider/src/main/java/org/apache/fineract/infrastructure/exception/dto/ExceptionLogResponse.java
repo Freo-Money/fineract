@@ -16,17 +16,20 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.core.config;
+package org.apache.fineract.infrastructure.exception.dto;
 
-public final class TaskExecutorConstant {
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
-    private TaskExecutorConstant() {
+@Data
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+public class ExceptionLogResponse {
 
-    }
-
-    public static final String DEFAULT_TASK_EXECUTOR_BEAN_NAME = "fineractDefaultThreadPoolTaskExecutor";
-    public static final String CONFIGURABLE_TASK_EXECUTOR_BEAN_NAME = "fineractConfigurableThreadPoolTaskExecutor";
-    public static final String EVENT_TASK_EXECUTOR_BEAN_NAME = "externalEventJmsProducerExecutor";
-    public static final String LOAN_COB_CATCH_UP_TASK_EXECUTOR_BEAN_NAME = "loanCOBCatchUpThreadPoolTaskExecutor";
-    public static final String EXCEPTION_LOGGING_TASK_EXECUTOR_BEAN_NAME = "exceptionLoggingThreadPoolTaskExecutor";
+    private int deletedCount;
+    private int olderThanDays;
+    private String message;
 }
