@@ -18,13 +18,10 @@
  */
 package org.apache.fineract.infrastructure.exception.service;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
-import java.util.List;
-import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.exception.domain.ExceptionLog;
-import org.apache.fineract.infrastructure.exception.dto.ExceptionLogStats;
 import org.apache.fineract.infrastructure.exception.repository.ExceptionLogRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -54,12 +51,16 @@ public class ExceptionLogService {
         return exceptionLogRepository.findByExceptionType(exceptionType, pageable);
     }
 
+    public Page<ExceptionLog> searchExceptionLogsByTypeContaining(String exceptionType, Pageable pageable) {
+        return exceptionLogRepository.findByExceptionTypeContainingIgnoreCase(exceptionType, pageable);
+    }
+
     public Page<ExceptionLog> getExceptionLogsByPath(String path, Pageable pageable) {
         return exceptionLogRepository.findByRequestPath(path, pageable);
     }
 
-    public Page<ExceptionLog> getExceptionLogsByDateRange(LocalDateTime from, LocalDateTime to, Pageable pageable) {
-        return exceptionLogRepository.findByCreatedAtBetween(from, to, pageable);
+    public Page<ExceptionLog> getExceptionLogsByDateRange(OffsetDateTime from, OffsetDateTime to, Pageable pageable) {
+        return exceptionLogRepository.findByCreatedDateBetween(from, to, pageable);
     }
 
     @Transactional
@@ -70,28 +71,27 @@ public class ExceptionLogService {
 
     @Transactional
     public int deleteExceptionLogsOlderThanDays(int days) {
-        LocalDateTime cutoffDate = LocalDateTime.now(ZoneId.systemDefault()).minusDays(days);
-        int deletedCount = exceptionLogRepository.deleteByCreatedAtBefore(cutoffDate);
+        OffsetDateTime cutoffDate = OffsetDateTime.now(ZoneId.systemDefault()).minusDays(days);
+        int deletedCount = exceptionLogRepository.deleteByCreatedDateBefore(cutoffDate);
         log.info("Deleted {} exception logs older than {} days", deletedCount, days);
         return deletedCount;
     }
-
-    public ExceptionLogStats getExceptionLogStats() {
-        long totalCount = exceptionLogRepository.count();
-
-        Page<ExceptionLog> allLogs = exceptionLogRepository.findAll(Pageable.unpaged());
-        List<ExceptionLog> logs = allLogs.getContent();
-
-        List<String> topExceptionTypes = logs.stream()
-                .collect(Collectors.groupingByConcurrent(ExceptionLog::getExceptionType, Collectors.counting())).entrySet().stream()
-                .sorted((a, b) -> Long.compare(b.getValue(), a.getValue())).limit(5).map(e -> e.getKey() + " (" + e.getValue() + ")")
-                .collect(Collectors.toList());
-
-        List<String> topPaths = logs.stream().collect(Collectors.groupingByConcurrent(ExceptionLog::getRequestPath, Collectors.counting()))
-                .entrySet().stream().sorted((a, b) -> Long.compare(b.getValue(), a.getValue())).limit(5)
-                .map(e -> e.getKey() + " (" + e.getValue() + ")").collect(Collectors.toList());
-
-        return ExceptionLogStats.builder().totalExceptions(totalCount).topExceptionTypes(topExceptionTypes).topErrorPaths(topPaths)
-                .recordsCount(logs.size()).build();
-    }
 }
+/*
+ * public ExceptionLogStats getExceptionLogStats() { return getExceptionLogStats(5); }
+ *
+ *
+ *
+ * public ExceptionLogStats getExceptionLogStats(int limit) { long totalCount = exceptionLogRepository.count();
+ *
+ * List<Object[]> topTypesResult = exceptionLogRepository.findTopExceptionTypes(Pageable.ofSize(limit)); List<String>
+ * topExceptionTypes = topTypesResult.stream() .filter(row -> row != null && row.length >= 2) .map(row -> row[0] + " ("
+ * + row[1] + ")") .collect(Collectors.toList());
+ *
+ * List<Object[]> topPathsResult = exceptionLogRepository.findTopErrorPaths(Pageable.ofSize(limit)); List<String>
+ * topErrorPaths = topPathsResult.stream() .filter(row -> row != null && row.length >= 2) .map(row -> row[0] + " (" +
+ * row[1] + ")") .collect(Collectors.toList());
+ *
+ * return ExceptionLogStats.builder() .totalExceptions(totalCount) .topExceptionTypes(topExceptionTypes)
+ * .topErrorPaths(topErrorPaths) .recordsCount(totalCount) .build(); } }
+ */

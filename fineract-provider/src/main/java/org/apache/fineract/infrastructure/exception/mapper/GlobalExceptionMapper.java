@@ -24,10 +24,9 @@ import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.exception.dto.ErrorResponseData;
 import org.apache.fineract.infrastructure.exception.service.ErrorLoggingService;
 import org.springframework.stereotype.Component;
 
@@ -75,15 +74,7 @@ public class GlobalExceptionMapper implements ExceptionMapper<Throwable> {
         service.logException(ex, traceId, path, method, status, message);
         log.error("Unhandled exception traceId={} path={} method={} status={}", traceId, path, method, status, ex);
 
-        Map<String, Object> response = new HashMap<>();
-        response.put("status", status);
-        response.put("message", message);
-        response.put("traceId", traceId);
-
-        if (originalResponse != null) {
-            return Response.status(status).entity(response).build();
-        }
-
+        ErrorResponseData response = new ErrorResponseData(status, message, traceId);
         return Response.status(status).entity(response).build();
     }
 }

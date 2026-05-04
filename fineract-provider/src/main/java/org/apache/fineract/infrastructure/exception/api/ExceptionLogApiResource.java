@@ -18,7 +18,7 @@
  */
 package org.apache.fineract.infrastructure.exception.api;
 
-import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
@@ -27,14 +27,25 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import java.time.LocalDateTime;
+import jakarta.ws.rs.core.UriInfo;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.configuration.api.GlobalConfigurationConstants;
+import org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData;
+import org.apache.fineract.infrastructure.configuration.service.ConfigurationReadPlatformService;
+import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
+import org.apache.fineract.infrastructure.core.serialization.ApiRequestJsonSerializationSettings;
+import org.apache.fineract.infrastructure.core.serialization.ToApiJsonSerializer;
 import org.apache.fineract.infrastructure.exception.domain.ExceptionLog;
-import org.apache.fineract.infrastructure.exception.dto.ExceptionLogStats;
+import org.apache.fineract.infrastructure.exception.dto.ExceptionLogResponse;
 import org.apache.fineract.infrastructure.exception.service.ExceptionLogService;
+import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -43,89 +54,182 @@ import org.springframework.stereotype.Component;
 
 @Path("/v1/exception-logs")
 @Component
-@Consumes({ MediaType.APPLICATION_JSON })
 @Produces({ MediaType.APPLICATION_JSON })
 @Slf4j
+@RequiredArgsConstructor
 public class ExceptionLogApiResource {
 
+    private static final String RESOURCE_NAME_FOR_PERMISSIONS = "EXCEPTIONLOG";
+    // private static final int MAX_STATS_LIMIT = 1000;
+    private static final int MAX_CLEANUP_DAYS = 3650;
+    private static final Sort CREATED_DATE_DESC_SORT = Sort.by(Sort.Direction.DESC, "createdDate");
+
     private final ExceptionLogService exceptionLogService;
-
-    public ExceptionLogApiResource(ExceptionLogService exceptionLogService) {
-        this.exceptionLogService = exceptionLogService;
-    }
-
-    @GET
-    public Page<ExceptionLog> getAllExceptionLogs(@DefaultValue("0") @QueryParam("page") int page,
-            @DefaultValue("20") @QueryParam("size") int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<ExceptionLog> logs = exceptionLogService.getAllExceptionLogs(pageable);
-        log.info("Retrieved {} exception logs", logs.getTotalElements());
-        return logs;
-    }
+    private final PlatformSecurityContext context;
+    private final ConfigurationReadPlatformService configurationReadPlatformService;
+    private final ToApiJsonSerializer<Object> toApiJsonSerializer;
+    private final ApiRequestParameterHelper apiRequestParameterHelper;
 
     @GET
-    @Path("/{traceId}")
-    public ExceptionLog getExceptionLogByTraceId(@PathParam("traceId") String traceId) {
-        ExceptionLog exceptionLog = exceptionLogService.getExceptionLogByTraceId(traceId);
-        if (exceptionLog == null) {
-            log.warn("Exception log not found for traceId={}", traceId);
-            throw new NotFoundException("Exception log not found for traceId=" + traceId);
-        }
-        return exceptionLog;
+    public String getAllExceptionLogs(@Context final UriInfo uriInfo, @DefaultValue("0") @QueryParam("page") final int page,
+            @DefaultValue("20") @QueryParam("size") final int size) {
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+
+        final Pageable pageable = PageRequest.of(page, size, CREATED_DATE_DESC_SORT);
+        final Page<ExceptionLog> logs = this.exceptionLogService.getAllExceptionLogs(pageable);
+        log.debug("Retrieved {} exception logs", logs.getTotalElements());
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.toApiJsonSerializer.serialize(settings, logs);
     }
 
     @GET
     @Path("/by-type/{exceptionType}")
-    public Page<ExceptionLog> getExceptionLogsByType(@PathParam("exceptionType") String exceptionType,
-            @DefaultValue("0") @QueryParam("page") int page, @DefaultValue("20") @QueryParam("size") int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<ExceptionLog> logs = exceptionLogService.getExceptionLogsByType(exceptionType, pageable);
-        log.info("Retrieved {} exception logs of type={}", logs.getTotalElements(), exceptionType);
-        return logs;
+    public String getExceptionLogsByType(@Context final UriInfo uriInfo, @PathParam("exceptionType") final String exceptionType,
+            @DefaultValue("0") @QueryParam("page") final int page, @DefaultValue("20") @QueryParam("size") final int size,
+            @DefaultValue("exact") @QueryParam("match") final String match) {
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        requireNonBlank(exceptionType, "exceptionType must not be blank");
+
+        final Pageable pageable = PageRequest.of(page, size, CREATED_DATE_DESC_SORT);
+        final String trimmedType = exceptionType.trim();
+        final Page<ExceptionLog> logs;
+
+        if ("contains".equalsIgnoreCase(match)) {
+            logs = this.exceptionLogService.searchExceptionLogsByTypeContaining(trimmedType, pageable);
+        } else {
+            logs = this.exceptionLogService.getExceptionLogsByType(trimmedType, pageable);
+        }
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.toApiJsonSerializer.serialize(settings, logs);
     }
 
     @GET
     @Path("/by-path")
-    public Page<ExceptionLog> getExceptionLogsByPath(@QueryParam("path") String path, @DefaultValue("0") @QueryParam("page") int page,
-            @DefaultValue("20") @QueryParam("size") int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<ExceptionLog> logs = exceptionLogService.getExceptionLogsByPath(path, pageable);
-        log.info("Retrieved {} exception logs for path={}", logs.getTotalElements(), path);
-        return logs;
+    public String getExceptionLogsByPath(@Context final UriInfo uriInfo, @QueryParam("path") final String path,
+            @DefaultValue("0") @QueryParam("page") final int page, @DefaultValue("20") @QueryParam("size") final int size) {
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        requireNonBlank(path, "path must not be blank");
+
+        final Pageable pageable = PageRequest.of(page, size, CREATED_DATE_DESC_SORT);
+        final Page<ExceptionLog> logs = this.exceptionLogService.getExceptionLogsByPath(path.trim(), pageable);
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.toApiJsonSerializer.serialize(settings, logs);
     }
 
     @GET
     @Path("/by-date-range")
-    public Page<ExceptionLog> getExceptionLogsByDateRange(@QueryParam("from") String from, @QueryParam("to") String to,
-            @DefaultValue("0") @QueryParam("page") int page, @DefaultValue("20") @QueryParam("size") int size) {
-        DateTimeFormatter formatter = DateTimeFormatter.ISO_DATE_TIME;
-        LocalDateTime fromDateTime = LocalDateTime.parse(from, formatter);
-        LocalDateTime toDateTime = LocalDateTime.parse(to, formatter);
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<ExceptionLog> logs = exceptionLogService.getExceptionLogsByDateRange(fromDateTime, toDateTime, pageable);
-        log.info("Retrieved {} exception logs from {} to {}", logs.getTotalElements(), from, to);
-        return logs;
+    public String getExceptionLogsByDateRange(@Context final UriInfo uriInfo, @QueryParam("from") final String from,
+            @QueryParam("to") final String to, @DefaultValue("0") @QueryParam("page") final int page,
+            @DefaultValue("20") @QueryParam("size") final int size) {
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+
+        final OffsetDateTime fromDateTime = parseIsoDateTime(from, "from");
+        final OffsetDateTime toDateTime = parseIsoDateTime(to, "to");
+        if (fromDateTime.isAfter(toDateTime)) {
+            throw new BadRequestException("'from' must be less than or equal to 'to'");
+        }
+
+        final Pageable pageable = PageRequest.of(page, size, CREATED_DATE_DESC_SORT);
+        final Page<ExceptionLog> logs = this.exceptionLogService.getExceptionLogsByDateRange(fromDateTime, toDateTime, pageable);
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.toApiJsonSerializer.serialize(settings, logs);
+    }
+
+    @GET
+    @Path("/by-trace/{traceId}")
+    public String getExceptionLogByTraceId(@PathParam("traceId") final String traceId, @Context final UriInfo uriInfo) {
+        this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        requireNonBlank(traceId, "traceId must not be blank");
+
+        final ExceptionLog exceptionLog = this.exceptionLogService.getExceptionLogByTraceId(traceId);
+        log.info("Incoming traceId = [{}]", traceId);
+        if (exceptionLog == null) {
+            log.warn("Exception log not found for traceId={}", traceId);
+            throw new NotFoundException("Resource not found for traceId=" + traceId);
+        }
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.toApiJsonSerializer.serialize(settings, exceptionLog);
     }
 
     @DELETE
     @Path("/{id}")
-    public Response deleteExceptionLog(@PathParam("id") Long id) {
-        exceptionLogService.deleteExceptionLog(id);
+    public Response deleteExceptionLog(@PathParam("id") final Long id) {
+        this.context.authenticatedUser().validateHasDeletePermission(RESOURCE_NAME_FOR_PERMISSIONS);
+        if (id == null || id <= 0) {
+            throw new BadRequestException("id must be greater than 0");
+        }
+
+        this.exceptionLogService.deleteExceptionLog(id);
         log.info("Deleted exception log with id={}", id);
         return Response.noContent().build();
     }
 
     @DELETE
-    @Path("/cleanup/{days}")
-    public String cleanupOldExceptionLogs(@PathParam("days") int days) {
-        int deletedCount = exceptionLogService.deleteExceptionLogsOlderThanDays(days);
+    @Path("/cleanup")
+    public String cleanupOldExceptionLogs(@Context final UriInfo uriInfo) {
+        this.context.authenticatedUser().validateHasDeletePermission(RESOURCE_NAME_FOR_PERMISSIONS);
+
+        final GlobalConfigurationPropertyData cleanupDaysConfig = this.configurationReadPlatformService
+                .retrieveGlobalConfiguration(GlobalConfigurationConstants.PURGE_EXCEPTION_LOGS_OLDER_THAN_DAYS);
+
+        if (!cleanupDaysConfig.isEnabled()) {
+            throw new BadRequestException("Exception log cleanup configuration is disabled");
+        }
+        if (cleanupDaysConfig.getValue() == null) {
+            throw new BadRequestException("Cleanup configuration must define a numeric days value");
+        }
+
+        final int days = cleanupDaysConfig.getValue().intValue();
+        if (days <= 0 || days > MAX_CLEANUP_DAYS) {
+            throw new BadRequestException("Configured cleanup days must be between 1 and " + MAX_CLEANUP_DAYS);
+        }
+
+        final int deletedCount = this.exceptionLogService.deleteExceptionLogsOlderThanDays(days);
         log.info("Deleted {} exception logs older than {} days", deletedCount, days);
-        return "Deleted " + deletedCount + " exception logs older than " + days + " days";
+        final ExceptionLogResponse cleanupResult = ExceptionLogResponse.builder().deletedCount(deletedCount).olderThanDays(days)
+                .message("Deleted " + deletedCount + " exception logs older than " + days + " days").build();
+        final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
+        return this.toApiJsonSerializer.serialize(settings, cleanupResult);
     }
 
-    @GET
-    @Path("/stats/summary")
-    public ExceptionLogStats getExceptionLogStats() {
-        return exceptionLogService.getExceptionLogStats();
+    /*
+     * @GET
+     *
+     * @Path("/stats/summary") public String getExceptionLogStats(@Context final UriInfo uriInfo) {
+     * this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+     *
+     * final ExceptionLogStats stats = this.exceptionLogService.getExceptionLogStats(); final
+     * ApiRequestJsonSerializationSettings settings =
+     * this.apiRequestParameterHelper.process(uriInfo.getQueryParameters()); return
+     * this.toApiJsonSerializer.serialize(settings, stats); }
+     *
+     * @GET
+     *
+     * @Path("/stats/summary/limit") public String getExceptionLogStatsByLimit(@Context final UriInfo uriInfo,
+     *
+     * @DefaultValue("5") @QueryParam("limit") final int limit) {
+     * this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
+     *
+     * if (limit <= 0) { throw new BadRequestException("limit must be greater than 0"); } if (limit > MAX_STATS_LIMIT) {
+     * throw new BadRequestException("limit cannot exceed " + MAX_STATS_LIMIT); } final ExceptionLogStats stats =
+     * this.exceptionLogService.getExceptionLogStats(limit); final ApiRequestJsonSerializationSettings settings =
+     * this.apiRequestParameterHelper.process(uriInfo.getQueryParameters()); return
+     * this.toApiJsonSerializer.serialize(settings, stats); }
+     */
+
+    private OffsetDateTime parseIsoDateTime(final String rawValue, final String paramName) {
+        requireNonBlank(rawValue, paramName + " is required");
+        try {
+            return OffsetDateTime.parse(rawValue, DateTimeFormatter.ISO_DATE_TIME);
+        } catch (DateTimeParseException ex) {
+            throw new BadRequestException(paramName + " must be a valid ISO-8601 datetime, e.g. 2026-04-24T12:30:00", ex);
+        }
     }
+
+    private void requireNonBlank(final String value, final String message) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new BadRequestException(message);
+        }
+    }
+
 }

@@ -20,37 +20,25 @@ package org.apache.fineract.infrastructure.exception.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Index;
-import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.annotation.CreatedDate;
+import org.apache.fineract.infrastructure.core.domain.AbstractAuditableWithUTCDateTimeCustom;
 
 /**
  * JPA Entity for storing unhandled exceptions in the database
  */
 @Entity
-@Table(name = "exception_log", indexes = { @Index(name = "idx_exception_log_trace_id", columnList = "trace_id"),
-        @Index(name = "idx_exception_log_created_at", columnList = "created_at") })
+@Table(name = "exception_log")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class ExceptionLog {
-
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+public class ExceptionLog extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     @Column(name = "trace_id", unique = true, nullable = false, length = 36)
     private String traceId;
@@ -70,23 +58,6 @@ public class ExceptionLog {
     @Column(name = "request_method", length = 10)
     private String requestMethod;
 
-    @Column(name = "user_id")
-    private Long userId;
-
-    @Column(name = "request_body", columnDefinition = "LONGTEXT")
-    private String requestBody;
-
     @Column(name = "status_code")
     private Integer statusCode;
-
-    @CreatedDate
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private LocalDateTime createdAt;
-
-    @PrePersist
-    protected void onCreate() {
-        if (createdAt == null) {
-            createdAt = LocalDateTime.now(ZoneId.systemDefault());
-        }
-    }
 }

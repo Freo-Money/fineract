@@ -62,6 +62,7 @@ public final class GlobalConfigurationConstants {
     public static final String ENABLE_AUTOMATIC_COB_DATE_ADJUSTMENT = "enable-automatic-cob-date-adjustment";
     public static final String ENABLE_POST_REVERSAL_TXNS_FOR_REVERSE_TRANSACTIONS = "enable-post-reversal-txns-for-reverse-transactions";
     public static final String PURGE_EXTERNAL_EVENTS_OLDER_THAN_DAYS = "purge-external-events-older-than-days";
+    public static final String PURGE_EXCEPTION_LOGS_OLDER_THAN_DAYS = "purge-exception-logs-older-than-days";
     public static final String DAYS_BEFORE_REPAYMENT_IS_DUE = "days-before-repayment-is-due";
     public static final String DAYS_AFTER_REPAYMENT_IS_OVERDUE = "days-after-repayment-is-overdue";
     public static final String ENABLE_AUTO_GENERATED_EXTERNAL_ID = "enable-auto-generated-external-id";

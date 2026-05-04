@@ -19,8 +19,10 @@
 package org.apache.fineract.infrastructure.exception.service;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.core.config.TaskExecutorConstant;
 import org.apache.fineract.infrastructure.exception.domain.ExceptionLog;
 import org.apache.fineract.infrastructure.exception.repository.ExceptionLogRepository;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,6 +37,7 @@ public class ErrorLoggingService {
         this.exceptionLogRepository = exceptionLogRepository;
     }
 
+    @Async(TaskExecutorConstant.EXCEPTION_LOGGING_TASK_EXECUTOR_BEAN_NAME)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void logException(Throwable ex, String traceId, String path, String method, int statusCode, String message) {
         try {
@@ -54,12 +57,45 @@ public class ErrorLoggingService {
     }
 
     private String getStackTrace(Throwable ex) {
-        StackTraceElement[] stackTraceElements = ex.getStackTrace();
-        StringBuilder sb = new StringBuilder(ex.toString());
-        for (StackTraceElement element : stackTraceElements) {
-            sb.append("\n \t at ").append(element.getClassName()).append(".").append(element.getMethodName()).append("(")
-                    .append(element.getLineNumber()).append(")");
+        StringBuilder sb = new StringBuilder();
+        int maxCauseDepth = 5;
+        int maxTotalLength = 8000;
+
+        Throwable current = ex;
+        int depth = 0;
+
+        while (current != null && depth < maxCauseDepth && sb.length() < maxTotalLength) {
+            if (depth == 0) {
+                sb.append(current.getClass().getName());
+            } else {
+                sb.append("Caused by: ").append(current.getClass().getName());
+            }
+
+            if (current.getMessage() != null) {
+                sb.append(": ").append(current.getMessage());
+            }
+            sb.append("\n");
+
+            StackTraceElement[] elements = current.getStackTrace();
+            int limit = Math.min(elements.length, 50);
+
+            for (int i = 0; i < limit && sb.length() < maxTotalLength; i++) {
+                sb.append("\tat ").append(elements[i]).append("\n");
+            }
+
+            if (elements.length > limit) {
+                sb.append("\t... ").append(elements.length - limit).append(" more\n");
+            }
+
+            current = current.getCause();
+            depth++;
         }
+
+        if (current != null) {
+            sb.append("\t... (cause chain truncated at depth ").append(maxCauseDepth).append(")\n");
+        }
+
         return sb.toString();
     }
+
 }
