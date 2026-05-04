@@ -3965,4 +3965,20 @@ public class CommandWrapperBuilder {
         this.href = "/loans/" + loanId + "/custom-schedule";
         return this;
     }
+
+    public CommandWrapperBuilder submitBulkLoanReprocess() {
+        this.actionName = "BULKREPROCESS";
+        this.entityName = "LOAN";
+        this.entityId = null;
+        this.href = "/loans/reprocess/runs";
+        return this;
+    }
+
+    public CommandWrapperBuilder releaseBulkLoanReprocessPending(final Long runId) {
+        this.actionName = "BULKREPROCESS_RELEASE";
+        this.entityName = "LOAN";
+        this.entityId = runId;
+        this.href = "/loans/reprocess/runs/" + runId + "/release-pending";
+        return this;
+    }
 }
