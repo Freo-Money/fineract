@@ -418,7 +418,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             regenerateScheduleOnDisbursement(command, loan, recalculateSchedule, scheduleGeneratorDTO, nextPossibleRepaymentDate,
                     rescheduledRepaymentDate);
             boolean downPaymentEnabled = loan.getLoanProductRelatedDetail().isEnableDownPayment();
-            if (loan.isInterestBearingAndInterestRecalculationEnabled() || downPaymentEnabled) {
+            boolean scheduleArchiveEnabled = loan.getLoanProductRelatedDetail().isEnableScheduleArchive();
+            if (loan.isInterestBearingAndInterestRecalculationEnabled() || downPaymentEnabled || scheduleArchiveEnabled) {
                 createAndSaveLoanScheduleArchive(loan, scheduleGeneratorDTO);
             }
             disburseLoan(command, isPaymentTypeApplicableForDisbursementCharge, paymentDetail, loan, currentUser, changes,
@@ -797,7 +798,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 regenerateScheduleOnDisbursement(command, loan, recalculateSchedule, scheduleGeneratorDTO, nextPossibleRepaymentDate,
                         rescheduledRepaymentDate);
                 boolean downPaymentEnabled = loan.getLoanProductRelatedDetail().isEnableDownPayment();
-                if (loan.isInterestBearingAndInterestRecalculationEnabled() || downPaymentEnabled) {
+                boolean scheduleArchiveEnabled = loan.getLoanProductRelatedDetail().isEnableScheduleArchive();
+
+                if (loan.isInterestBearingAndInterestRecalculationEnabled() || downPaymentEnabled || scheduleArchiveEnabled) {
                     createAndSaveLoanScheduleArchive(loan, scheduleGeneratorDTO);
                 }
                 disburseLoan(command, configurationDomainService.isPaymentTypeApplicableForDisbursementCharge(), paymentDetail, loan,

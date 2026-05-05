@@ -217,6 +217,9 @@ public class LoanProductRelatedDetail implements LoanProductMinimumRepaymentSche
     @Column(name = "is_bpi_collected_at_disbursement", nullable = false)
     private boolean bpiCollectedAtDisbursement = false;
 
+    @Column(name = "enable_schedule_archive", nullable = false)
+    private boolean enableScheduleArchive;
+
     public static LoanProductRelatedDetail createFrom(final CurrencyData currencyData, final BigDecimal principal,
             final BigDecimal nominalInterestRatePerPeriod, final PeriodFrequencyType interestRatePeriodFrequencyType,
             final BigDecimal nominalAnnualInterestRate, final InterestMethod interestMethod,
@@ -226,7 +229,7 @@ public class LoanProductRelatedDetail implements LoanProductMinimumRepaymentSche
             final Integer graceOnInterestPayment, final Integer graceOnInterestCharged, final AmortizationMethod amortizationMethod,
             final BigDecimal inArrearsTolerance, final Integer graceOnArrearsAgeing, final Integer daysInMonthType,
             final Integer daysInYearType, final boolean isInterestRecalculationEnabled, final boolean isEqualAmortization,
-            final boolean enableDownPayment, final BigDecimal disbursedAmountPercentageForDownPayment,
+            final boolean enableDownPayment, final boolean enableScheduleArchive, final BigDecimal disbursedAmountPercentageForDownPayment,
             final boolean enableAutoRepaymentForDownPayment, final LoanScheduleType loanScheduleType,
             final LoanScheduleProcessingType loanScheduleProcessingType, final Integer fixedLength,
             final boolean enableAccrualActivityPosting, final List<LoanSupportedInterestRefundTypes> supportedInterestRefundTypes,
@@ -245,12 +248,12 @@ public class LoanProductRelatedDetail implements LoanProductMinimumRepaymentSche
                 repaymentEvery, repaymentPeriodFrequencyType, numberOfRepayments, graceOnPrincipalPayment,
                 recurringMoratoriumOnPrincipalPeriods, graceOnInterestPayment, graceOnInterestCharged, amortizationMethod,
                 inArrearsTolerance, graceOnArrearsAgeing, daysInMonthType, daysInYearType, isInterestRecalculationEnabled,
-                isEqualAmortization, enableDownPayment, disbursedAmountPercentageForDownPayment, enableAutoRepaymentForDownPayment,
-                loanScheduleType, loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes,
-                chargeOffBehaviour, interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
-                capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, installmentAmountInMultiplesOf,
-                enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee,
-                installmentInterestCalculationType, bpiCollectedAtDisbursement);
+                isEqualAmortization, enableDownPayment, enableScheduleArchive, disbursedAmountPercentageForDownPayment,
+                enableAutoRepaymentForDownPayment, loanScheduleType, loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting,
+                supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate, daysInYearCustomStrategy,
+                enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType,
+                installmentAmountInMultiplesOf, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
+                merchantBuyDownFee, installmentInterestCalculationType, bpiCollectedAtDisbursement);
     }
 
     protected LoanProductRelatedDetail() {
@@ -266,7 +269,7 @@ public class LoanProductRelatedDetail implements LoanProductMinimumRepaymentSche
             final Integer graceOnInterestPayment, final Integer graceOnInterestCharged, final AmortizationMethod amortizationMethod,
             final BigDecimal inArrearsTolerance, final Integer graceOnArrearsAgeing, final Integer daysInMonthType,
             final Integer daysInYearType, final boolean isInterestRecalculationEnabled, final boolean isEqualAmortization,
-            final boolean enableDownPayment, final BigDecimal disbursedAmountPercentageForDownPayment,
+            final boolean enableDownPayment, final boolean enableScheduleArchive, final BigDecimal disbursedAmountPercentageForDownPayment,
             final boolean enableAutoRepaymentForDownPayment, final LoanScheduleType loanScheduleType,
             final LoanScheduleProcessingType loanScheduleProcessingType, final Integer fixedLength,
             final boolean enableAccrualActivityPosting, List<LoanSupportedInterestRefundTypes> supportedInterestRefundTypes,
@@ -306,6 +309,7 @@ public class LoanProductRelatedDetail implements LoanProductMinimumRepaymentSche
         this.isInterestRecalculationEnabled = isInterestRecalculationEnabled;
         this.isEqualAmortization = isEqualAmortization;
         this.enableDownPayment = enableDownPayment;
+        this.enableScheduleArchive = enableScheduleArchive;
         this.disbursedAmountPercentageForDownPayment = disbursedAmountPercentageForDownPayment;
         this.enableAutoRepaymentForDownPayment = enableAutoRepaymentForDownPayment;
         this.loanScheduleType = loanScheduleType;

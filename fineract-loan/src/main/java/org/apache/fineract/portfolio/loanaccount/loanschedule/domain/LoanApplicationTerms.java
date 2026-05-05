@@ -230,6 +230,7 @@ public final class LoanApplicationTerms {
 
     private LocalDate newScheduledDueDateStart;
     private boolean isDownPaymentEnabled;
+    private boolean enableScheduleArchive;
     private BigDecimal disbursedAmountPercentageForDownPayment;
     private Money downPaymentAmount;
     private boolean isAutoRepaymentForDownPaymentEnabled;
@@ -282,6 +283,7 @@ public final class LoanApplicationTerms {
         this.submittedOnDate = builder.submittedOnDate;
         this.seedDate = builder.seedDate;
         this.isDownPaymentEnabled = builder.isDownPaymentEnabled;
+        this.enableScheduleArchive = builder.enableScheduleArchive;
         this.disbursedAmountPercentageForDownPayment = builder.downPaymentPercentage;
         this.interestRecognitionOnDisbursementDate = builder.interestRecognitionOnDisbursementDate != null
                 && builder.interestRecognitionOnDisbursementDate;
@@ -332,6 +334,7 @@ public final class LoanApplicationTerms {
         private List<DisbursementData> disbursementDatas;
         private BigDecimal downPaymentPercentage;
         private boolean isDownPaymentEnabled;
+        private boolean enableScheduleArchive;
         private LocalDate submittedOnDate;
         private LocalDate seedDate;
         private MathContext mc;
@@ -456,6 +459,11 @@ public final class LoanApplicationTerms {
 
         public Builder isDownPaymentEnabled(boolean isDownPaymentEnabled) {
             this.isDownPaymentEnabled = isDownPaymentEnabled;
+            return this;
+        }
+
+        public Builder enableScheduleArchive(boolean enableScheduleArchive) {
+            this.enableScheduleArchive = enableScheduleArchive;
             return this;
         }
 
@@ -587,7 +595,7 @@ public final class LoanApplicationTerms {
             boolean isSkipRepaymentOnFirstDayOfMonth, final HolidayDetailDTO holidayDetailDTO, final boolean allowCompoundingOnEod,
             final boolean isEqualAmortization, final boolean isInterestToBeRecoveredFirstWhenGreaterThanEMI,
             final BigDecimal fixedPrincipalPercentagePerInstallment, final boolean isPrincipalCompoundingDisabledForOverdueLoans,
-            final Boolean enableDownPayment, final BigDecimal disbursedAmountPercentageForDownPayment,
+            final Boolean enableDownPayment, final boolean enableScheduleArchive, final BigDecimal disbursedAmountPercentageForDownPayment,
             final Boolean isAutoRepaymentForDownPaymentEnabled, final RepaymentStartDateType repaymentStartDateType,
             final LocalDate submittedOnDate, final LoanScheduleType loanScheduleType,
             final LoanScheduleProcessingType loanScheduleProcessingType, final Integer fixedLength,
@@ -616,14 +624,72 @@ public final class LoanApplicationTerms {
                 approvedAmount, loanTermVariations, calendarHistoryDataWrapper, isInterestChargedFromDateSameAsDisbursalDateEnabled,
                 numberOfDays, isSkipRepaymentOnFirstDayOfMonth, holidayDetailDTO, allowCompoundingOnEod, isEqualAmortization, false,
                 isInterestToBeRecoveredFirstWhenGreaterThanEMI, fixedPrincipalPercentagePerInstallment,
-                isPrincipalCompoundingDisabledForOverdueLoans, enableDownPayment, disbursedAmountPercentageForDownPayment,
-                isAutoRepaymentForDownPaymentEnabled, repaymentStartDateType, submittedOnDate, loanScheduleType, loanScheduleProcessingType,
-                fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour,
-                interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
+                isPrincipalCompoundingDisabledForOverdueLoans, enableDownPayment, enableScheduleArchive,
+                disbursedAmountPercentageForDownPayment, isAutoRepaymentForDownPaymentEnabled, repaymentStartDateType, submittedOnDate,
+                loanScheduleType, loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes,
+                chargeOffBehaviour, interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
                 capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
                 buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, installmentInterestCalculationType,
                 bpiConfig);
 
+    }
+
+    public static LoanApplicationTerms assembleFrom(final CurrencyData currency, final Integer loanTermFrequency,
+            final PeriodFrequencyType loanTermPeriodFrequencyType, final Integer numberOfRepayments, final Integer repaymentEvery,
+            final PeriodFrequencyType repaymentPeriodFrequencyType, Integer nthDay, DayOfWeekType weekDayType,
+            final AmortizationMethod amortizationMethod, final InterestMethod interestMethod, final BigDecimal interestRatePerPeriod,
+            final PeriodFrequencyType interestRatePeriodFrequencyType, final BigDecimal annualNominalInterestRate,
+            final InterestCalculationPeriodMethod interestCalculationPeriodMethod, final boolean allowPartialPeriodInterestCalculation,
+            final Money principalMoney, final LocalDate expectedDisbursementDate, final LocalDate repaymentsStartingFromDate,
+            final LocalDate calculatedRepaymentsStartingFromDate, final Integer graceOnPrincipalPayment,
+            final Integer recurringMoratoriumOnPrincipalPeriods, final Integer graceOnInterestPayment, final Integer graceOnInterestCharged,
+            final LocalDate interestChargedFromDate, final Money inArrearsTolerance, final boolean multiDisburseLoan,
+            final BigDecimal emiAmount, final List<DisbursementData> disbursementDatas, final BigDecimal maxOutstandingBalance,
+            final Integer graceOnArrearsAgeing, final DaysInMonthType daysInMonthType, final DaysInYearType daysInYearType,
+            final boolean isInterestRecalculationEnabled, final RecalculationFrequencyType recalculationFrequencyType,
+            final CalendarInstance restCalendarInstance,
+            final InterestRecalculationCompoundingMethod interestRecalculationCompoundingMethod,
+            final CalendarInstance compoundingCalendarInstance, final RecalculationFrequencyType compoundingFrequencyType,
+            final BigDecimal principalThresholdForLastInstalment, final Integer installmentAmountInMultiplesOf,
+            final boolean adjustInterestForRounding, final LoanPreCloseInterestCalculationStrategy preClosureInterestCalculationStrategy,
+            final Calendar loanCalendar, BigDecimal approvedAmount, List<LoanTermVariationsData> loanTermVariations,
+            Boolean isInterestChargedFromDateSameAsDisbursalDateEnabled, final Integer numberOfDays,
+            boolean isSkipRepaymentOnFirstDayOfMonth, final HolidayDetailDTO holidayDetailDTO, final boolean allowCompoundingOnEod,
+            final boolean isEqualAmortization, final boolean isInterestToBeRecoveredFirstWhenGreaterThanEMI,
+            final BigDecimal fixedPrincipalPercentagePerInstallment, final boolean isPrincipalCompoundingDisabledForOverdueLoans,
+            final Boolean enableDownPayment, final BigDecimal disbursedAmountPercentageForDownPayment,
+            final Boolean isAutoRepaymentForDownPaymentEnabled, final RepaymentStartDateType repaymentStartDateType,
+            final LocalDate submittedOnDate, final LoanScheduleType loanScheduleType,
+            final LoanScheduleProcessingType loanScheduleProcessingType, final Integer fixedLength,
+            final boolean enableAccrualActivityPosting, final List<LoanSupportedInterestRefundTypes> supportedInterestRefundTypes,
+            final LoanChargeOffBehaviour chargeOffBehaviour, final boolean interestRecognitionOnDisbursementDate,
+            final DaysInYearCustomStrategyType daysInYearCustomStrategy, final boolean enableIncomeCapitalization,
+            final LoanCapitalizedIncomeCalculationType capitalizedIncomeCalculationType,
+            final LoanCapitalizedIncomeStrategy capitalizedIncomeStrategy, final LoanCapitalizedIncomeType capitalizedIncomeType,
+            final boolean enableBuyDownFee, final LoanBuyDownFeeCalculationType buyDownFeeCalculationType,
+            final LoanBuyDownFeeStrategy buyDownFeeStrategy, final LoanBuyDownFeeIncomeType buyDownFeeIncomeType,
+            final boolean merchantBuyDownFee, final InterestCalculationPeriodMethod installmentInterestCalculationType,
+            final BrokenPeriodInterestConfigDTO bpiConfig) {
+
+        return assembleFrom(currency, loanTermFrequency, loanTermPeriodFrequencyType, numberOfRepayments, repaymentEvery,
+                repaymentPeriodFrequencyType, nthDay, weekDayType, amortizationMethod, interestMethod, interestRatePerPeriod,
+                interestRatePeriodFrequencyType, annualNominalInterestRate, interestCalculationPeriodMethod,
+                allowPartialPeriodInterestCalculation, principalMoney, expectedDisbursementDate, repaymentsStartingFromDate,
+                calculatedRepaymentsStartingFromDate, graceOnPrincipalPayment, recurringMoratoriumOnPrincipalPeriods,
+                graceOnInterestPayment, graceOnInterestCharged, interestChargedFromDate, inArrearsTolerance, multiDisburseLoan, emiAmount,
+                disbursementDatas, maxOutstandingBalance, graceOnArrearsAgeing, daysInMonthType, daysInYearType,
+                isInterestRecalculationEnabled, recalculationFrequencyType, restCalendarInstance, interestRecalculationCompoundingMethod,
+                compoundingCalendarInstance, compoundingFrequencyType, principalThresholdForLastInstalment, installmentAmountInMultiplesOf,
+                adjustInterestForRounding, preClosureInterestCalculationStrategy, loanCalendar, approvedAmount, loanTermVariations,
+                isInterestChargedFromDateSameAsDisbursalDateEnabled, numberOfDays, isSkipRepaymentOnFirstDayOfMonth, holidayDetailDTO,
+                allowCompoundingOnEod, isEqualAmortization, isInterestToBeRecoveredFirstWhenGreaterThanEMI,
+                fixedPrincipalPercentagePerInstallment, isPrincipalCompoundingDisabledForOverdueLoans, enableDownPayment, false,
+                disbursedAmountPercentageForDownPayment, isAutoRepaymentForDownPaymentEnabled, repaymentStartDateType, submittedOnDate,
+                loanScheduleType, loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes,
+                chargeOffBehaviour, interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
+                capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
+                buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, installmentInterestCalculationType,
+                bpiConfig);
     }
 
     public static LoanApplicationTerms assembleFrom(final CurrencyData currency, final Integer loanTermFrequency,
@@ -672,6 +738,7 @@ public final class LoanApplicationTerms {
         final boolean isInterestChargedFromDateSameAsDisbursalDateEnabled = false;
         final boolean isEqualAmortization = loanProductRelatedDetail.isEqualAmortization();
         final boolean isDownPaymentEnabled = loanProductRelatedDetail.isEnableDownPayment();
+        final boolean enableScheduleArchive = loanProductRelatedDetail.isEnableScheduleArchive();
         BigDecimal disbursedAmountPercentageForDownPayment = null;
         boolean isAutoRepaymentForDownPaymentEnabled = false;
         if (isDownPaymentEnabled) {
@@ -695,16 +762,16 @@ public final class LoanApplicationTerms {
                 numberOfDays, isSkipRepaymentOnFirstDayOfMonth, holidayDetailDTO, allowCompoundingOnEod, isEqualAmortization,
                 isFirstRepaymentDateAllowedOnHoliday, isInterestToBeRecoveredFirstWhenGreaterThanEMI,
                 fixedPrincipalPercentagePerInstallment, isPrincipalCompoundingDisabledForOverdueLoans, isDownPaymentEnabled,
-                disbursedAmountPercentageForDownPayment, isAutoRepaymentForDownPaymentEnabled, repaymentStartDateType, submittedOnDate,
-                loanScheduleType, loanScheduleProcessingType, fixedLength, loanProductRelatedDetail.isEnableAccrualActivityPosting(),
-                loanProductRelatedDetail.getSupportedInterestRefundTypes(), loanProductRelatedDetail.getChargeOffBehaviour(),
-                loanProductRelatedDetail.isInterestRecognitionOnDisbursementDate(), loanProductRelatedDetail.getDaysInYearCustomStrategy(),
-                loanProductRelatedDetail.isEnableIncomeCapitalization(), loanProductRelatedDetail.getCapitalizedIncomeCalculationType(),
-                loanProductRelatedDetail.getCapitalizedIncomeStrategy(), loanProductRelatedDetail.getCapitalizedIncomeType(),
-                loanProductRelatedDetail.isEnableBuyDownFee(), loanProductRelatedDetail.getBuyDownFeeCalculationType(),
-                loanProductRelatedDetail.getBuyDownFeeStrategy(), loanProductRelatedDetail.getBuyDownFeeIncomeType(),
-                loanProductRelatedDetail.isMerchantBuyDownFee(), loanProductRelatedDetail.getInstallmentInterestCalculationType(),
-                bpiConfig);
+                enableScheduleArchive, disbursedAmountPercentageForDownPayment, isAutoRepaymentForDownPaymentEnabled,
+                repaymentStartDateType, submittedOnDate, loanScheduleType, loanScheduleProcessingType, fixedLength,
+                loanProductRelatedDetail.isEnableAccrualActivityPosting(), loanProductRelatedDetail.getSupportedInterestRefundTypes(),
+                loanProductRelatedDetail.getChargeOffBehaviour(), loanProductRelatedDetail.isInterestRecognitionOnDisbursementDate(),
+                loanProductRelatedDetail.getDaysInYearCustomStrategy(), loanProductRelatedDetail.isEnableIncomeCapitalization(),
+                loanProductRelatedDetail.getCapitalizedIncomeCalculationType(), loanProductRelatedDetail.getCapitalizedIncomeStrategy(),
+                loanProductRelatedDetail.getCapitalizedIncomeType(), loanProductRelatedDetail.isEnableBuyDownFee(),
+                loanProductRelatedDetail.getBuyDownFeeCalculationType(), loanProductRelatedDetail.getBuyDownFeeStrategy(),
+                loanProductRelatedDetail.getBuyDownFeeIncomeType(), loanProductRelatedDetail.isMerchantBuyDownFee(),
+                loanProductRelatedDetail.getInstallmentInterestCalculationType(), bpiConfig);
     }
 
     private LoanApplicationTerms(final CurrencyData currency, final Integer loanTermFrequency,
@@ -731,8 +798,9 @@ public final class LoanApplicationTerms {
             final boolean allowCompoundingOnEod, final boolean isEqualAmortization, final boolean isFirstRepaymentDateAllowedOnHoliday,
             final boolean isInterestToBeRecoveredFirstWhenGreaterThanEMI, final BigDecimal fixedPrincipalPercentagePerInstallment,
             final boolean isPrincipalCompoundingDisabledForOverdueLoans, final boolean isDownPaymentEnabled,
-            final BigDecimal disbursedAmountPercentageForDownPayment, final boolean isAutoRepaymentForDownPaymentEnabled,
-            final RepaymentStartDateType repaymentStartDateType, final LocalDate submittedOnDate, final LoanScheduleType loanScheduleType,
+            final boolean enableScheduleArchive, final BigDecimal disbursedAmountPercentageForDownPayment,
+            final boolean isAutoRepaymentForDownPaymentEnabled, final RepaymentStartDateType repaymentStartDateType,
+            final LocalDate submittedOnDate, final LoanScheduleType loanScheduleType,
             final LoanScheduleProcessingType loanScheduleProcessingType, final Integer fixedLength, boolean enableAccrualActivityPosting,
             final List<LoanSupportedInterestRefundTypes> supportedInterestRefundTypes, final LoanChargeOffBehaviour chargeOffBehaviour,
             final boolean interestRecognitionOnDisbursementDate, final DaysInYearCustomStrategyType daysInYearCustomStrategy,
@@ -824,6 +892,7 @@ public final class LoanApplicationTerms {
         this.fixedPrincipalPercentagePerInstallment = fixedPrincipalPercentagePerInstallment;
         this.isPrincipalCompoundingDisabledForOverdueLoans = isPrincipalCompoundingDisabledForOverdueLoans;
         this.isDownPaymentEnabled = isDownPaymentEnabled;
+        this.enableScheduleArchive = enableScheduleArchive;
         this.disbursedAmountPercentageForDownPayment = disbursedAmountPercentageForDownPayment;
         this.downPaymentAmount = Money.zero(getCurrency());
         if (isDownPaymentEnabled) {
@@ -1836,7 +1905,7 @@ public final class LoanApplicationTerms {
                 this.repaymentPeriodFrequencyType, numberOfRepayments, principalGrace, this.recurringMoratoriumOnPrincipalPeriods,
                 this.interestPaymentGrace, this.interestChargingGrace, this.amortizationMethod, this.inArrearsTolerance.getAmount(),
                 this.graceOnArrearsAgeing, this.daysInMonthType.getValue(), this.daysInYearType.getValue(),
-                this.interestRecalculationEnabled, this.isEqualAmortization, this.isDownPaymentEnabled,
+                this.interestRecalculationEnabled, this.isEqualAmortization, this.isDownPaymentEnabled, this.enableScheduleArchive,
                 this.disbursedAmountPercentageForDownPayment, this.isAutoRepaymentForDownPaymentEnabled, this.loanScheduleType,
                 this.loanScheduleProcessingType, this.fixedLength, this.enableAccrualActivityPosting, this.supportedInterestRefundTypes,
                 this.chargeOffBehaviour, this.interestRecognitionOnDisbursementDate, this.daysInYearCustomStrategy,
