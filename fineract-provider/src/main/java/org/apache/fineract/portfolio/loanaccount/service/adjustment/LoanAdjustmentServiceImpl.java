@@ -204,6 +204,8 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
 
         ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
 
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, transactionToAdjust);
+
         HolidayDetailDTO holidayDetailDTO = scheduleGeneratorDTO.getHolidayDetailDTO();
         if (loan.getLoanRepaymentScheduleDetail().getLoanScheduleType().equals(LoanScheduleType.CUMULATIVE)) {
             // validate cumulative

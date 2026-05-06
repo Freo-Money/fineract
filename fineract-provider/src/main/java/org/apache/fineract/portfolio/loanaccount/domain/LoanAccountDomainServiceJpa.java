@@ -109,6 +109,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanBalanceService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanDownPaymentHandlerService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanJournalEntryPoster;
+import org.apache.fineract.portfolio.loanaccount.service.LoanOverduePenaltyAlignmentService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanRefundService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanScheduleService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionProcessingService;
@@ -166,6 +167,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanJournalEntryPoster journalEntryPoster;
     private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
     private final ForeclosureChargeHelper foreclosureChargeHelper;
+    private final LoanOverduePenaltyAlignmentService loanOverduePenaltyAlignmentService;
 
     @Transactional
     @Override
@@ -223,6 +225,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final boolean isRecoveryRepayment, final String chargeRefundChargeType, boolean isAccountTransfer,
             HolidayDetailDTO holidayDetailDto, Boolean isHolidayValidationDone, final boolean isLoanToLoanTransfer) {
         checkClientOrGroupActive(loan);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
 
         LoanBusinessEvent repaymentEvent = getLoanRepaymentTypeBusinessEvent(repaymentTransactionType, isRecoveryRepayment, loan);
         businessEventNotifierService.notifyPreBusinessEvent(repaymentEvent);
@@ -245,6 +248,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             newRepaymentTransaction = LoanTransaction.repaymentType(repaymentTransactionType, loan.getOffice(), repaymentAmount,
                     paymentDetail, transactionDate, txnExternalId, chargeRefundChargeType);
         }
+
+        loanOverduePenaltyAlignmentService.alignPenaltiesAsOf(loan, transactionDate);
 
         LocalDate recalculateFrom = null;
         if (loan.isInterestBearingAndInterestRecalculationEnabled()) {
@@ -299,6 +304,13 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                 true);
 
         setLoanDelinquencyTag(loan, transactionDate);
+
+        // POST-allocation alignment: re-apply overdue-installment penalties up to today for installments that remain
+        // overdue after this repayment. The PRE call above intentionally truncated the penalty schedule at txnDate so
+        // allocation matched the as-of-date template; this restores the (txnDate, today] window for unpaid
+        // installments. The just-paid installment is skipped automatically (obligationsMet is true after allocation).
+        // Runs before the post-events so external observers see the final, aligned penalty state.
+        loanOverduePenaltyAlignmentService.applyMissingPenaltiesAsOfToday(loan);
 
         journalEntryPoster.postJournalEntriesForLoanTransaction(newRepaymentTransaction, isAccountTransfer, isLoanToLoanTransfer);
         if (!repaymentTransactionType.isChargeRefund()) {
@@ -400,6 +412,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final BigDecimal transactionAmount, final PaymentDetail paymentDetail, final String noteText, final ExternalId txnExternalId,
             final Integer transactionType, Integer installmentNumber, boolean isAccountTransfer) {
         checkClientOrGroupActive(loan);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
         if (loan.isChargedOff() && DateUtils.isBefore(transactionDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
                     + loan.getId()
@@ -413,6 +426,9 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
         final LoanTransaction newPaymentTransaction = LoanTransaction.loanPayment(null, loan.getOffice(), paymentAmout, paymentDetail,
                 transactionDate, txnExternalId, loanTransactionType);
+
+        // Align overdue-installment penalties to the transaction date before allocating the charge payment.
+        loanOverduePenaltyAlignmentService.alignPenaltiesAsOf(loan, transactionDate);
 
         if (loanTransactionType.isRepaymentAtDisbursement()) {
             handlePayDisbursementTransaction(loan, chargeId, newPaymentTransaction);
@@ -457,9 +473,14 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             }
         }
 
+        // POST-allocation alignment: see comment in makeRepayment for rationale. Runs before the post-events so
+        // external observers see the final, aligned penalty state.
+        loanOverduePenaltyAlignmentService.applyMissingPenaltiesAsOfToday(loan);
+
         journalEntryPoster.postJournalEntriesForLoanTransaction(newPaymentTransaction, isAccountTransfer, false);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanChargePaymentPostBusinessEvent(newPaymentTransaction));
+
         return newPaymentTransaction;
     }
 
@@ -469,6 +490,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final LocalDate transactionDate, final BigDecimal totalTransactionAmount, final PaymentDetail paymentDetail,
             final String noteText, final ExternalId txnExternalId, boolean isAccountTransfer) {
         checkClientOrGroupActive(loan);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
         if (loan.isChargedOff() && DateUtils.isBefore(transactionDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
                     + loan.getId()
@@ -480,6 +502,9 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         final Money paymentAmount = Money.of(loan.getCurrency(), totalTransactionAmount);
         final LoanTransaction newPaymentTransaction = LoanTransaction.loanPayment(null, loan.getOffice(), paymentAmount, paymentDetail,
                 transactionDate, txnExternalId, LoanTransactionType.CHARGE_PAYMENT);
+
+        // Align overdue-installment penalties to the transaction date before allocating the multi-charge payment.
+        loanOverduePenaltyAlignmentService.alignPenaltiesAsOf(loan, transactionDate);
 
         final boolean allowTransactionsOnHoliday = this.configurationDomainService.allowTransactionsOnHolidayEnabled();
         final List<Holiday> holidays = this.holidayRepository.findByOfficeIdAndGreaterThanDate(loan.getOfficeId(), transactionDate,
@@ -521,9 +546,14 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             }
         }
 
+        // POST-allocation alignment: see comment in makeRepayment for rationale. Runs before the post-events so
+        // external observers see the final, aligned penalty state.
+        loanOverduePenaltyAlignmentService.applyMissingPenaltiesAsOfToday(loan);
+
         journalEntryPoster.postJournalEntriesForLoanTransaction(newPaymentTransaction, isAccountTransfer, false);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanChargePaymentPostBusinessEvent(newPaymentTransaction));
+
         return newPaymentTransaction;
     }
 
@@ -533,6 +563,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             if (loanCharge.isActive() && chargeId.equals(loanCharge.getId())) {
                 charge = loanCharge;
             }
+        }
+        if (charge == null) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.charge.not.found",
+                    "Loan charge not found for repayment-at-disbursement payment.", chargeId);
         }
         final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(chargesPayment, charge, charge.amount(), null,
                 configurationDomainService.getTaxRoundingMode());
@@ -566,6 +600,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final ExternalId txnExternalId) {
         final Loan loan = this.loanAccountAssembler.assembleFrom(accountId);
         checkClientOrGroupActive(loan);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
         if (loan.isChargedOff() && DateUtils.isBefore(transactionDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
                     + loan.getId()
@@ -741,6 +776,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             BigDecimal transactionAmount, PaymentDetail paymentDetail, String noteText, ExternalId txnExternalId) {
         final Loan loan = this.loanAccountAssembler.assembleFrom(accountId);
         checkClientOrGroupActive(loan);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
         businessEventNotifierService.notifyPreBusinessEvent(new LoanRefundPreBusinessEvent(loan));
 
         final Money refundAmount = Money.of(loan.getCurrency(), transactionAmount);
@@ -798,7 +834,13 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                     + " backdated transaction is not allowed. Transaction date cannot be earlier than the charge-off date of the loan",
                     loan.getId());
         }
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, foreClosureDate, null);
         businessEventNotifierService.notifyPreBusinessEvent(new LoanForeClosurePreBusinessEvent(loan));
+
+        // Align overdue-installment penalties to the foreclosure date BEFORE computing the foreclosure detail —
+        // otherwise newly-applied penalties wouldn't be reflected in the payoff amount and would be left unpaid.
+        loanOverduePenaltyAlignmentService.alignPenaltiesAsOf(loan, foreClosureDate);
+
         MonetaryCurrency currency = loan.getCurrency();
         List<Long> transactionIds = new ArrayList<>();
         List<LoanTransaction> newTransactions = new ArrayList<>();
@@ -868,6 +910,12 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             this.noteRepository.save(note);
         }
         postJournalEntriesForTransactions(transactionsToJournal);
+
+        // POST-allocation alignment: a successful foreclosure pays off all installments, so the eligible-builder
+        // returns nothing and this is a no-op. Kept for symmetry with the other write paths. Before post-events so
+        // observers see the final, aligned state.
+        loanOverduePenaltyAlignmentService.applyMissingPenaltiesAsOfToday(loan);
+
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanForeClosurePostBusinessEvent(payment));
         return payment;

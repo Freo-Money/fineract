@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.time.LocalDate;
 import java.util.Collection;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
@@ -44,6 +45,8 @@ public interface LoanChargeWritePlatformService {
     CommandProcessingResult deactivateOverdueLoanCharge(Long loanId, JsonCommand command);
 
     void applyOverdueChargesForLoan(Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList);
+
+    void applyOverdueChargesForLoan(Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList, LocalDate asOfDate);
 
     /**
      * Applies overdue-installment penalty charges for a single loan (same logic as COB step
