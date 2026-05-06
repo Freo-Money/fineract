@@ -53,6 +53,7 @@ import org.apache.fineract.portfolio.calendar.service.CalendarReadPlatformServic
 import org.apache.fineract.portfolio.charge.domain.ChargeRepositoryWrapper;
 import org.apache.fineract.portfolio.charge.service.ChargeDropdownReadPlatformService;
 import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
+import org.apache.fineract.portfolio.charge.service.ChargeUtils;
 import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.service.ClientReadPlatformService;
 import org.apache.fineract.portfolio.collateralmanagement.service.LoanCollateralAssembler;
@@ -129,6 +130,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanArrearsAgingService
 import org.apache.fineract.portfolio.loanaccount.service.LoanArrearsAgingServiceImpl;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAssembler;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAssemblerImpl;
+import org.apache.fineract.portfolio.loanaccount.service.LoanBackdatedOverduePenaltyReversalEventService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanBalanceService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanBuyDownFeeAmortizationEventService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanBuyDownFeeAmortizationProcessingService;
@@ -151,6 +153,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanDownPaymentHandlerS
 import org.apache.fineract.portfolio.loanaccount.service.LoanJournalEntryPoster;
 import org.apache.fineract.portfolio.loanaccount.service.LoanMaximumAmountCalculator;
 import org.apache.fineract.portfolio.loanaccount.service.LoanOfficerService;
+import org.apache.fineract.portfolio.loanaccount.service.LoanOverduePenaltyAlignmentService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformServiceImpl;
 import org.apache.fineract.portfolio.loanaccount.service.LoanRefundService;
@@ -164,6 +167,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanWritePlatformServiceJpaRepositoryImpl;
+import org.apache.fineract.portfolio.loanaccount.service.OverdueInstallmentPenaltyScheduleDataBuilder;
 import org.apache.fineract.portfolio.loanaccount.service.ProgressiveLoanTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.service.ReplayedTransactionBusinessEventService;
 import org.apache.fineract.portfolio.loanaccount.service.ReplayedTransactionBusinessEventServiceImpl;
@@ -330,7 +334,8 @@ public class LoanAccountConfiguration {
             LoanScheduleService loanScheduleService, ReprocessLoanTransactionsService reprocessLoanTransactionsService,
             LoanAccountService loanAccountService, LoanAdjustmentService loanAdjustmentService, LoanChargeService loanChargeService,
             LoanJournalEntryPoster loanJournalEntryPoster, OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver,
-            LoanReadPlatformService loanReadPlatformService) {
+            LoanReadPlatformService loanReadPlatformService,
+            OverdueInstallmentPenaltyScheduleDataBuilder overdueInstallmentPenaltyScheduleDataBuilder) {
         return new LoanChargeWritePlatformServiceImpl(loanChargeApiJsonValidator, loanAssembler, chargeRepository,
                 businessEventNotifierService, loanTransactionRepository, accountTransfersWritePlatformService, loanRepositoryWrapper,
                 loanAccountDomainService, loanChargeRepository, loanWritePlatformService, loanUtilService, loanChargeReadPlatformService,
@@ -338,7 +343,8 @@ public class LoanAccountConfiguration {
                 loanRepaymentScheduleTransactionProcessorFactory, externalIdFactory, accountTransferDetailRepository, loanChargeAssembler,
                 paymentDetailWritePlatformService, noteRepository, loanAccrualsProcessingService, loanDownPaymentTransactionValidator,
                 loanChargeValidator, loanScheduleService, reprocessLoanTransactionsService, loanAccountService, loanAdjustmentService,
-                loanChargeService, loanJournalEntryPoster, overdueChargeCutoffDateResolver, loanReadPlatformService);
+                loanChargeService, loanJournalEntryPoster, overdueChargeCutoffDateResolver, loanReadPlatformService,
+                overdueInstallmentPenaltyScheduleDataBuilder);
     }
 
     @Bean
@@ -352,25 +358,28 @@ public class LoanAccountConfiguration {
             StaffReadPlatformService staffReadPlatformService, PaginationHelper paginationHelper,
             PaymentTypeReadPlatformService paymentTypeReadPlatformService,
             FloatingRatesReadPlatformService floatingRatesReadPlatformService, LoanUtilService loanUtilService,
-            ConfigurationDomainService configurationDomainService, AccountDetailsReadPlatformService accountDetailsReadPlatformService,
-            ColumnValidator columnValidator, DatabaseSpecificSQLGenerator sqlGenerator,
-            DelinquencyReadPlatformService delinquencyReadPlatformService, LoanTransactionRepository loanTransactionRepository,
-            LoanChargePaidByReadService loanChargePaidByReadService, LoanTransactionRelationReadService loanTransactionRelationReadService,
-            LoanForeclosureValidator loanForeclosureValidator, LoanTransactionMapper loanTransactionMapper,
-            LoanTransactionProcessingService loanTransactionProcessingService, LoanBalanceService loanBalanceService,
-            ForeclosureChargeHelper foreclosureChargeHelper, LoanCapitalizedIncomeBalanceRepository loanCapitalizedIncomeBalanceRepository,
+            AccountDetailsReadPlatformService accountDetailsReadPlatformService, ColumnValidator columnValidator,
+            DatabaseSpecificSQLGenerator sqlGenerator, DelinquencyReadPlatformService delinquencyReadPlatformService,
+            LoanTransactionRepository loanTransactionRepository, LoanChargePaidByReadService loanChargePaidByReadService,
+            LoanTransactionRelationReadService loanTransactionRelationReadService, LoanForeclosureValidator loanForeclosureValidator,
+            LoanTransactionMapper loanTransactionMapper, LoanTransactionProcessingService loanTransactionProcessingService,
+            LoanBalanceService loanBalanceService, ForeclosureChargeHelper foreclosureChargeHelper,
+            LoanCapitalizedIncomeBalanceRepository loanCapitalizedIncomeBalanceRepository,
             LoanBuyDownFeeBalanceRepository loanBuyDownFeeBalanceRepository,
             @Lazy InterestRefundServiceDelegate interestRefundServiceDelegate, LoanMaximumAmountCalculator loanMaximumAmountCalculator,
-            NamedParameterJdbcTemplate namedParameterJdbcTemplate, LoanChargeReadPlatformService loanChargeReadPlatformService) {
+            NamedParameterJdbcTemplate namedParameterJdbcTemplate, LoanChargeReadPlatformService loanChargeReadPlatformService,
+            OverdueInstallmentPenaltyScheduleDataBuilder overdueInstallmentPenaltyScheduleDataBuilder, ChargeUtils chargeUtils,
+            ConfigurationDomainService configurationDomainService, OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver) {
         return new LoanReadPlatformServiceImpl(jdbcTemplate, context, loanRepositoryWrapper, applicationCurrencyRepository,
                 loanProductReadPlatformService, clientReadPlatformService, groupReadPlatformService, loanDropdownReadPlatformService,
                 fundReadPlatformService, chargeReadPlatformService, codeValueReadPlatformService, calendarReadPlatformService,
                 staffReadPlatformService, paginationHelper, paymentTypeReadPlatformService, floatingRatesReadPlatformService,
-                loanUtilService, configurationDomainService, accountDetailsReadPlatformService, columnValidator, sqlGenerator,
-                delinquencyReadPlatformService, loanTransactionRepository, loanChargePaidByReadService, loanTransactionRelationReadService,
-                loanForeclosureValidator, loanTransactionMapper, loanTransactionProcessingService, loanBalanceService,
-                foreclosureChargeHelper, loanCapitalizedIncomeBalanceRepository, loanBuyDownFeeBalanceRepository,
-                interestRefundServiceDelegate, loanMaximumAmountCalculator, namedParameterJdbcTemplate, loanChargeReadPlatformService);
+                loanUtilService, accountDetailsReadPlatformService, columnValidator, sqlGenerator, delinquencyReadPlatformService,
+                loanTransactionRepository, loanChargePaidByReadService, loanTransactionRelationReadService, loanForeclosureValidator,
+                loanTransactionMapper, loanTransactionProcessingService, loanBalanceService, foreclosureChargeHelper,
+                loanCapitalizedIncomeBalanceRepository, loanBuyDownFeeBalanceRepository, interestRefundServiceDelegate,
+                loanMaximumAmountCalculator, namedParameterJdbcTemplate, loanChargeReadPlatformService,
+                overdueInstallmentPenaltyScheduleDataBuilder, configurationDomainService, chargeUtils, overdueChargeCutoffDateResolver);
     }
 
     @Bean
@@ -387,6 +396,14 @@ public class LoanAccountConfiguration {
             LoanAccrualActivityProcessingService loanAccrualActivityProcessingService) {
         return new LoanAccrualEventService(businessEventNotifierService, loanAccrualsProcessingService,
                 loanAccrualActivityProcessingService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(LoanBackdatedOverduePenaltyReversalEventService.class)
+    public LoanBackdatedOverduePenaltyReversalEventService loanBackdatedOverduePenaltyReversalEventService(
+            BusinessEventNotifierService businessEventNotifierService,
+            LoanOverduePenaltyAlignmentService loanOverduePenaltyAlignmentService) {
+        return new LoanBackdatedOverduePenaltyReversalEventService(businessEventNotifierService, loanOverduePenaltyAlignmentService);
     }
 
     @Bean
@@ -454,7 +471,7 @@ public class LoanAccountConfiguration {
             ReprocessLoanTransactionsService reprocessLoanTransactionsService, LoanAccountService loanAccountService,
             LoanJournalEntryPoster journalEntryPoster, LoanAdjustmentService loanAdjustmentService, LoanMapper loanMapper,
             LoanTransactionProcessingService loanTransactionProcessingService, final LoanBalanceService loanBalanceService,
-            LoanTransactionService loanTransactionService) {
+            LoanTransactionService loanTransactionService, LoanOverduePenaltyAlignmentService loanOverduePenaltyAlignmentService) {
         return new LoanWritePlatformServiceJpaRepositoryImpl(context, loanTransactionValidator, loanUpdateCommandFromApiJsonDeserializer,
                 loanRepositoryWrapper, loanAccountDomainService, noteRepository, loanTransactionRepository,
                 loanTransactionRelationRepository, loanAssembler, calendarInstanceRepository, paymentDetailWritePlatformService,
@@ -469,7 +486,7 @@ public class LoanAccountConfiguration {
                 loanTransactionAssembler, loanAccrualsProcessingService, loanOfficerValidator, loanDownPaymentTransactionValidator,
                 loanDisbursementService, loanScheduleService, loanChargeValidator, loanOfficerService, reprocessLoanTransactionsService,
                 loanAccountService, journalEntryPoster, loanAdjustmentService, loanMapper, loanTransactionProcessingService,
-                loanBalanceService, loanTransactionService);
+                loanBalanceService, loanTransactionService, loanOverduePenaltyAlignmentService);
     }
 
     @Bean

@@ -517,6 +517,13 @@ public class ProgressiveLoanTransactionValidatorImpl implements ProgressiveLoanT
     }
 
     @Override
+    public void validateTransactionDateNotBeforeLastUserTransactionDate(Loan loan, LocalDate transactionDate,
+            LoanTransaction excludedFromLastUserComputation) {
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate,
+                excludedFromLastUserComputation);
+    }
+
+    @Override
     public void validateRepaymentDateIsOnNonWorkingDay(LocalDate repaymentDate, WorkingDays workingDays,
             boolean allowTransactionsOnNonWorkingDay) {
         loanTransactionValidator.validateRepaymentDateIsOnNonWorkingDay(repaymentDate, workingDays, allowTransactionsOnNonWorkingDay);

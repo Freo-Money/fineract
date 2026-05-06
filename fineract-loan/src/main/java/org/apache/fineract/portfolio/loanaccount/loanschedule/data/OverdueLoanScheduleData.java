@@ -74,6 +74,14 @@ public class OverdueLoanScheduleData {
         return this.periodNumber;
     }
 
+    public BigDecimal getPrincipalOverdue() {
+        return this.principalOverdue;
+    }
+
+    public BigDecimal getInterestOverdue() {
+        return this.interestOverdue;
+    }
+
     @Override
     public String toString() {
         return "{" + "chargeId:" + this.chargeId + ", locale:'" + this.locale + '\'' + ", amount:" + this.amount + ", dateFormat:'"

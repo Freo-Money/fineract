@@ -31,12 +31,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.infrastructure.codes.domain.CodeValue;
 import org.apache.fineract.infrastructure.codes.domain.CodeValueRepository;
+import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
@@ -121,6 +123,7 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
     private final ChargeRepositoryWrapper chargeRepositoryWrapper;
     private final ChargeReadPlatformService chargeReadPlatformService;
     private final LoanTransactionRepository loanTransactionRepository;
+    private final ConfigurationDomainService configurationDomainService;
 
     private void throwExceptionIfValidationWarningsExist(final List<ApiParameterError> dataValidationErrors) {
         if (!dataValidationErrors.isEmpty()) {
@@ -791,6 +794,48 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
     }
 
     @Override
+    public void validateTransactionDateNotBeforeLastUserTransactionDate(final Loan loan, final LocalDate transactionDate,
+            final LoanTransaction excludedFromLastUserComputation) {
+        if (!configurationDomainService.isEnforceLoanTransactionNotBeforeLastUserTransactionEnabled()) {
+            return;
+        }
+        if (transactionDate == null) {
+            return;
+        }
+        // Skip when the adjustment doesn't move the date — there's no backdating to validate. Covers both the system
+        // re-post path (LoanOverduePenaltyBackdatedTransactionService re-posting accruals at their existing date) and
+        // a user no-op adjustment of their own historical user-transaction. A user-driven adjustment that moves the
+        // date earlier still falls through to validation, even when the underlying transaction is system-typed.
+        if (excludedFromLastUserComputation != null
+                && Objects.equals(transactionDate, excludedFromLastUserComputation.getTransactionDate())) {
+            return;
+        }
+        final LocalDate lastUserTransactionDate;
+        if (excludedFromLastUserComputation == null) {
+            lastUserTransactionDate = loan.getLastUserTransactionDate();
+        } else {
+            // Mirror Loan#getLastUserTransactionDate but exclude the supplied transaction so adjusting an existing
+            // user transaction backwards isn't blocked by that transaction's own (pre-reversal) date. Match by id
+            // when persisted (the excluded reference may have been loaded in a different persistence context than
+            // loan.getLoanTransactions()), with identity as the fallback for transient entities.
+            final Long excludedId = excludedFromLastUserComputation.getId();
+            lastUserTransactionDate = loan.getLoanTransactions().stream() //
+                    .filter(tx -> tx != excludedFromLastUserComputation && (excludedId == null || !excludedId.equals(tx.getId()))) //
+                    .filter(loan::isUserTransaction) //
+                    .map(LoanTransaction::getTransactionDate) //
+                    .filter(date -> DateUtils.isBefore(loan.getDisbursementDate(), date)) //
+                    .max(LocalDate::compareTo) //
+                    .orElse(loan.getDisbursementDate());
+        }
+        if (lastUserTransactionDate != null && DateUtils.isBefore(transactionDate, lastUserTransactionDate)) {
+            throw new InvalidLoanStateTransitionException("transaction", "cannot.be.before.last.user.transaction.date",
+                    "Transaction date " + transactionDate + " cannot be before the latest user transaction date " + lastUserTransactionDate
+                            + " on the loan (accrual and other system postings are not considered).",
+                    lastUserTransactionDate, transactionDate);
+        }
+    }
+
+    @Override
     public void validateActivityNotBeforeLastTransactionDate(final Loan loan, final LocalDate activityDate, final LoanEvent event) {
         if (!(loan.isInterestBearingAndInterestRecalculationEnabled() || loan.loanProduct().isHoldGuaranteeFunds())
                 || !loan.getLoanRepaymentScheduleDetail().getLoanScheduleType().equals(LoanScheduleType.CUMULATIVE)) {
@@ -870,6 +915,7 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
 
         validateClientOfficeJoiningDateIsBeforeTransactionDate(loan, transactionDate);
         validateActivityNotBeforeLastTransactionDate(loan, transactionDate, LoanEvent.LOAN_REPAYMENT_OR_WAIVER);
+        validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
         HolidayDetailDTO holidayDetailDTO = loanUtilService.constructHolidayDTO(loan.getOfficeId(), loan.getDisbursementDate());
         validateRepaymentDateIsOnHoliday(transactionDate, holidayDetailDTO.isAllowTransactionsOnHoliday(), holidayDetailDTO.getHolidays());
         validateRepaymentDateIsOnNonWorkingDay(transactionDate, holidayDetailDTO.getWorkingDays(),
@@ -905,6 +951,9 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
         validateActivityNotBeforeClientOrGroupTransferDate(loan, transactionDate);
         validateRepaymentTypeTransactionNotBeforeAChargeRefund(loan, loanTransactionType, transactionDate);
         validateTransactionNotBeforeLastTransactionDate(loan, loanTransactionType, transactionDate);
+        // Last-user-transaction-date enforcement is applied at the domain-service layer
+        // (LoanAccountDomainServiceJpa.makeRefund / makeRefundForActiveLoan) so it covers both API entry-points
+        // uniformly. Don't duplicate it here.
         validateRepaymentDateIsOnHoliday(transactionDate, scheduleGeneratorDTO.getHolidayDetailDTO().isAllowTransactionsOnHoliday(),
                 scheduleGeneratorDTO.getHolidayDetailDTO().getHolidays());
         validateRepaymentDateIsOnNonWorkingDay(transactionDate, scheduleGeneratorDTO.getHolidayDetailDTO().getWorkingDays(),

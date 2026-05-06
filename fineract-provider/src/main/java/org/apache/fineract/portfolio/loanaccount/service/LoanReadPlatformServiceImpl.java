@@ -78,12 +78,15 @@ import org.apache.fineract.portfolio.calendar.domain.CalendarEntityType;
 import org.apache.fineract.portfolio.calendar.service.CalendarReadPlatformService;
 import org.apache.fineract.portfolio.charge.data.ChargeData;
 import org.apache.fineract.portfolio.charge.domain.Charge;
+import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
+import org.apache.fineract.portfolio.charge.service.ChargeUtils;
 import org.apache.fineract.portfolio.client.data.ClientData;
 import org.apache.fineract.portfolio.client.domain.ClientEnumerations;
 import org.apache.fineract.portfolio.client.service.ClientReadPlatformService;
 import org.apache.fineract.portfolio.common.domain.DaysInYearCustomStrategyType;
+import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.common.service.CommonEnumerations;
 import org.apache.fineract.portfolio.delinquency.data.DelinquencyRangeData;
 import org.apache.fineract.portfolio.delinquency.service.DelinquencyReadPlatformService;
@@ -131,6 +134,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeStr
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeType;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeOffBehaviour;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanOverdueInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
@@ -144,12 +148,15 @@ import org.apache.fineract.portfolio.loanaccount.exception.LoanTransactionNotFou
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanSchedulePeriodData;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanScheduleData;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.DefaultScheduledDateGenerator;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleProcessingType;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
+import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.ScheduledDateGenerator;
 import org.apache.fineract.portfolio.loanaccount.mapper.LoanTransactionMapper;
 import org.apache.fineract.portfolio.loanaccount.repository.LoanBuyDownFeeBalanceRepository;
 import org.apache.fineract.portfolio.loanaccount.repository.LoanCapitalizedIncomeBalanceRepository;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanForeclosureValidator;
+import org.apache.fineract.portfolio.loanaccount.service.strategy.OverdueChargeCutoffDateResolver;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
@@ -194,7 +201,6 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     private final PaymentTypeReadPlatformService paymentTypeReadPlatformService;
     private final FloatingRatesReadPlatformService floatingRatesReadPlatformService;
     private final LoanUtilService loanUtilService;
-    private final ConfigurationDomainService configurationDomainService;
     private final AccountDetailsReadPlatformService accountDetailsReadPlatformService;
     private final ColumnValidator columnValidator;
     private final DatabaseSpecificSQLGenerator sqlGenerator;
@@ -213,6 +219,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     private final LoanMaximumAmountCalculator loanMaximumAmountCalculator;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final LoanChargeReadPlatformService loanChargeReadPlatformService;
+    private final OverdueInstallmentPenaltyScheduleDataBuilder overdueInstallmentPenaltyScheduleDataBuilder;
+    private final ConfigurationDomainService configurationDomainService;
+    private final ChargeUtils chargeUtils;
+    private final OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver;
 
     @Override
     public LoanAccountData retrieveOne(final Long loanId) {
@@ -655,6 +665,27 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         loanTransactionData.setPaymentTypeOptions(paymentOptions);
         LoanChargesDueDTO loanChargesDue = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate);
+        // For templates, do NOT persist overdue-installment penalties (COB might have failed). Instead, compute any
+        // missing overdue-installment penalty amount as-of the template date and surface it in the response. Skip
+        // future-dated templates entirely — we don't project forward, and COB will apply real penalties on the EOD
+        // when that date becomes the business date.
+        BigDecimal netPenaltyAdjustment = BigDecimal.ZERO;
+        if (asOnDate != null && !asOnDate.isAfter(DateUtils.getBusinessLocalDate()) && isOverduePenaltyCatchupConfigured()
+                && hasOverdueInstallmentsAsOf(loanId, asOnDate)) {
+            final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+            netPenaltyAdjustment = applyPenaltyAdjustmentForAsOfDate(loanChargesDue, loan, asOnDate);
+        }
+        if (netPenaltyAdjustment.signum() != 0) {
+            // Surface the projected as-of-date penalty in the totals so clients reading
+            // `amount`/`penaltyChargesPortion`
+            // see the same view as `loanOverdueChargeData`. Net can be negative (when phantom > missing): allocation
+            // post-alignment will see the lower amount, so the template should too.
+            loanTransactionData = loanTransactionData.toBuilder()
+                    .amount(MathUtil.nullToZero(loanTransactionData.getAmount()).add(netPenaltyAdjustment))
+                    .penaltyChargesPortion(MathUtil.nullToZero(loanTransactionData.getPenaltyChargesPortion()).add(netPenaltyAdjustment))
+                    .build();
+            loanTransactionData.setPaymentTypeOptions(paymentOptions);
+        }
         loanTransactionData.setLoanOverdueChargeData(loanChargesDue);
         return loanTransactionData;
     }
@@ -668,8 +699,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         LoanDueDetailsDTO dueDetails = this.jdbcTemplate.queryForObject(sql.toString(), new Object[] { loanId, asOnLocalDate },
                 loanDueDetailsExtractor);
         LoanChargesDueDTO loanChargesDue = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnLocalDate);
+        // Project any missing overdue-installment penalties as-of the requested date into the breakdown list AND the
+        // aggregate `penaltyChargesDue`, so this read aligns with the repayment / foreclosure / charge-payment
+        // templates
+        // and with the write-side alignment that runs at txn time.
+        BigDecimal netPenaltyAdjustment = BigDecimal.ZERO;
+        if (asOnLocalDate != null && !asOnLocalDate.isAfter(DateUtils.getBusinessLocalDate()) && isOverduePenaltyCatchupConfigured()
+                && hasOverdueInstallmentsAsOf(loanId, asOnLocalDate)) {
+            final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+            netPenaltyAdjustment = applyPenaltyAdjustmentForAsOfDate(loanChargesDue, loan, asOnLocalDate);
+        }
         dueDetails = LoanDueDetailsDTO.builder().principalDue(dueDetails.getPrincipalDue()).interestDue(dueDetails.getInterestDue())
-                .feeChargesDue(dueDetails.getFeeChargesDue()).penaltyChargesDue(dueDetails.getPenaltyChargesDue())
+                .feeChargesDue(dueDetails.getFeeChargesDue())
+                .penaltyChargesDue(MathUtil.nullToZero(dueDetails.getPenaltyChargesDue()).add(netPenaltyAdjustment))
                 .feeChargesDueDetails(loanChargesDue.getFeeCharges()).penaltyChargesDueDetails(loanChargesDue.getPenaltyCharges()).build();
         return dueDetails;
     }
@@ -726,15 +768,27 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         final BigDecimal unrecognizedIncomePortion = null;
 
         BigDecimal adjustedChargeAmount = adjustPrepayInstallmentCharge(loan, onDate);
-        BigDecimal totalAdjusted = outstandingAmounts.getTotalOutstanding().getAmount().subtract(adjustedChargeAmount);
+        // Net penalty adjustment for the as-of view: missing penalties up to onDate, minus existing penalties whose
+        // installment is still inside its penaltyWaitPeriod at onDate (those will be deactivated by alignment when the
+        // user submits a transaction at this date).
+        BigDecimal netPenaltyAdjustment = BigDecimal.ZERO;
+        if (onDate != null && !onDate.isAfter(DateUtils.getBusinessLocalDate()) && isOverduePenaltyCatchupConfigured()
+                && hasOverdueInstallmentsAsOf(loanId, onDate)) {
+            final BigDecimal missing = MathUtil.nullToZero(computeMissingOverdueInstallmentPenalty(loan, onDate).missingAmount());
+            final BigDecimal phantom = MathUtil.nullToZero(computePhantomOverdueInstallmentPenaltyAmount(loan, onDate));
+            netPenaltyAdjustment = missing.subtract(phantom);
+        }
+        BigDecimal totalAdjusted = outstandingAmounts.getTotalOutstanding().getAmount().subtract(adjustedChargeAmount)
+                .add(netPenaltyAdjustment);
 
         return LoanTransactionData.builder().type(transactionType).currency(currencyData).date(earliestUnpaidInstallmentDate)
                 .amount(totalAdjusted).netDisbursalAmount(loan.getNetDisbursalAmount())
                 .principalPortion(outstandingAmounts.principal().getAmount()).interestPortion(outstandingAmounts.interest().getAmount())
                 .feeChargesPortion(outstandingAmounts.feeCharges().getAmount().subtract(adjustedChargeAmount))
-                .penaltyChargesPortion(outstandingAmounts.penaltyCharges().getAmount()).unrecognizedIncomePortion(unrecognizedIncomePortion)
-                .paymentTypeOptions(paymentOptions).externalId(ExternalId.empty()).outstandingLoanBalance(outstandingLoanBalance)
-                .manuallyReversed(false).loanId(loanId).externalLoanId(loan.getExternalId()).build();
+                .penaltyChargesPortion(outstandingAmounts.penaltyCharges().getAmount().add(netPenaltyAdjustment))
+                .unrecognizedIncomePortion(unrecognizedIncomePortion).paymentTypeOptions(paymentOptions).externalId(ExternalId.empty())
+                .outstandingLoanBalance(outstandingLoanBalance).manuallyReversed(false).loanId(loanId).externalLoanId(loan.getExternalId())
+                .build();
     }
 
     private BigDecimal adjustPrepayInstallmentCharge(Loan loan, final LocalDate onDate) {
@@ -750,6 +804,323 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
          * break; } } } }
          */
         return chargeAmount;
+    }
+
+    /**
+     * Read-path projection mirrors what the catch-up listener would post at write time. Gate on the same external-event
+     * configuration so read and write paths agree: when the catch-up isn't enabled, no penalties get created at payment
+     * time and the read shouldn't synthesize them either. Also skips the JPA-aggregate fetch when the feature is off.
+     */
+    private boolean isOverduePenaltyCatchupConfigured() {
+        return configurationDomainService.isBackdatedOverduePenaltyAlignmentEnabled();
+    }
+
+    private boolean hasOverdueInstallmentsAsOf(final Long loanId, final LocalDate asOnDate) {
+        if (loanId == null || asOnDate == null) {
+            return false;
+        }
+        // "Overdue" means there is at least one unpaid installment with dueDate strictly before asOnDate.
+        // Keep this check lightweight (read-only) to avoid unnecessary writes when the loan isn't overdue.
+        final String sql = """
+                SELECT COUNT(1)
+                FROM m_loan_repayment_schedule ls
+                WHERE ls.loan_id = ?
+                  AND ls.completed_derived = false
+                  AND ls.is_additional <> true
+                  AND ls.recalculated_interest_component <> true
+                  AND ls.duedate < ?
+                """;
+        final Integer count = this.jdbcTemplate.queryForObject(sql, Integer.class, loanId, asOnDate);
+        return count != null && count > 0;
+    }
+
+    /**
+     * Returns the as-of-date net penalty adjustment that mirrors what the alignment service would do at write time:
+     * {@code (missing penalties up to asOfDate) - (existing penalties whose installment is still inside its
+     * penaltyWaitPeriod at asOfDate)}. Positive = add to template, negative = subtract from template (because the
+     * write-side alignment will deactivate those existing-but-shouldn't-exist penalties).
+     *
+     * <p>
+     * Side-effect: applies the same net to {@code dueDto}'s aggregate penalty totals and (for the positive case) the
+     * synthesized breakdown row, so the read view matches what allocation will see post-alignment.
+     */
+    private BigDecimal applyPenaltyAdjustmentForAsOfDate(final LoanChargesDueDTO dueDto, final Loan loan, final LocalDate asOfDate) {
+        if (dueDto == null || loan == null || asOfDate == null) {
+            return BigDecimal.ZERO;
+        }
+        final MissingOverdueInstallmentPenalty missingPenalty = computeMissingOverdueInstallmentPenalty(loan, asOfDate);
+        final BigDecimal phantom = computePhantomOverdueInstallmentPenaltyAmount(loan, asOfDate);
+        final BigDecimal net = MathUtil.nullToZero(missingPenalty.missingAmount()).subtract(MathUtil.nullToZero(phantom));
+        if (net.signum() == 0) {
+            return BigDecimal.ZERO;
+        }
+
+        // Adjust the aggregate fields the way the writer would after alignment runs.
+        dueDto.setPenaltyPostedAsOnDate(MathUtil.nullToZero(dueDto.getPenaltyPostedAsOnDate()).add(net));
+        dueDto.setPenaltyPostedTillDate(MathUtil.nullToZero(dueDto.getPenaltyPostedTillDate()).add(net));
+
+        // For the positive case, surface the missing penalty in the breakdown so clients reading the per-charge list
+        // see it. For the negative case (phantom > missing), we don't drill into individual rows here — the aggregate
+        // already reflects the post-alignment state, which is what allocation will use.
+        if (net.signum() > 0 && missingPenalty.chargeDefinition() != null) {
+            mergeComputedOverdueInstallmentPenaltiesIntoDueDto(dueDto,
+                    new MissingOverdueInstallmentPenalty(missingPenalty.chargeDefinition(), net));
+        }
+        return net;
+    }
+
+    /**
+     * Sums the outstanding amount of every active overdue-installment penalty {@link LoanCharge} whose installment is
+     * still inside its {@code penaltyWaitPeriod} at {@code asOfDate}. These are the penalties that the alignment
+     * service's PRE step deactivates — the read-path projection subtracts them so the template matches what the
+     * allocation will see post-alignment.
+     */
+    private BigDecimal computePhantomOverdueInstallmentPenaltyAmount(final Loan loan, final LocalDate asOfDate) {
+        if (loan == null || asOfDate == null || loan.getCharges() == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal phantom = BigDecimal.ZERO;
+        for (LoanCharge charge : loan.getCharges()) {
+            if (charge == null || !charge.isActive() || charge.getChargeTimeType() == null
+                    || !charge.getChargeTimeType().isOverdueInstallment()) {
+                continue;
+            }
+            if (charge.getOverdueInstallmentCharge() == null || charge.getOverdueInstallmentCharge().getInstallment() == null) {
+                continue;
+            }
+            final LoanRepaymentScheduleInstallment installment = charge.getOverdueInstallmentCharge().getInstallment();
+            if (installment.getDueDate() == null) {
+                continue;
+            }
+            final long waitPeriod = chargeUtils.retrievePenaltyWaitPeriodDays(charge.getCharge());
+            if (asOfDate.isBefore(installment.getDueDate().plusDays(waitPeriod))) {
+                phantom = phantom.add(MathUtil.nullToZero(charge.amountOutstanding()));
+            }
+        }
+        return phantom;
+    }
+
+    private void mergeComputedOverdueInstallmentPenaltiesIntoDueDto(final LoanChargesDueDTO dueDto,
+            final MissingOverdueInstallmentPenalty missingPenalty) {
+        if (dueDto == null || missingPenalty == null || missingPenalty.missingAmount().signum() <= 0
+                || missingPenalty.chargeDefinition() == null) {
+            return;
+        }
+        final BigDecimal missing = missingPenalty.missingAmount();
+        final Charge penaltyCharge = missingPenalty.chargeDefinition();
+
+        dueDto.setPenaltyPostedAsOnDate(MathUtil.nullToZero(dueDto.getPenaltyPostedAsOnDate()).add(missing));
+        dueDto.setPenaltyPostedTillDate(MathUtil.nullToZero(dueDto.getPenaltyPostedTillDate()).add(missing));
+
+        // Merge into penaltyCharges list so clients can show the correct penalty due as-of date without persisting
+        // charges.
+        final List<LoanChargeData> penaltyCharges = dueDto.getPenaltyCharges() != null ? dueDto.getPenaltyCharges() : new ArrayList<>();
+        LoanChargeData target = null;
+        for (LoanChargeData c : penaltyCharges) {
+            if (c != null && penaltyCharge.getId() != null && penaltyCharge.getId().equals(c.getChargeId())) {
+                target = c;
+                break;
+            }
+        }
+        if (target == null) {
+            // Populate `amount` with the missing penalty too — clients that key off `amount` (rather than
+            // `amountOutstanding`) would otherwise render the synthesized row as 0.
+            target = new LoanChargeData(null, penaltyCharge.getId(), penaltyCharge.getName(), null, missing, null, null, null, missing,
+                    null, null, null, null, null, null, true, null, false, false, null, null, null, null, null, null, null, null, null,
+                    null, null);
+            penaltyCharges.add(target);
+        } else {
+            target.setAmountOutstanding(MathUtil.nullToZero(target.getAmountOutstanding()).add(missing));
+        }
+        dueDto.setPenaltyCharges(penaltyCharges);
+    }
+
+    private record MissingOverdueInstallmentPenalty(Charge chargeDefinition, BigDecimal missingAmount) {
+    }
+
+    private MissingOverdueInstallmentPenalty computeMissingOverdueInstallmentPenalty(final Loan loan, final LocalDate asOfDate) {
+        if (loan == null || asOfDate == null) {
+            return new MissingOverdueInstallmentPenalty(null, BigDecimal.ZERO);
+        }
+        if (asOfDate.isAfter(DateUtils.getBusinessLocalDate())) {
+            return new MissingOverdueInstallmentPenalty(null, BigDecimal.ZERO);
+        }
+        if (!loan.isOpen() || loan.getLoanProduct() == null || loan.getLoanProduct().getCharges() == null) {
+            return new MissingOverdueInstallmentPenalty(null, BigDecimal.ZERO);
+        }
+
+        final OverdueInstallmentPenaltyScheduleDataBuilder.OverdueInstallmentPenaltyScheduleData eligible = overdueInstallmentPenaltyScheduleDataBuilder
+                .build(loan, asOfDate);
+        final Charge penaltyCharge = eligible.penaltyChargeDefinition();
+        if (penaltyCharge == null || penaltyCharge.getAmount() == null || penaltyCharge.getAmount().signum() <= 0) {
+            return new MissingOverdueInstallmentPenalty(null, BigDecimal.ZERO);
+        }
+        final Integer chargeCalculationValue = penaltyCharge.getChargeCalculation();
+        if (chargeCalculationValue == null) {
+            return new MissingOverdueInstallmentPenalty(penaltyCharge, BigDecimal.ZERO);
+        }
+        final ChargeCalculationType chargeCalculation = ChargeCalculationType.fromInt(chargeCalculationValue);
+
+        final List<OverdueLoanScheduleData> eligibleInstallments = eligible.overdueInstallments();
+        if (eligibleInstallments.isEmpty()) {
+            return new MissingOverdueInstallmentPenalty(penaltyCharge, BigDecimal.ZERO);
+        }
+
+        // Index installments by period number for date lookup (we need the LocalDate dueDate to generate posting dates,
+        // not the formatted string on OverdueLoanScheduleData).
+        final Map<Integer, LoanRepaymentScheduleInstallment> installmentsByNumber = loan.getRepaymentScheduleInstallments() == null
+                ? Map.of()
+                : loan.getRepaymentScheduleInstallments().stream().filter(Objects::nonNull)
+                        .filter(si -> si.getInstallmentNumber() != null && si.getDueDate() != null)
+                        .collect(Collectors.toMap(LoanRepaymentScheduleInstallment::getInstallmentNumber, si -> si, (a, b) -> a));
+
+        // Sum existing active penalty amounts per installment, scoped to penalties whose due date is on/before
+        // asOfDate.
+        // A backdated template view must ignore penalties applied for dates > asOfDate (those would represent days
+        // that,
+        // from the txn-date perspective, hadn't happened yet).
+        final Map<Integer, BigDecimal> existingByInstallment = new HashMap<>();
+        if (loan.getCharges() != null) {
+            for (LoanCharge c : loan.getCharges()) {
+                if (c == null || !c.isActive() || c.getCharge() == null || penaltyCharge.getId() == null
+                        || !penaltyCharge.getId().equals(c.getCharge().getId())) {
+                    continue;
+                }
+                final LocalDate chargeDue = c.getDueLocalDate();
+                if (chargeDue == null || chargeDue.isAfter(asOfDate)) {
+                    continue;
+                }
+                final LoanOverdueInstallmentCharge overdue = c.getOverdueInstallmentCharge();
+                if (overdue == null || overdue.getInstallment() == null || overdue.getInstallment().getInstallmentNumber() == null) {
+                    continue;
+                }
+                existingByInstallment.merge(overdue.getInstallment().getInstallmentNumber(), MathUtil.nullToZero(c.amount()),
+                        BigDecimal::add);
+            }
+        }
+
+        final BigDecimal configuredAmount = penaltyCharge.getAmount();
+        final BigDecimal minCap = penaltyCharge.getMinCap();
+        final BigDecimal maxCap = penaltyCharge.getMaxCap();
+        // PERCENT_OF_PRINCIPAL_OUTSTANDING uses the loan-wide total principal outstanding as base, not per-installment.
+        final BigDecimal loanTotalPrincipalOutstanding = chargeCalculation.isPercentageOfPrincipalOutstanding()
+                ? MathUtil.nullToZero(loan.getSummary().getTotalPrincipalOutstanding())
+                : null;
+
+        // Posting-start formula mirrors the writer
+        // (LoanChargeWritePlatformServiceImpl#applyChargeToOverdueLoanInstallment):
+        // startDate = installmentDueDate + 1 + graceOnPenaltyPosting. The per-charge penaltyWaitPeriod is a separate
+        // concept that gates *eligibility* (handled by OverdueInstallmentPenaltyScheduleDataBuilder) — it does not
+        // shift the posting date.
+        final long graceOnPenaltyPostingDays = chargeUtils.retrieveGraceOnPenaltyPostingDays();
+        final Integer feeFrequency = penaltyCharge.feeFrequency();
+        // feeInterval may be null for legacy charges; default to 1 (every period).
+        final int feeInterval = penaltyCharge.feeInterval() != null ? penaltyCharge.feeInterval() : 1;
+        final ScheduledDateGenerator scheduledDateGenerator = new DefaultScheduledDateGenerator();
+        // Mirror the writer's `scheduleDates.removeIf(date < cutoff)` filter so the projection matches what would
+        // actually be posted for migrated loans (where the cutoff is the migration date, not the disbursement date).
+        final LocalDate cutoffDate = overdueChargeCutoffDateResolver.getCutoffDate(loan);
+
+        BigDecimal missingAmount = BigDecimal.ZERO;
+        BigDecimal totalExistingMatched = BigDecimal.ZERO;
+        for (OverdueLoanScheduleData installmentData : eligibleInstallments) {
+            final Integer periodNumber = installmentData.getPeriodNumber();
+            if (periodNumber == null) {
+                continue;
+            }
+            final LoanRepaymentScheduleInstallment installment = installmentsByNumber.get(periodNumber);
+            if (installment == null) {
+                continue;
+            }
+            // Generate posting dates from firstAllowedPenaltyDay up to (and including) asOfDate. Mirrors the writer's
+            // schedule-dates loop in applyChargeToOverdueLoanInstallment: feeFrequency==null is single-posting,
+            // otherwise
+            // step by (feeFrequency, feeInterval).
+            LocalDate startDate = installment.getDueDate().plusDays(1L + graceOnPenaltyPostingDays);
+            final List<LocalDate> postingDates = new ArrayList<>();
+            if (feeFrequency == null) {
+                if (!startDate.isAfter(asOfDate) && !DateUtils.isBefore(startDate, cutoffDate)) {
+                    postingDates.add(startDate);
+                }
+            } else {
+                while (!startDate.isAfter(asOfDate)) {
+                    if (!DateUtils.isBefore(startDate, cutoffDate)) {
+                        postingDates.add(startDate);
+                    }
+                    startDate = scheduledDateGenerator.getRepaymentPeriodDate(PeriodFrequencyType.fromInt(feeFrequency), feeInterval,
+                            startDate);
+                }
+            }
+            if (postingDates.isEmpty()) {
+                continue;
+            }
+
+            BigDecimal expectedForInstallment = BigDecimal.ZERO;
+            for (LocalDate postingDate : postingDates) {
+                // For percentage-based overdue charges the writer transforms the configured percentage via
+                // ChargePercentageUtil.getEffectiveDailyPercentage, dividing by daysInYear when the charge is YEARLY.
+                // Use the per-posting date as the reference so multi-period projections handle leap-year boundaries
+                // the same way the writer does.
+                final BigDecimal effectivePercentage = chargeCalculation.isPercentageBased()
+                        ? ChargePercentageUtil.getEffectiveDailyPercentage(penaltyCharge, configuredAmount, postingDate)
+                        : configuredAmount;
+                BigDecimal perPostingAmount;
+                if (chargeCalculation.isFlat()) {
+                    perPostingAmount = configuredAmount;
+                } else if (chargeCalculation.isPercentageOfAmount()) {
+                    perPostingAmount = LoanCharge.percentageOf(MathUtil.nullToZero(installmentData.getPrincipalOverdue()),
+                            effectivePercentage);
+                } else if (chargeCalculation.isPercentageOfAmountAndInterest()) {
+                    final BigDecimal base = MathUtil.nullToZero(installmentData.getPrincipalOverdue())
+                            .add(MathUtil.nullToZero(installmentData.getInterestOverdue()));
+                    perPostingAmount = LoanCharge.percentageOf(base, effectivePercentage);
+                } else if (chargeCalculation.isPercentageOfInterest()) {
+                    perPostingAmount = LoanCharge.percentageOf(MathUtil.nullToZero(installmentData.getInterestOverdue()),
+                            effectivePercentage);
+                } else if (chargeCalculation.isPercentageOfPrincipalOutstanding()) {
+                    perPostingAmount = LoanCharge.percentageOf(loanTotalPrincipalOutstanding, effectivePercentage);
+                } else {
+                    // PERCENT_OF_DISBURSEMENT_AMOUNT or unmapped: writer produces 0 for the overdue-installment case
+                    // outside tranche / SPECIFIED_DUE_DATE setups.
+                    perPostingAmount = BigDecimal.ZERO;
+                }
+                if (chargeCalculation.isPercentageBased()) {
+                    if (minCap != null && perPostingAmount.compareTo(minCap) < 0) {
+                        perPostingAmount = minCap;
+                    }
+                    if (maxCap != null && perPostingAmount.compareTo(maxCap) > 0) {
+                        perPostingAmount = maxCap;
+                    }
+                }
+                expectedForInstallment = expectedForInstallment.add(MathUtil.nullToZero(perPostingAmount));
+            }
+
+            // Deficit = expected as-of-date − already applied (in-window). Negative deficits (someone over-applied) are
+            // clamped to zero so the projection never produces a negative supplement.
+            final BigDecimal existingForInstallment = existingByInstallment.getOrDefault(periodNumber, BigDecimal.ZERO);
+            final BigDecimal deficit = expectedForInstallment.subtract(existingForInstallment).max(BigDecimal.ZERO);
+            missingAmount = missingAmount.add(deficit);
+            totalExistingMatched = totalExistingMatched.add(existingForInstallment.min(expectedForInstallment));
+        }
+        if (missingAmount.signum() <= 0) {
+            return new MissingOverdueInstallmentPenalty(penaltyCharge, BigDecimal.ZERO);
+        }
+
+        // Respect max cumulative cap (best-effort) based on already-applied penalties (in-window). For the cap, only
+        // count penalties whose due date is on/before asOfDate so a backdated view doesn't get artificially throttled
+        // by
+        // future-dated postings.
+        final BigDecimal cap = penaltyCharge.getMaxCumulativePenaltyCap();
+        if (cap != null) {
+            final BigDecimal additionalCapRoom = cap.subtract(totalExistingMatched);
+            if (additionalCapRoom.signum() <= 0) {
+                return new MissingOverdueInstallmentPenalty(penaltyCharge, BigDecimal.ZERO);
+            }
+            if (missingAmount.compareTo(additionalCapRoom) > 0) {
+                missingAmount = additionalCapRoom;
+            }
+        }
+        return new MissingOverdueInstallmentPenalty(penaltyCharge, missingAmount);
     }
 
     @Override
@@ -2160,55 +2531,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
     @Override
     public Collection<OverdueLoanScheduleData> retrieveAllOverdueInstallmentsForLoan(final Loan loan) {
-        Collection<OverdueLoanScheduleData> list = new ArrayList<>();
-
-        if (!loan.isOpen()) {
-            return list;
-        }
-
-        Optional<Charge> optPenaltyCharge = loan.getLoanProduct().getCharges().stream()
-                .filter((e) -> ChargeTimeType.OVERDUE_INSTALLMENT.getValue().equals(e.getChargeTimeType()) && e.isLoanCharge()).findFirst();
-
-        if (optPenaltyCharge.isEmpty()) {
-            return list;
-        }
-        final Charge penaltyCharge = optPenaltyCharge.get();
-
-        // Check if cumulative penalty cap has been reached
-        final BigDecimal maxCumulativePenaltyCap = penaltyCharge.getMaxCumulativePenaltyCap();
-        if (maxCumulativePenaltyCap != null) {
-            BigDecimal existingPenaltyAmount = loan.getCharges().stream().filter(LoanCharge::isPenaltyCharge).filter(LoanCharge::isActive)
-                    .filter(c -> c.getCharge().getId().equals(penaltyCharge.getId())).map(LoanCharge::amount).filter(Objects::nonNull)
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-            if (existingPenaltyAmount.compareTo(maxCumulativePenaltyCap) >= 0) {
-                return list; // Cap already reached, no need to process
-            }
-        }
-
-        final Integer penaltyWaitPeriod = penaltyCharge.getPenaltyWaitPeriod();
-        final boolean backdatePenalties = configurationDomainService.isBackdatePenaltiesEnabled();
-
-        for (LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
-            if (installment.isObligationsMet() || installment.isRecalculatedInterestComponent() || installment.isAdditional()) {
-                continue;
-            }
-
-            boolean isPenaltyDue = installment.isOverdueOn(DateUtils.getBusinessLocalDate().minusDays(penaltyWaitPeriod).plusDays(1));
-            boolean isDueToday = installment.getDueDate().equals(DateUtils.getBusinessLocalDate().minusDays(penaltyWaitPeriod));
-
-            if (isPenaltyDue) {
-                if (!backdatePenalties && !isDueToday) {
-                    continue;
-                }
-
-                list.add(new OverdueLoanScheduleData(loan.getId(), penaltyCharge.getId(),
-                        DateUtils.DEFAULT_DATE_FORMATTER.format(installment.getDueDate()), penaltyCharge.getAmount(),
-                        DateUtils.DEFAULT_DATE_FORMAT, Locale.ENGLISH.toLanguageTag(),
-                        installment.getPrincipalOutstanding(loan.getCurrency()).getAmount(),
-                        installment.getInterestOutstanding(loan.getCurrency()).getAmount(), installment.getInstallmentNumber()));
-            }
-        }
-        return list;
+        return overdueInstallmentPenaltyScheduleDataBuilder.build(loan, DateUtils.getBusinessLocalDate()).overdueInstallments();
     }
 
     @SuppressWarnings("deprecation")
@@ -2596,6 +2919,18 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         Money feeChargesOutstanding = loanRepaymentScheduleInstallment.getFeeChargesOutstanding(currency);
         feeChargesOutstanding = feeChargesOutstanding.plus(foreclosureFees);
         Money penaltyChargesOutstanding = loanRepaymentScheduleInstallment.getPenaltyChargesOutstanding(currency);
+        // For templates, do NOT persist overdue-installment penalties (COB might have failed). Instead, compute any
+        // missing overdue-installment penalty amount as-of the foreclosure template date and surface it in the
+        // response.
+        if (transactionDate != null && !transactionDate.isAfter(DateUtils.getBusinessLocalDate()) && isOverduePenaltyCatchupConfigured()
+                && hasOverdueInstallmentsAsOf(loanId, transactionDate)) {
+            final BigDecimal missing = MathUtil.nullToZero(computeMissingOverdueInstallmentPenalty(loan, transactionDate).missingAmount());
+            final BigDecimal phantom = MathUtil.nullToZero(computePhantomOverdueInstallmentPenaltyAmount(loan, transactionDate));
+            final BigDecimal netPenaltyAdjustment = missing.subtract(phantom);
+            if (netPenaltyAdjustment.signum() != 0) {
+                penaltyChargesOutstanding = penaltyChargesOutstanding.plus(Money.of(currency, netPenaltyAdjustment));
+            }
+        }
         Money principalOutstanding = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency);
         Money interestOutstanding = loanRepaymentScheduleInstallment.getInterestOutstanding(currency);
         BigDecimal adjustedInterestAmount = loanRepaymentScheduleInstallment.getAdjustedInterestAmount();
@@ -2852,9 +3187,18 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     public ChargePaymentTemplateData getChargePaymentTemplateDetails(Long loanId, LocalDate asOnDate) {
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         LoanChargesDueDTO loanChargesDueDTO = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate);
+        // Align with repayment + foreclosure templates: for templates, do NOT persist overdue-installment penalties
+        // (COB might have failed). Instead compute any missing overdue-installment penalty as-of the template date and
+        // surface it in the response. Skip future-dated templates entirely.
+        if (asOnDate != null && !asOnDate.isAfter(DateUtils.getBusinessLocalDate()) && isOverduePenaltyCatchupConfigured()
+                && hasOverdueInstallmentsAsOf(loanId, asOnDate)) {
+            final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+            applyPenaltyAdjustmentForAsOfDate(loanChargesDueDTO, loan, asOnDate);
+        }
         Collection<LoanChargeData> loanChargesDue = new ArrayList<>(loanChargesDueDTO.getFeeCharges());
         loanChargesDue.addAll(loanChargesDueDTO.getPenaltyCharges());
         return ChargePaymentTemplateData.builder().paymentTypeOptions(paymentOptions).charges(loanChargesDue)
                 .transactionType(LoanEnumerations.transactionType(LoanTransactionType.CHARGE_PAYMENT)).build();
     }
+
 }

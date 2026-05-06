@@ -182,6 +182,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     private final LoanJournalEntryPoster loanJournalEntryPoster;
     private final OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver;
     private final LoanReadPlatformService loanReadPlatformService;
+    private final OverdueInstallmentPenaltyScheduleDataBuilder overdueInstallmentPenaltyScheduleDataBuilder;
 
     private static boolean isPartOfThisInstallment(LoanCharge loanCharge, LoanRepaymentScheduleInstallment e) {
         return DateUtils.isAfter(loanCharge.getDueDate(), e.getFromDate()) && !DateUtils.isAfter(loanCharge.getDueDate(), e.getDueDate());
@@ -839,12 +840,19 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     @Transactional
     @Override
     public void applyOverdueChargesForLoan(final Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList) {
+        applyOverdueChargesForLoan(loanId, overdueLoanScheduleDataList, DateUtils.getBusinessLocalDate());
+    }
+
+    @Override
+    @Transactional
+    public void applyOverdueChargesForLoan(final Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList,
+            final LocalDate asOfDate) {
         if (overdueLoanScheduleDataList.isEmpty()) {
             log.info("Apply overdue charges for loan {}: skipping, no overdue installments to process", loanId);
             return;
         }
-        log.info("Apply overdue charges for loan {}: starting, {} overdue installment(s) to process", loanId,
-                overdueLoanScheduleDataList.size());
+        log.info("Apply overdue charges for loan {}: starting, {} overdue installment(s) to process, asOfDate={}", loanId,
+                overdueLoanScheduleDataList.size(), asOfDate);
 
         Loan loan = this.loanAssembler.assembleFrom(loanId);
         if (loan.isChargedOff()) {
@@ -880,7 +888,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                     null, null, null, loanId, null, null, null, null, null, null, null, null);
 
             LoanOverdueDTO overdueDTO = applyChargeToOverdueLoanInstallment(loan, overdueInstallment.getChargeId(),
-                    overdueInstallment.getPeriodNumber(), command, remainingCumulativePenaltyCap);
+                    overdueInstallment.getPeriodNumber(), command, remainingCumulativePenaltyCap, asOfDate);
 
             loan = overdueDTO.getLoan();
             remainingCumulativePenaltyCap = overdueDTO.getRemainingCumulativePenaltyCap();
@@ -1169,8 +1177,9 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     }
 
     private LoanOverdueDTO applyChargeToOverdueLoanInstallment(final Loan loan, final Long loanChargeId, final Integer periodNumber,
-            final JsonCommand command, BigDecimal remainingCumulativePenaltyCap) {
-        log.info("applyChargeToOverdueLoanInstallment: loanId={}, chargeId={}, periodNumber={}", loan.getId(), loanChargeId, periodNumber);
+            final JsonCommand command, BigDecimal remainingCumulativePenaltyCap, final LocalDate asOfDate) {
+        log.info("applyChargeToOverdueLoanInstallment: loanId={}, chargeId={}, periodNumber={}, asOfDate={}", loan.getId(), loanChargeId,
+                periodNumber, asOfDate);
         boolean runInterestRecalculation = false;
         final Charge chargeDefinition = this.chargeRepository.findOneWithNotFoundDetection(loanChargeId);
 
@@ -1188,17 +1197,23 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             return new LoanOverdueDTO(loan, runInterestRecalculation, DateUtils.getBusinessLocalDate(), dueDate,
                     remainingCumulativePenaltyCap);
         }
-        // penalty-wait-period controls WHEN we pick up the loan (eligibility). grace-on-penalty-posting delays
-        // the first penalty date: first penalty = dueDate + 1 + grace (grace=0 -> 6th, grace=1 -> 7th, grace=2 -> 8th).
+        // penalty-wait-period controls WHEN we pick up the loan (eligibility, handled by the builder). Grace delays
+        // the first penalty date: first penalty = dueDate + 1 + grace. Once eligibility is reached, the writer
+        // posts penalties starting from this date — back-fills to dueDate+1+grace if necessary.
         LocalDate startDate = dueDate.plusDays(1L + penaltyPostingWaitPeriodValue);
         int frequencyNumber = 1;
         if (feeFrequency == null) {
-            scheduleDates.put(frequencyNumber++, startDate);
+            // Only emit the single-posting penalty if its date is on/before the as-of cutoff. For backdated alignment
+            // (asOfDate < businessDate) this prevents creating a penalty whose dueLocalDate is in the future relative
+            // to the transaction.
+            if (!startDate.isAfter(asOfDate)) {
+                scheduleDates.put(frequencyNumber++, startDate);
+            }
         } else {
             // feeInterval may be null for legacy charges; use 1 (every period) as default
             final int feeInterval = chargeDefinition.feeInterval() != null ? chargeDefinition.feeInterval() : 1;
-            // Apply penalties only up to yesterday: continue while schedule date < business date
-            while (!DateUtils.isAfterBusinessDate(startDate)) {
+            // Apply penalties only up to (and including) the as-of cutoff date.
+            while (!startDate.isAfter(asOfDate)) {
                 scheduleDates.put(frequencyNumber++, startDate);
 
                 startDate = scheduledDateGenerator.getRepaymentPeriodDate(PeriodFrequencyType.fromInt(feeFrequency), feeInterval,
@@ -1552,6 +1567,13 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     public LoanTransaction waiveLoanCharge(final Loan loan, final LoanCharge loanCharge, final Map<String, Object> changes,
             final Integer loanInstallmentNumber, final ScheduleGeneratorDTO scheduleGeneratorDTO, final Money accruedCharge,
             final ExternalId externalId) {
+        // When waiving an overdue-installment penalty charge, materialize any pending overdue penalties first so the
+        // waive sees complete state. Same-day only — backdated waivers are recomputed via the post-event reversal
+        // listener. Gated by the same external-event configuration as the rest of the catch-up flow.
+        if (loanCharge.getCharge() != null && loanCharge.getCharge().isOverdueInstallment()) {
+            applyOverdueInstallmentPenaltyCatchupForWaive(loan);
+        }
+
         final Money amountWaived = loanCharge.waive(loan.getCurrency(), loanInstallmentNumber);
         changes.put("amount", amountWaived.getAmount());
 
@@ -1629,6 +1651,28 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         loanLifecycleStateMachine.determineAndTransition(loan, waiveLoanChargeTransaction.getTransactionDate());
 
         return waiveLoanChargeTransaction;
+    }
+
+    /**
+     * Materializes any pending overdue-installment penalties on the loan as-of the business date, so that a same-day
+     * waiver of the overdue-installment penalty charge sees the complete state. Gated on the same global config flag as
+     * {@link LoanOverduePenaltyAlignmentService}; implemented inline here because injecting the alignment service would
+     * create a circular dependency (alignment → backdated worker → this class).
+     */
+    private void applyOverdueInstallmentPenaltyCatchupForWaive(final Loan loan) {
+        if (loan == null || !loan.isOpen()) {
+            return;
+        }
+        if (!configurationDomainService.isBackdatedOverduePenaltyAlignmentEnabled()) {
+            return;
+        }
+        final List<OverdueLoanScheduleData> overdue = overdueInstallmentPenaltyScheduleDataBuilder
+                .build(loan, DateUtils.getBusinessLocalDate()).overdueInstallments();
+        if (overdue.isEmpty()) {
+            return;
+        }
+        log.info("Applying overdue-penalty catch-up before penalty-charge waive. loanId={}, items={}", loan.getId(), overdue.size());
+        applyOverdueChargesForLoan(loan.getId(), overdue);
     }
 
     @Override

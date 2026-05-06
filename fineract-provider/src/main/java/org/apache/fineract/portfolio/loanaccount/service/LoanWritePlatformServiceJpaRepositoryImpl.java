@@ -288,6 +288,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanTransactionProcessingService loanTransactionProcessingService;
     private final LoanBalanceService loanBalanceService;
     private final LoanTransactionService loanTransactionService;
+    private final LoanOverduePenaltyAlignmentService loanOverduePenaltyAlignmentService;
 
     @Transactional
     @Override
@@ -1266,7 +1267,37 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 .paymentDetail(paymentDetail).transactionDate(transactionDate).txnExternalId(txnExternalId)
                 .reversalTxnExternalId(reversalTxnExternalId).noteText(noteText).build();
 
-        return loanAdjustmentService.adjustLoanTransaction(loan, transactionToAdjust, parameter, commandId, changes);
+        // Align overdue-installment penalties around a repayment-like or waiver adjust the same way the original
+        // transaction is aligned. Use the earlier of (old txn date, new txn date) so the as-of view covers both
+        // ends — the old txn's reversal can re-overdue an installment that was paid earlier, and the new txn
+        // allocation needs to match the template computed for the new date.
+        //
+        // Other adjustment types skip alignment:
+        // - accrual / deferred-income / capitalized-income / buy-down-fee — Step 3's accrual reversal would collide
+        // with the adjustment's own internal accrual handling.
+        // - credit-balance-refund — niche, not penalty-related.
+        // - charge-payment — rejected by adjustExistingTransaction's own type validation, so the gate would never
+        // match anyway.
+        final boolean alignAdjust = transactionToAdjust.isRepaymentLikeType() || transactionToAdjust.isWaiver();
+        if (alignAdjust) {
+            LocalDate alignmentDate = transactionDate;
+            final LocalDate oldTxDate = transactionToAdjust.getTransactionDate();
+            if (oldTxDate != null && oldTxDate.isBefore(alignmentDate)) {
+                alignmentDate = oldTxDate;
+            }
+            loanOverduePenaltyAlignmentService.alignPenaltiesAsOf(loan, alignmentDate);
+        }
+
+        final CommandProcessingResult result = loanAdjustmentService.adjustLoanTransaction(loan, transactionToAdjust, parameter, commandId,
+                changes);
+
+        if (alignAdjust) {
+            // POST: re-apply penalties up to today for installments that remain overdue after the adjust. The
+            // just-paid installment (if any) is skipped automatically via obligationsMet.
+            loanOverduePenaltyAlignmentService.applyMissingPenaltiesAsOfToday(loan);
+        }
+
+        return result;
     }
 
     @Transactional
@@ -1419,8 +1450,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_REPAYMENT_OR_WAIVER);
         loanTransactionValidator.validateActivityNotBeforeLastTransactionDate(loan, waiveInterestTransaction.getTransactionDate(),
                 LoanEvent.LOAN_REPAYMENT_OR_WAIVER);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan,
+                waiveInterestTransaction.getTransactionDate(), null);
         loanTransactionValidator.validateActivityNotBeforeClientOrGroupTransferDate(loan, LoanEvent.LOAN_REPAYMENT_OR_WAIVER,
                 waiveInterestTransaction.getTransactionDate());
+        // Align overdue-installment penalties to the waive date (same-day or backdated) before allocation.
+        loanOverduePenaltyAlignmentService.alignPenaltiesAsOf(loan, waiveInterestTransaction.getTransactionDate());
         waiveInterest(loan, waiveInterestTransaction, scheduleGeneratorDTO);
 
         if (loan.isInterestBearingAndInterestRecalculationEnabled()) {
@@ -1449,6 +1484,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loanAccrualsProcessingService.processAccrualsOnInterestRecalculation(loan, loan.isInterestBearingAndInterestRecalculationEnabled(),
                 true);
         loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
+
+        // POST-allocation alignment: re-apply overdue-installment penalties up to today for installments that remain
+        // overdue after the waive. The PRE call truncated the schedule at the waive date so allocation matched the
+        // as-of view; this restores the (waiveDate, today] window for unpaid installments. Before post-events so
+        // observers see the final, aligned state.
+        loanOverduePenaltyAlignmentService.applyMissingPenaltiesAsOfToday(loan);
+
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanWaiveInterestBusinessEvent(waiveInterestTransaction));
         return new CommandProcessingResultBuilder() //
@@ -1505,8 +1547,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
         final LocalDate writtenOffOnLocalDate = command.localDateValueOfParameterNamed(TRANSACTION_DATE);
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.WRITE_OFF_OUTSTANDING);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, writtenOffOnLocalDate, null);
         loanTransactionValidator.validateActivityNotBeforeClientOrGroupTransferDate(loan, LoanEvent.WRITE_OFF_OUTSTANDING,
                 writtenOffOnLocalDate);
+
+        // Align overdue-installment penalties to the write-off date BEFORE the write-off is posted so the write-off
+        // captures the as-of-date penalty state.
+        loanOverduePenaltyAlignmentService.alignPenaltiesAsOf(loan, writtenOffOnLocalDate);
 
         CommandProcessingResultBuilder builder = new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
@@ -1552,6 +1599,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             loanAccrualsProcessingService.processAccrualsOnInterestRecalculation(loan,
                     loan.isInterestBearingAndInterestRecalculationEnabled(), true);
             loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
+
+            // POST-allocation alignment: write-off closes all remaining outstanding amounts, so the eligible-builder
+            // returns nothing and this is a no-op. Kept for symmetry with the other write paths and so that any
+            // partial-write-off variant introduced later picks up the right behaviour automatically. Before
+            // post-events so observers see the final, aligned state.
+            loanOverduePenaltyAlignmentService.applyMissingPenaltiesAsOfToday(loan);
+
             businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
             businessEventNotifierService.notifyPostBusinessEvent(new LoanWrittenOffPostBusinessEvent(loanTransaction));
 

@@ -277,6 +277,22 @@ public class GlobalConfigurationHelper {
         backDatePenaltiesEnabledDefault.put("trapDoor", false);
         defaults.add(backDatePenaltiesEnabledDefault);
 
+        HashMap<String, Object> enforceLoanTransactionNotBeforeLastUserTransactionDefault = new HashMap<>();
+        enforceLoanTransactionNotBeforeLastUserTransactionDefault.put("name",
+                GlobalConfigurationConstants.ENFORCE_LOAN_TRANSACTION_NOT_BEFORE_LAST_USER_TRANSACTION);
+        enforceLoanTransactionNotBeforeLastUserTransactionDefault.put("value", 0L);
+        enforceLoanTransactionNotBeforeLastUserTransactionDefault.put("enabled", true);
+        enforceLoanTransactionNotBeforeLastUserTransactionDefault.put("trapDoor", false);
+        defaults.add(enforceLoanTransactionNotBeforeLastUserTransactionDefault);
+
+        HashMap<String, Object> backdatedOverduePenaltyAlignmentEnabledDefault = new HashMap<>();
+        backdatedOverduePenaltyAlignmentEnabledDefault.put("name",
+                GlobalConfigurationConstants.BACKDATED_OVERDUE_PENALTY_ALIGNMENT_ENABLED);
+        backdatedOverduePenaltyAlignmentEnabledDefault.put("value", 0L);
+        backdatedOverduePenaltyAlignmentEnabledDefault.put("enabled", true);
+        backdatedOverduePenaltyAlignmentEnabledDefault.put("trapDoor", false);
+        defaults.add(backdatedOverduePenaltyAlignmentEnabledDefault);
+
         HashMap<String, Object> organisationStartDateDefault = new HashMap<>();
         organisationStartDateDefault.put("name", GlobalConfigurationConstants.ORGANISATION_START_DATE);
         organisationStartDateDefault.put("value", 0L);
