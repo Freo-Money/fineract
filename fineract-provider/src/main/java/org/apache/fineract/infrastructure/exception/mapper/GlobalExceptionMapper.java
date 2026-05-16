@@ -21,60 +21,55 @@ package org.apache.fineract.infrastructure.exception.mapper;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Response.Status;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
-import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.fineract.infrastructure.exception.dto.ErrorResponseData;
-import org.apache.fineract.infrastructure.exception.service.ErrorLoggingService;
+import org.apache.fineract.infrastructure.core.data.ApiGlobalErrorResponse;
+import org.apache.fineract.infrastructure.exception.capture.ErrorCaptureFilter;
+import org.slf4j.MDC;
+import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
+/**
+ * Catch-all JAX-RS mapper invoked when no more specific {@link ExceptionMapper} handles a thrown exception. Its only
+ * responsibilities are:
+ * <ol>
+ * <li>For 4xx {@link WebApplicationException}s with an attached response, pass the original response through unchanged
+ * so existing 4xx contracts (status, headers, body) are preserved.</li>
+ * <li>For 5xx (or any other unmapped Throwable), produce a standard {@link ApiGlobalErrorResponse} envelope and stash
+ * the throwable as a request attribute so {@link ErrorCaptureFilter} can persist it with full stack trace.</li>
+ * </ol>
+ *
+ * The mapper does <strong>not</strong> persist anything itself — capture lives in the filter so it can see 5xx from
+ * specific Fineract mappers, Spring Security, and the dispatcher too.
+ */
 @Provider
-@Slf4j
 @Component
+@Scope("singleton")
+@Slf4j
 public class GlobalExceptionMapper implements ExceptionMapper<Throwable> {
 
     @Context
     private HttpServletRequest request;
 
-    private final ErrorLoggingService service;
-
-    public GlobalExceptionMapper(ErrorLoggingService service) {
-        this.service = service;
-    }
-
     @Override
-    public Response toResponse(Throwable ex) {
-        Response originalResponse = null;
-        int status = 500;
-        String message = ex.getMessage();
-
-        if (ex instanceof WebApplicationException webApplicationException && webApplicationException.getResponse() != null) {
-            originalResponse = webApplicationException.getResponse();
-            status = originalResponse.getStatus();
-            if (status < 500) {
-                return originalResponse;
-            }
-
-            Object entity = originalResponse.getEntity();
-            if (entity instanceof String stringEntity && !stringEntity.isBlank()) {
-                message = stringEntity;
+    public Response toResponse(final Throwable ex) {
+        if (ex instanceof WebApplicationException wae && wae.getResponse() != null) {
+            final Response original = wae.getResponse();
+            if (original.getStatus() < 500) {
+                return original;
             }
         }
-
-        if (message == null || message.isBlank()) {
-            message = "Internal Server Error";
+        if (request != null) {
+            request.setAttribute(ErrorCaptureFilter.REQUEST_ATTR_THROWABLE, ex);
         }
-
-        String traceId = UUID.randomUUID().toString();
-        String path = request != null ? request.getRequestURI() : "unknown";
-        String method = request != null ? request.getMethod() : "unknown";
-
-        service.logException(ex, traceId, path, method, status, message);
-        log.error("Unhandled exception traceId={} path={} method={} status={}", traceId, path, method, status, ex);
-
-        ErrorResponseData response = new ErrorResponseData(status, message, traceId);
-        return Response.status(status).entity(response).build();
+        final String traceId = MDC.get(ErrorCaptureFilter.TRACE_ID_MDC_KEY);
+        final String developerMessage = ex.getMessage() == null || ex.getMessage().isBlank() ? "Internal Server Error" : ex.getMessage();
+        final ApiGlobalErrorResponse envelope = ApiGlobalErrorResponse.serverSideError("error.msg.platform.server.side.error.trace",
+                developerMessage, traceId);
+        return Response.status(Status.INTERNAL_SERVER_ERROR).entity(envelope).type(MediaType.APPLICATION_JSON).build();
     }
 }

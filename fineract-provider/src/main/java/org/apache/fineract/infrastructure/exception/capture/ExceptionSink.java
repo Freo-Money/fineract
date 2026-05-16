@@ -16,16 +16,20 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.core.config;
+package org.apache.fineract.infrastructure.exception.capture;
 
-public final class TaskExecutorConstant {
+/**
+ * Strategy for persisting a captured {@link ExceptionRecord}. Implementations are discovered by Spring and fan out by
+ * the capture filter. Add a new sink (e.g., Sentry) by implementing this interface and exposing it as a Spring bean —
+ * no changes required to the filter or to other sinks.
+ *
+ * <p>
+ * Implementations must be defensive: throwing from {@code record} would let one sink's failure abort the others.
+ */
+public interface ExceptionSink {
 
-    private TaskExecutorConstant() {
-
-    }
-
-    public static final String DEFAULT_TASK_EXECUTOR_BEAN_NAME = "fineractDefaultThreadPoolTaskExecutor";
-    public static final String CONFIGURABLE_TASK_EXECUTOR_BEAN_NAME = "fineractConfigurableThreadPoolTaskExecutor";
-    public static final String EVENT_TASK_EXECUTOR_BEAN_NAME = "externalEventJmsProducerExecutor";
-    public static final String LOAN_COB_CATCH_UP_TASK_EXECUTOR_BEAN_NAME = "loanCOBCatchUpThreadPoolTaskExecutor";
+    /**
+     * Persist the given record. Must not propagate exceptions to the caller.
+     */
+    void record(ExceptionRecord record);
 }

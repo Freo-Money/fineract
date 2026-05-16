@@ -18,32 +18,34 @@
  */
 package org.apache.fineract.infrastructure.exception.api;
 
-import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.configuration.api.GlobalConfigurationConstants;
 import org.apache.fineract.infrastructure.configuration.data.GlobalConfigurationPropertyData;
 import org.apache.fineract.infrastructure.configuration.service.ConfigurationReadPlatformService;
 import org.apache.fineract.infrastructure.core.api.ApiRequestParameterHelper;
+import org.apache.fineract.infrastructure.core.data.ApiParameterError;
+import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.ApiRequestJsonSerializationSettings;
 import org.apache.fineract.infrastructure.core.serialization.ToApiJsonSerializer;
 import org.apache.fineract.infrastructure.exception.domain.ExceptionLog;
 import org.apache.fineract.infrastructure.exception.dto.ExceptionLogResponse;
+import org.apache.fineract.infrastructure.exception.exception.ExceptionLogNotFoundException;
 import org.apache.fineract.infrastructure.exception.service.ExceptionLogService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.springframework.data.domain.Page;
@@ -60,9 +62,14 @@ import org.springframework.stereotype.Component;
 public class ExceptionLogApiResource {
 
     private static final String RESOURCE_NAME_FOR_PERMISSIONS = "EXCEPTIONLOG";
-    // private static final int MAX_STATS_LIMIT = 1000;
     private static final int MAX_CLEANUP_DAYS = 3650;
     private static final Sort CREATED_DATE_DESC_SORT = Sort.by(Sort.Direction.DESC, "createdDate");
+
+    private static final String CODE_PARAM_BLANK = "error.msg.exception.log.parameter.blank";
+    private static final String CODE_PARAM_INVALID_ISO_DATETIME = "error.msg.exception.log.parameter.invalid.iso.datetime";
+    private static final String CODE_DATE_RANGE_INVALID = "error.msg.exception.log.date.range.invalid";
+    private static final String CODE_CLEANUP_DAYS_OUT_OF_RANGE = "error.msg.exception.log.cleanup.days.out.of.range";
+    private static final String CODE_CLEANUP_DAYS_NOT_CONFIGURED = "error.msg.exception.log.cleanup.days.not.configured";
 
     private final ExceptionLogService exceptionLogService;
     private final PlatformSecurityContext context;
@@ -88,7 +95,7 @@ public class ExceptionLogApiResource {
             @DefaultValue("0") @QueryParam("page") final int page, @DefaultValue("20") @QueryParam("size") final int size,
             @DefaultValue("exact") @QueryParam("match") final String match) {
         this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
-        requireNonBlank(exceptionType, "exceptionType must not be blank");
+        requireNonBlank(exceptionType, "exceptionType");
 
         final Pageable pageable = PageRequest.of(page, size, CREATED_DATE_DESC_SORT);
         final String trimmedType = exceptionType.trim();
@@ -108,7 +115,7 @@ public class ExceptionLogApiResource {
     public String getExceptionLogsByPath(@Context final UriInfo uriInfo, @QueryParam("path") final String path,
             @DefaultValue("0") @QueryParam("page") final int page, @DefaultValue("20") @QueryParam("size") final int size) {
         this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
-        requireNonBlank(path, "path must not be blank");
+        requireNonBlank(path, "path");
 
         final Pageable pageable = PageRequest.of(page, size, CREATED_DATE_DESC_SORT);
         final Page<ExceptionLog> logs = this.exceptionLogService.getExceptionLogsByPath(path.trim(), pageable);
@@ -126,7 +133,7 @@ public class ExceptionLogApiResource {
         final OffsetDateTime fromDateTime = parseIsoDateTime(from, "from");
         final OffsetDateTime toDateTime = parseIsoDateTime(to, "to");
         if (fromDateTime.isAfter(toDateTime)) {
-            throw new BadRequestException("'from' must be less than or equal to 'to'");
+            throw validationException(CODE_DATE_RANGE_INVALID, "'from' must be less than or equal to 'to'", "from");
         }
 
         final Pageable pageable = PageRequest.of(page, size, CREATED_DATE_DESC_SORT);
@@ -139,51 +146,20 @@ public class ExceptionLogApiResource {
     @Path("/by-trace/{traceId}")
     public String getExceptionLogByTraceId(@PathParam("traceId") final String traceId, @Context final UriInfo uriInfo) {
         this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
-        requireNonBlank(traceId, "traceId must not be blank");
+        requireNonBlank(traceId, "traceId");
 
-        final ExceptionLog exceptionLog = this.exceptionLogService.getExceptionLogByTraceId(traceId);
-        log.info("Incoming traceId = [{}]", traceId);
-        if (exceptionLog == null) {
-            log.warn("Exception log not found for traceId={}", traceId);
-            throw new NotFoundException("Resource not found for traceId=" + traceId);
-        }
+        final ExceptionLog exceptionLog = this.exceptionLogService.getExceptionLogByTraceId(traceId)
+                .orElseThrow(() -> new ExceptionLogNotFoundException(traceId));
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters());
         return this.toApiJsonSerializer.serialize(settings, exceptionLog);
     }
 
     @DELETE
-    @Path("/{id}")
-    public Response deleteExceptionLog(@PathParam("id") final Long id) {
-        this.context.authenticatedUser().validateHasDeletePermission(RESOURCE_NAME_FOR_PERMISSIONS);
-        if (id == null || id <= 0) {
-            throw new BadRequestException("id must be greater than 0");
-        }
-
-        this.exceptionLogService.deleteExceptionLog(id);
-        log.info("Deleted exception log with id={}", id);
-        return Response.noContent().build();
-    }
-
-    @DELETE
     @Path("/cleanup")
-    public String cleanupOldExceptionLogs(@Context final UriInfo uriInfo) {
+    public String cleanupOldExceptionLogs(@Context final UriInfo uriInfo, @QueryParam("days") final Integer daysOverride) {
         this.context.authenticatedUser().validateHasDeletePermission(RESOURCE_NAME_FOR_PERMISSIONS);
 
-        final GlobalConfigurationPropertyData cleanupDaysConfig = this.configurationReadPlatformService
-                .retrieveGlobalConfiguration(GlobalConfigurationConstants.PURGE_EXCEPTION_LOGS_OLDER_THAN_DAYS);
-
-        if (!cleanupDaysConfig.isEnabled()) {
-            throw new BadRequestException("Exception log cleanup configuration is disabled");
-        }
-        if (cleanupDaysConfig.getValue() == null) {
-            throw new BadRequestException("Cleanup configuration must define a numeric days value");
-        }
-
-        final int days = cleanupDaysConfig.getValue().intValue();
-        if (days <= 0 || days > MAX_CLEANUP_DAYS) {
-            throw new BadRequestException("Configured cleanup days must be between 1 and " + MAX_CLEANUP_DAYS);
-        }
-
+        final int days = resolveCleanupDays(daysOverride);
         final int deletedCount = this.exceptionLogService.deleteExceptionLogsOlderThanDays(days);
         log.info("Deleted {} exception logs older than {} days", deletedCount, days);
         final ExceptionLogResponse cleanupResult = ExceptionLogResponse.builder().deletedCount(deletedCount).olderThanDays(days)
@@ -192,44 +168,52 @@ public class ExceptionLogApiResource {
         return this.toApiJsonSerializer.serialize(settings, cleanupResult);
     }
 
-    /*
-     * @GET
-     *
-     * @Path("/stats/summary") public String getExceptionLogStats(@Context final UriInfo uriInfo) {
-     * this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
-     *
-     * final ExceptionLogStats stats = this.exceptionLogService.getExceptionLogStats(); final
-     * ApiRequestJsonSerializationSettings settings =
-     * this.apiRequestParameterHelper.process(uriInfo.getQueryParameters()); return
-     * this.toApiJsonSerializer.serialize(settings, stats); }
-     *
-     * @GET
-     *
-     * @Path("/stats/summary/limit") public String getExceptionLogStatsByLimit(@Context final UriInfo uriInfo,
-     *
-     * @DefaultValue("5") @QueryParam("limit") final int limit) {
-     * this.context.authenticatedUser().validateHasReadPermission(RESOURCE_NAME_FOR_PERMISSIONS);
-     *
-     * if (limit <= 0) { throw new BadRequestException("limit must be greater than 0"); } if (limit > MAX_STATS_LIMIT) {
-     * throw new BadRequestException("limit cannot exceed " + MAX_STATS_LIMIT); } final ExceptionLogStats stats =
-     * this.exceptionLogService.getExceptionLogStats(limit); final ApiRequestJsonSerializationSettings settings =
-     * this.apiRequestParameterHelper.process(uriInfo.getQueryParameters()); return
-     * this.toApiJsonSerializer.serialize(settings, stats); }
-     */
+    private int resolveCleanupDays(final Integer daysOverride) {
+        if (daysOverride != null) {
+            if (daysOverride <= 0 || daysOverride > MAX_CLEANUP_DAYS) {
+                throw validationException(CODE_CLEANUP_DAYS_OUT_OF_RANGE, "days must be between 1 and " + MAX_CLEANUP_DAYS, "days");
+            }
+            return daysOverride;
+        }
+        final GlobalConfigurationPropertyData cleanupDaysConfig = this.configurationReadPlatformService
+                .retrieveGlobalConfiguration(GlobalConfigurationConstants.PURGE_EXCEPTION_LOGS_OLDER_THAN_DAYS);
+        if (cleanupDaysConfig.getValue() == null) {
+            throw validationException(CODE_CLEANUP_DAYS_NOT_CONFIGURED,
+                    "Cleanup configuration must define a numeric days value, or pass ?days=", "days");
+        }
+        final int days = cleanupDaysConfig.getValue().intValue();
+        if (days <= 0 || days > MAX_CLEANUP_DAYS) {
+            throw validationException(CODE_CLEANUP_DAYS_OUT_OF_RANGE, "Configured cleanup days must be between 1 and " + MAX_CLEANUP_DAYS,
+                    "days");
+        }
+        return days;
+    }
 
     private OffsetDateTime parseIsoDateTime(final String rawValue, final String paramName) {
-        requireNonBlank(rawValue, paramName + " is required");
+        requireNonBlank(rawValue, paramName);
         try {
             return OffsetDateTime.parse(rawValue, DateTimeFormatter.ISO_DATE_TIME);
         } catch (DateTimeParseException ex) {
-            throw new BadRequestException(paramName + " must be a valid ISO-8601 datetime, e.g. 2026-04-24T12:30:00", ex);
+            throw validationException(CODE_PARAM_INVALID_ISO_DATETIME,
+                    paramName + " must be a valid ISO-8601 datetime, e.g. 2026-04-24T12:30:00", paramName, ex);
         }
     }
 
-    private void requireNonBlank(final String value, final String message) {
+    private void requireNonBlank(final String value, final String paramName) {
         if (value == null || value.trim().isEmpty()) {
-            throw new BadRequestException(message);
+            throw validationException(CODE_PARAM_BLANK, paramName + " must not be blank", paramName, null);
         }
+    }
+
+    private PlatformApiDataValidationException validationException(final String code, final String defaultMessage, final String paramName) {
+        return validationException(code, defaultMessage, paramName, null);
+    }
+
+    private PlatformApiDataValidationException validationException(final String code, final String defaultMessage, final String paramName,
+            final Throwable cause) {
+        final List<ApiParameterError> errors = new ArrayList<>();
+        errors.add(ApiParameterError.parameterError(code, defaultMessage, paramName));
+        return cause == null ? new PlatformApiDataValidationException(errors) : new PlatformApiDataValidationException(errors, cause);
     }
 
 }

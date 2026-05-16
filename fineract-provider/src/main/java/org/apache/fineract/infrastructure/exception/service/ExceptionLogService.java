@@ -19,8 +19,10 @@
 package org.apache.fineract.infrastructure.exception.service;
 
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
+import java.util.Optional;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.exception.domain.ExceptionLog;
 import org.apache.fineract.infrastructure.exception.repository.ExceptionLogRepository;
 import org.springframework.data.domain.Page;
@@ -31,19 +33,16 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Transactional(readOnly = true)
 @Slf4j
+@RequiredArgsConstructor
 public class ExceptionLogService {
 
     private final ExceptionLogRepository exceptionLogRepository;
-
-    public ExceptionLogService(ExceptionLogRepository exceptionLogRepository) {
-        this.exceptionLogRepository = exceptionLogRepository;
-    }
 
     public Page<ExceptionLog> getAllExceptionLogs(Pageable pageable) {
         return exceptionLogRepository.findAll(pageable);
     }
 
-    public ExceptionLog getExceptionLogByTraceId(String traceId) {
+    public Optional<ExceptionLog> getExceptionLogByTraceId(String traceId) {
         return exceptionLogRepository.findByTraceId(traceId);
     }
 
@@ -64,34 +63,10 @@ public class ExceptionLogService {
     }
 
     @Transactional
-    public void deleteExceptionLog(Long id) {
-        exceptionLogRepository.deleteById(id);
-        log.info("Deleted exception log with id={}", id);
-    }
-
-    @Transactional
     public int deleteExceptionLogsOlderThanDays(int days) {
-        OffsetDateTime cutoffDate = OffsetDateTime.now(ZoneId.systemDefault()).minusDays(days);
+        OffsetDateTime cutoffDate = DateUtils.getAuditOffsetDateTime().minusDays(days);
         int deletedCount = exceptionLogRepository.deleteByCreatedDateBefore(cutoffDate);
         log.info("Deleted {} exception logs older than {} days", deletedCount, days);
         return deletedCount;
     }
 }
-/*
- * public ExceptionLogStats getExceptionLogStats() { return getExceptionLogStats(5); }
- *
- *
- *
- * public ExceptionLogStats getExceptionLogStats(int limit) { long totalCount = exceptionLogRepository.count();
- *
- * List<Object[]> topTypesResult = exceptionLogRepository.findTopExceptionTypes(Pageable.ofSize(limit)); List<String>
- * topExceptionTypes = topTypesResult.stream() .filter(row -> row != null && row.length >= 2) .map(row -> row[0] + " ("
- * + row[1] + ")") .collect(Collectors.toList());
- *
- * List<Object[]> topPathsResult = exceptionLogRepository.findTopErrorPaths(Pageable.ofSize(limit)); List<String>
- * topErrorPaths = topPathsResult.stream() .filter(row -> row != null && row.length >= 2) .map(row -> row[0] + " (" +
- * row[1] + ")") .collect(Collectors.toList());
- *
- * return ExceptionLogStats.builder() .totalExceptions(totalCount) .topExceptionTypes(topExceptionTypes)
- * .topErrorPaths(topErrorPaths) .recordsCount(totalCount) .build(); } }
- */

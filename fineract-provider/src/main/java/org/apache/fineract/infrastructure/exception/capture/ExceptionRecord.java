@@ -16,22 +16,19 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.exception.dto;
+package org.apache.fineract.infrastructure.exception.capture;
 
-import java.util.List;
-import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
-@Data
+/**
+ * Immutable value object describing a single captured 5xx event. Passed to every {@link ExceptionSink}; sinks decide
+ * how to persist it (database, Sentry, file, etc.).
+ *
+ * <p>
+ * {@code throwable} is nullable: a 5xx response can be produced by an exception mapper without an exception reaching
+ * the filter (e.g., a controller manually returns a 500 Response).
+ */
 @Builder
-@AllArgsConstructor
-@NoArgsConstructor
-public class ExceptionLogStats {
-
-    private long totalExceptions;
-    private List<String> topExceptionTypes;
-    private List<String> topErrorPaths;
-    private long recordsCount;
+public record ExceptionRecord(String traceId, String exceptionType, String message, String stackTrace, String requestPath,
+        String requestMethod, int statusCode, Throwable throwable) {
 }

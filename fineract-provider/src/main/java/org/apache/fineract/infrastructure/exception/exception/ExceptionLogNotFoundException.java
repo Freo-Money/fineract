@@ -16,16 +16,13 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.core.config;
+package org.apache.fineract.infrastructure.exception.exception;
 
-public final class TaskExecutorConstant {
+import org.apache.fineract.infrastructure.core.exception.AbstractPlatformResourceNotFoundException;
 
-    private TaskExecutorConstant() {
+public class ExceptionLogNotFoundException extends AbstractPlatformResourceNotFoundException {
 
+    public ExceptionLogNotFoundException(final String traceId) {
+        super("error.msg.exception.log.trace.id.invalid", "Exception log with traceId " + traceId + " does not exist", traceId);
     }
-
-    public static final String DEFAULT_TASK_EXECUTOR_BEAN_NAME = "fineractDefaultThreadPoolTaskExecutor";
-    public static final String CONFIGURABLE_TASK_EXECUTOR_BEAN_NAME = "fineractConfigurableThreadPoolTaskExecutor";
-    public static final String EVENT_TASK_EXECUTOR_BEAN_NAME = "externalEventJmsProducerExecutor";
-    public static final String LOAN_COB_CATCH_UP_TASK_EXECUTOR_BEAN_NAME = "loanCOBCatchUpThreadPoolTaskExecutor";
 }

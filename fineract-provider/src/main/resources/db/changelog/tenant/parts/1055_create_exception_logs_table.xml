@@ -49,14 +49,23 @@
             </column>
 
             <column name="exception_message" type="TEXT"/>
-            <column name="stack_trace" type="LONGTEXT"/>
+            <column name="stack_trace" type="TEXT"/>
             <column name="request_path" type="VARCHAR(500)"/>
             <column name="request_method" type="VARCHAR(10)"/>
             <column name="status_code" type="INT"/>
-            <column name="created_on_utc" type="TIMESTAMP"/>
-            <column name="last_modified_on_utc" type="TIMESTAMP"/>
-            <column name="created_by" type="BIGINT"/>
-            <column name="last_modified_by" type="BIGINT"/>
+
+            <column name="created_on_utc" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_on_utc" type="TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
 
         </createTable>
 
@@ -64,6 +73,45 @@
             <dropTable tableName="exception_log"/>
         </rollback>
 
+    </changeSet>
+
+    <changeSet id="dev-050-create-exception-log-index-created-on-utc"
+               author="fineract"
+               context="tenant_db AND !initial_switch">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_exception_log_created_on_utc"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_exception_log_created_on_utc" tableName="exception_log">
+            <column name="created_on_utc"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="dev-050-create-exception-log-index-exception-type"
+               author="fineract"
+               context="tenant_db AND !initial_switch">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_exception_log_exception_type"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_exception_log_exception_type" tableName="exception_log">
+            <column name="exception_type"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="dev-050-create-exception-log-index-request-path"
+               author="fineract"
+               context="tenant_db AND !initial_switch">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists indexName="idx_exception_log_request_path"/>
+            </not>
+        </preConditions>
+        <createIndex indexName="idx_exception_log_request_path" tableName="exception_log">
+            <column name="request_path"/>
+        </createIndex>
     </changeSet>
 
 </databaseChangeLog>

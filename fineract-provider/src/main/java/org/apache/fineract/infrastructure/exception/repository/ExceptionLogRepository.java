@@ -19,7 +19,7 @@
 package org.apache.fineract.infrastructure.exception.repository;
 
 import java.time.OffsetDateTime;
-import java.util.List;
+import java.util.Optional;
 import org.apache.fineract.infrastructure.exception.domain.ExceptionLog;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -28,12 +28,11 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public interface ExceptionLogRepository extends JpaRepository<ExceptionLog, Long> {
 
-    ExceptionLog findByTraceId(String traceId);
+    Optional<ExceptionLog> findByTraceId(String traceId);
 
     Page<ExceptionLog> findByExceptionType(String exceptionType, Pageable pageable);
 
@@ -43,19 +42,7 @@ public interface ExceptionLogRepository extends JpaRepository<ExceptionLog, Long
 
     Page<ExceptionLog> findByCreatedDateBetween(OffsetDateTime from, OffsetDateTime to, Pageable pageable);
 
-    @Override
-    long count();
-
     @Modifying
-    @Transactional
     @Query("DELETE FROM ExceptionLog e WHERE e.createdDate < :date")
     int deleteByCreatedDateBefore(@Param("date") OffsetDateTime date);
-
-    long countByExceptionType(String exceptionType);
-
-    @Query("SELECT e.exceptionType, COUNT(e) FROM ExceptionLog e GROUP BY e.exceptionType ORDER BY COUNT(e) DESC")
-    List<Object[]> findTopExceptionTypes(Pageable pageable);
-
-    @Query("SELECT e.requestPath, COUNT(e) FROM ExceptionLog e WHERE e.requestPath IS NOT NULL GROUP BY e.requestPath ORDER BY COUNT(e) DESC")
-    List<Object[]> findTopErrorPaths(Pageable pageable);
 }

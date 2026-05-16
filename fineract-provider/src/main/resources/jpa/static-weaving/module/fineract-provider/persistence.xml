@@ -60,6 +60,7 @@
         <class>org.apache.fineract.portfolio.paymenttype.domain.PaymentType</class>
         <class>org.apache.fineract.portfolio.group.domain.GroupLevel</class>
         <class>org.apache.fineract.infrastructure.event.external.repository.domain.ExternalEvent</class>
+        <class>org.apache.fineract.infrastructure.exception.domain.ExceptionLog</class>
         <class>org.apache.fineract.organisation.office.domain.Office</class>
         <class>org.apache.fineract.organisation.holiday.domain.Holiday</class>
         <class>org.apache.fineract.infrastructure.cache.domain.PlatformCache</class>
