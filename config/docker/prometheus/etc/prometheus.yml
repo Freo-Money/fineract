@@ -54,4 +54,4 @@ scrape_configs:
     scheme: "https"
 
     static_configs:
-      - targets: ["fineract-server:8443"]
+      - targets: ["fineract-server:8080"]
