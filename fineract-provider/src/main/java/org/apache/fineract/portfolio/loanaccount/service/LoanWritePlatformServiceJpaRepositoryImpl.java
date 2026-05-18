@@ -1422,6 +1422,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_REPAYMENT_OR_WAIVER);
         loanTransactionValidator.validateActivityNotBeforeLastTransactionDate(loan, waiveInterestTransaction.getTransactionDate(),
                 LoanEvent.LOAN_REPAYMENT_OR_WAIVER);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan,
+                waiveInterestTransaction.getTransactionDate(), null);
         loanTransactionValidator.validateActivityNotBeforeClientOrGroupTransferDate(loan, LoanEvent.LOAN_REPAYMENT_OR_WAIVER,
                 waiveInterestTransaction.getTransactionDate());
         waiveInterest(loan, waiveInterestTransaction, scheduleGeneratorDTO);
@@ -1508,6 +1510,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
         final LocalDate writtenOffOnLocalDate = command.localDateValueOfParameterNamed(TRANSACTION_DATE);
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.WRITE_OFF_OUTSTANDING);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, writtenOffOnLocalDate, null);
         loanTransactionValidator.validateActivityNotBeforeClientOrGroupTransferDate(loan, LoanEvent.WRITE_OFF_OUTSTANDING,
                 writtenOffOnLocalDate);
 

@@ -70,6 +70,9 @@ public interface LoanTransactionValidator {
 
     void validateActivityNotBeforeLastTransactionDate(Loan loan, LocalDate activityDate, LoanEvent event);
 
+    void validateTransactionDateNotBeforeLastUserTransactionDate(Loan loan, LocalDate transactionDate,
+            LoanTransaction excludedFromLastUserComputation);
+
     void validateRepaymentDateIsOnNonWorkingDay(LocalDate repaymentDate, WorkingDays workingDays, boolean allowTransactionsOnNonWorkingDay);
 
     void validateRepaymentDateIsOnHoliday(LocalDate repaymentDate, boolean allowTransactionsOnHoliday, List<Holiday> holidays);

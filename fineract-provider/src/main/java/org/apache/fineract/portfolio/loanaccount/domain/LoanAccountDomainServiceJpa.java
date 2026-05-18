@@ -223,6 +223,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final boolean isRecoveryRepayment, final String chargeRefundChargeType, boolean isAccountTransfer,
             HolidayDetailDTO holidayDetailDto, Boolean isHolidayValidationDone, final boolean isLoanToLoanTransfer) {
         checkClientOrGroupActive(loan);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
 
         LoanBusinessEvent repaymentEvent = getLoanRepaymentTypeBusinessEvent(repaymentTransactionType, isRecoveryRepayment, loan);
         businessEventNotifierService.notifyPreBusinessEvent(repaymentEvent);
@@ -400,6 +401,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final BigDecimal transactionAmount, final PaymentDetail paymentDetail, final String noteText, final ExternalId txnExternalId,
             final Integer transactionType, Integer installmentNumber, boolean isAccountTransfer) {
         checkClientOrGroupActive(loan);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
         if (loan.isChargedOff() && DateUtils.isBefore(transactionDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
                     + loan.getId()
@@ -469,6 +471,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final LocalDate transactionDate, final BigDecimal totalTransactionAmount, final PaymentDetail paymentDetail,
             final String noteText, final ExternalId txnExternalId, boolean isAccountTransfer) {
         checkClientOrGroupActive(loan);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
         if (loan.isChargedOff() && DateUtils.isBefore(transactionDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
                     + loan.getId()
@@ -566,6 +569,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final ExternalId txnExternalId) {
         final Loan loan = this.loanAccountAssembler.assembleFrom(accountId);
         checkClientOrGroupActive(loan);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
         if (loan.isChargedOff() && DateUtils.isBefore(transactionDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
                     + loan.getId()
@@ -741,6 +745,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             BigDecimal transactionAmount, PaymentDetail paymentDetail, String noteText, ExternalId txnExternalId) {
         final Loan loan = this.loanAccountAssembler.assembleFrom(accountId);
         checkClientOrGroupActive(loan);
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
         businessEventNotifierService.notifyPreBusinessEvent(new LoanRefundPreBusinessEvent(loan));
 
         final Money refundAmount = Money.of(loan.getCurrency(), transactionAmount);
@@ -798,6 +803,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                     + " backdated transaction is not allowed. Transaction date cannot be earlier than the charge-off date of the loan",
                     loan.getId());
         }
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, foreClosureDate, null);
         businessEventNotifierService.notifyPreBusinessEvent(new LoanForeClosurePreBusinessEvent(loan));
         MonetaryCurrency currency = loan.getCurrency();
         List<Long> transactionIds = new ArrayList<>();

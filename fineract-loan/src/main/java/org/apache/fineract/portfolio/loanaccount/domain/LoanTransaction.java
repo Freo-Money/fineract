@@ -859,8 +859,16 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
         return getTypeOf().isAccrualActivity();
     }
 
+    public boolean isAccrualSuspense() {
+        return getTypeOf().isAccrualSuspense();
+    }
+
+    public boolean isAccrualSuspenseReverse() {
+        return getTypeOf().isAccrualSuspenseReverse();
+    }
+
     public boolean isAccrualRelated() {
-        return isAccrual() || isAccrualAdjustment() || isAccrualActivity();
+        return isAccrual() || isAccrualAdjustment() || isAccrualActivity() || isAccrualSuspense() || isAccrualSuspenseReverse();
     }
 
     public boolean isWaiveCharge() {

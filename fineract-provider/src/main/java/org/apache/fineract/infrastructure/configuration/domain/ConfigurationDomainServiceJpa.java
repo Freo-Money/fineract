@@ -259,6 +259,13 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     }
 
     @Override
+    public boolean isEnforceLoanTransactionNotBeforeLastUserTransactionEnabled() {
+        final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(
+                GlobalConfigurationConstants.ENFORCE_LOAN_TRANSACTION_NOT_BEFORE_LAST_USER_TRANSACTION);
+        return property.isEnabled();
+    }
+
+    @Override
     public boolean isOrganisationstartDateEnabled() {
         final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(
                 GlobalConfigurationConstants.ORGANISATION_START_DATE);
