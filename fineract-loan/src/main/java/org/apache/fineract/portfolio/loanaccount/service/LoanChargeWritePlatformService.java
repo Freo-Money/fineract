@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.math.BigDecimal;
 import java.util.Collection;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
@@ -50,6 +51,8 @@ public interface LoanChargeWritePlatformService {
      * APPLY_CHARGE_TO_OVERDUE_LOANS). Use this for on-demand penalty application via API.
      */
     CommandProcessingResult applyOverdueChargesForLoanByLoanId(Long loanId);
+
+    BigDecimal calculateUnappliedOverduePenaltyAmountTillDate(Long loanId);
 
     CommandProcessingResult payByChargeId(Long loanId, Long chargeId, JsonCommand command);
 
