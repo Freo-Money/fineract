@@ -59,6 +59,8 @@ import org.apache.fineract.infrastructure.core.service.Page;
 import org.apache.fineract.infrastructure.core.service.PaginationHelper;
 import org.apache.fineract.infrastructure.core.service.SearchParameters;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
+import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanApplyOverduePenaltiesThroughBusinessDateBusinessEvent;
+import org.apache.fineract.infrastructure.event.business.service.ExternalBusinessEventConfigurationService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.organisation.monetary.data.CurrencyData;
@@ -213,6 +215,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     private final LoanMaximumAmountCalculator loanMaximumAmountCalculator;
     private final NamedParameterJdbcTemplate namedParameterJdbcTemplate;
     private final LoanChargeReadPlatformService loanChargeReadPlatformService;
+    private final LoanChargeWritePlatformService loanChargeWritePlatformService;
+    private final ExternalBusinessEventConfigurationService externalBusinessEventConfigurationService;
 
     @Override
     public LoanAccountData retrieveOne(final Long loanId) {
@@ -645,6 +649,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             params.put("txnTypes", Arrays.asList(LoanTransactionType.REPAYMENT.getValue(), LoanTransactionType.DOWN_PAYMENT.getValue()));
             params.put("asOnDate", date);
             LoanTransactionData loanTransactionData = this.namedParameterJdbcTemplate.queryForObject(sql, params, mapper);
+            loanTransactionData = enrichTemplateWithProjectedOverduePenalties(loanId, loanTransactionData, date);
             return retrieveLoanOverdueDetails(loanId, loanTransactionData, date);
         } catch (final EmptyResultDataAccessException e) {
             throw new LoanNotFoundException(loanId, e);
@@ -657,6 +662,38 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         LoanChargesDueDTO loanChargesDue = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate);
         loanTransactionData.setLoanOverdueChargeData(loanChargesDue);
         return loanTransactionData;
+    }
+
+    private LoanTransactionData enrichTemplateWithProjectedOverduePenalties(final Long loanId, final LoanTransactionData template,
+            final LocalDate transactionDate) {
+        final BigDecimal additionalPenalty = fetchProjectedOverduePenaltyForTemplate(loanId);
+        if (!MathUtil.isGreaterThanZero(additionalPenalty)) {
+            return template;
+        }
+        final BigDecimal penaltyPortion = MathUtil.add(template.getPenaltyChargesPortion(), additionalPenalty);
+        final BigDecimal totalAmount = MathUtil.add(template.getAmount(), additionalPenalty);
+        return LoanTransactionData.builder().id(template.getId()).officeId(template.getOfficeId()).officeName(template.getOfficeName())
+                .type(template.getType()).paymentDetailData(template.getPaymentDetailData()).currency(template.getCurrency())
+                .date(transactionDate).amount(totalAmount).netDisbursalAmount(template.getNetDisbursalAmount())
+                .principalPortion(template.getPrincipalPortion()).interestPortion(template.getInterestPortion())
+                .feeChargesPortion(template.getFeeChargesPortion()).penaltyChargesPortion(penaltyPortion)
+                .overpaymentPortion(template.getOverpaymentPortion()).unrecognizedIncomePortion(template.getUnrecognizedIncomePortion())
+                .externalId(template.getExternalId()).transfer(template.getTransfer()).fixedEmiAmount(template.getFixedEmiAmount())
+                .outstandingLoanBalance(template.getOutstandingLoanBalance()).manuallyReversed(template.isManuallyReversed())
+                .loanId(template.getLoanId()).externalLoanId(template.getExternalLoanId()).loanOverdueData(template.getLoanOverdueData())
+                .build();
+    }
+
+    private BigDecimal fetchProjectedOverduePenaltyForTemplate(final Long loanId) {
+        return fetchProjectedOverduePenaltyForTemplate(this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true));
+    }
+
+    private BigDecimal fetchProjectedOverduePenaltyForTemplate(final Loan loan) {
+        if (!externalBusinessEventConfigurationService
+                .isExternalEventConfiguredForPosting(new LoanApplyOverduePenaltiesThroughBusinessDateBusinessEvent(loan))) {
+            return BigDecimal.ZERO;
+        }
+        return loanChargeWritePlatformService.calculateUnappliedOverduePenaltyAmountTillDate(loan.getId());
     }
 
     @Override
@@ -715,7 +752,6 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
         final CurrencyData currencyData = applicationCurrency.toData();
 
-        final LocalDate earliestUnpaidInstallmentDate = DateUtils.getBusinessLocalDate();
         final LocalDate recalculateFrom = null;
         final ScheduleGeneratorDTO scheduleGeneratorDTO = loanUtilService.buildScheduleGeneratorDTO(loan, recalculateFrom);
         final OutstandingAmountsDTO outstandingAmounts = loadTransactionProcessingService.fetchPrepaymentDetail(scheduleGeneratorDTO,
@@ -727,14 +763,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
         BigDecimal adjustedChargeAmount = adjustPrepayInstallmentCharge(loan, onDate);
         BigDecimal totalAdjusted = outstandingAmounts.getTotalOutstanding().getAmount().subtract(adjustedChargeAmount);
+        final BigDecimal additionalPenalty = fetchProjectedOverduePenaltyForTemplate(loan);
+        totalAdjusted = MathUtil.add(totalAdjusted, additionalPenalty);
 
-        return LoanTransactionData.builder().type(transactionType).currency(currencyData).date(earliestUnpaidInstallmentDate)
-                .amount(totalAdjusted).netDisbursalAmount(loan.getNetDisbursalAmount())
-                .principalPortion(outstandingAmounts.principal().getAmount()).interestPortion(outstandingAmounts.interest().getAmount())
+        return LoanTransactionData.builder().type(transactionType).currency(currencyData).date(onDate).amount(totalAdjusted)
+                .netDisbursalAmount(loan.getNetDisbursalAmount()).principalPortion(outstandingAmounts.principal().getAmount())
+                .interestPortion(outstandingAmounts.interest().getAmount())
                 .feeChargesPortion(outstandingAmounts.feeCharges().getAmount().subtract(adjustedChargeAmount))
-                .penaltyChargesPortion(outstandingAmounts.penaltyCharges().getAmount()).unrecognizedIncomePortion(unrecognizedIncomePortion)
-                .paymentTypeOptions(paymentOptions).externalId(ExternalId.empty()).outstandingLoanBalance(outstandingLoanBalance)
-                .manuallyReversed(false).loanId(loanId).externalLoanId(loan.getExternalId()).build();
+                .penaltyChargesPortion(MathUtil.add(outstandingAmounts.penaltyCharges().getAmount(), additionalPenalty))
+                .unrecognizedIncomePortion(unrecognizedIncomePortion).paymentTypeOptions(paymentOptions).externalId(ExternalId.empty())
+                .outstandingLoanBalance(outstandingLoanBalance).manuallyReversed(false).loanId(loanId).externalLoanId(loan.getExternalId())
+                .build();
     }
 
     private BigDecimal adjustPrepayInstallmentCharge(Loan loan, final LocalDate onDate) {
@@ -2580,7 +2619,6 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
         final CurrencyData currencyData = applicationCurrency.toData();
 
-        final LocalDate earliestUnpaidInstallmentDate = DateUtils.getBusinessLocalDate();
         Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.mergeForeclosureChargesFromLoanProduct(loan,
                 chargePercentages);
         boolean updateCharges = false;
@@ -2596,6 +2634,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         Money feeChargesOutstanding = loanRepaymentScheduleInstallment.getFeeChargesOutstanding(currency);
         feeChargesOutstanding = feeChargesOutstanding.plus(foreclosureFees);
         Money penaltyChargesOutstanding = loanRepaymentScheduleInstallment.getPenaltyChargesOutstanding(currency);
+        penaltyChargesOutstanding = penaltyChargesOutstanding.plus(Money.of(currency, fetchProjectedOverduePenaltyForTemplate(loan)));
         Money principalOutstanding = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency);
         Money interestOutstanding = loanRepaymentScheduleInstallment.getInterestOutstanding(currency);
         BigDecimal adjustedInterestAmount = loanRepaymentScheduleInstallment.getAdjustedInterestAmount();
@@ -2603,7 +2642,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         final Money outStandingAmount = principalOutstanding.plus(interestOutstanding).plus(feeChargesOutstanding)
                 .plus(penaltyChargesOutstanding).plus(Money.of(currency, adjustedInterestAmount));
 
-        return LoanTransactionData.builder().type(transactionType).currency(currencyData).date(earliestUnpaidInstallmentDate)
+        return LoanTransactionData.builder().type(transactionType).currency(currencyData).date(transactionDate)
                 .amount(outStandingAmount.getAmount()).netDisbursalAmount(loan.getNetDisbursalAmount())
                 .principalPortion(principalOutstanding.getAmount()).interestPortion(interestOutstanding.getAmount())
                 .feeChargesPortion(feeChargesOutstanding.getAmount()).penaltyChargesPortion(penaltyChargesOutstanding.getAmount())
@@ -2851,10 +2890,34 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     @Override
     public ChargePaymentTemplateData getChargePaymentTemplateDetails(Long loanId, LocalDate asOnDate) {
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
-        LoanChargesDueDTO loanChargesDueDTO = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate);
-        Collection<LoanChargeData> loanChargesDue = new ArrayList<>(loanChargesDueDTO.getFeeCharges());
+        final LoanChargesDueDTO loanChargesDueDTO = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate);
+        final Collection<LoanChargeData> loanChargesDue = new ArrayList<>(loanChargesDueDTO.getFeeCharges());
         loanChargesDue.addAll(loanChargesDueDTO.getPenaltyCharges());
+        if (DateUtils.isEqualBusinessDate(asOnDate)) {
+            final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+            final BigDecimal additionalPenalty = fetchProjectedOverduePenaltyForTemplate(loan);
+            if (MathUtil.isGreaterThanZero(additionalPenalty)) {
+                addProjectedPenaltyToOverdueInstallmentCharge(loanChargesDue, loan, additionalPenalty);
+            }
+        }
         return ChargePaymentTemplateData.builder().paymentTypeOptions(paymentOptions).charges(loanChargesDue)
                 .transactionType(LoanEnumerations.transactionType(LoanTransactionType.CHARGE_PAYMENT)).build();
+    }
+
+    private void addProjectedPenaltyToOverdueInstallmentCharge(final Collection<LoanChargeData> charges, final Loan loan,
+            final BigDecimal additionalPenalty) {
+        loan.getLoanProduct().getCharges().stream()
+                .filter(charge -> ChargeTimeType.OVERDUE_INSTALLMENT.getValue().equals(charge.getChargeTimeType()) && charge.isLoanCharge())
+                .findFirst().ifPresent(chargeDefinition -> {
+                    for (final LoanChargeData charge : charges) {
+                        if (charge.isPenalty() && chargeDefinition.getId().equals(charge.getChargeId())) {
+                            charge.setAmountOutstanding(MathUtil.add(charge.getAmountOutstanding(), additionalPenalty));
+                            return;
+                        }
+                    }
+                    charges.add(new LoanChargeData(null, chargeDefinition.getId(), chargeDefinition.getName(), null, null, null, null, null,
+                            additionalPenalty, null, DateUtils.getBusinessLocalDate(), null, null, null, null, true, null, false, false,
+                            null, null, null, null, null, null, null, null, null, null, null));
+                });
     }
 }

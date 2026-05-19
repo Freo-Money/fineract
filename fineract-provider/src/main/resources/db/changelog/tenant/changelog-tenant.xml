@@ -248,9 +248,11 @@
     <include file="parts/1047_add_preclose_emi_rounding_to_product_loan.xml" relativeToChangelogFile="true" />
     <include file="parts/1048_add_actual_tax_amount.xml" relativeToChangelogFile="true" />
     <include file="parts/1049_add_overdue_due_adv_interest_principal_overdue_due_penalties_fees_order_strategy.xml" relativeToChangelogFile="true" />
+    <include file="parts/1052_add_backdated_loan_transaction_handling_configurations.xml" relativeToChangelogFile="true" />
     <include file="parts/1053_add_penalty_wait_period_to_charge.xml" relativeToChangelogFile="true" />
     <include file="parts/1054_add_charge_rounding_override_columns.xml" relativeToChangelogFile="true" />
     <include file="parts/1050_add_loan_product_rounding_mode_mapping.xml" relativeToChangelogFile="true" />
     <include file="parts/1051_add_loan_product_rounding_mode_permissions.xml" relativeToChangelogFile="true" />
     <include file="parts/1057_add_enable_schedule_archive.xml" relativeToChangelogFile="true" />
+    <include file="parts/1058_add_loan_apply_overdue_penalties_before_transaction_external_event.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

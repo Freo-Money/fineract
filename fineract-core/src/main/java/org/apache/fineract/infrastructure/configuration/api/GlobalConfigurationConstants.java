@@ -40,6 +40,7 @@ public final class GlobalConfigurationConstants {
     public static final String OFFICE_OPENING_BALANCES_CONTRA_ACCOUNT = "office-opening-balances-contra-account";
     public static final String ROUNDING_MODE = "rounding-mode";
     public static final String BACKDATE_PENALTIES_ENABLED = "backdate-penalties-enabled";
+    public static final String ENFORCE_LOAN_TRANSACTION_NOT_BEFORE_LAST_USER_TRANSACTION = "enforce-loan-transaction-not-before-last-user-transaction";
     public static final String ORGANISATION_START_DATE = "organisation-start-date";
     public static final String PAYMENT_TYPE_APPLICABLE_FOR_DISBURSEMENT_CHARGES = "paymenttype-applicable-for-disbursement-charges";
     public static final String INTEREST_CHARGED_FROM_DATE_SAME_AS_DISBURSAL_DATE = "interest-charged-from-date-same-as-disbursal-date";

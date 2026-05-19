@@ -31,6 +31,7 @@ import org.apache.fineract.infrastructure.core.service.PaginationHelper;
 import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.infrastructure.dataqueries.service.EntityDatatableChecksWritePlatformService;
 import org.apache.fineract.infrastructure.event.business.service.BusinessEventNotifierService;
+import org.apache.fineract.infrastructure.event.business.service.ExternalBusinessEventConfigurationService;
 import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
 import org.apache.fineract.infrastructure.security.utils.ColumnValidator;
 import org.apache.fineract.organisation.holiday.domain.HolidayRepository;
@@ -151,6 +152,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanDownPaymentHandlerS
 import org.apache.fineract.portfolio.loanaccount.service.LoanJournalEntryPoster;
 import org.apache.fineract.portfolio.loanaccount.service.LoanMaximumAmountCalculator;
 import org.apache.fineract.portfolio.loanaccount.service.LoanOfficerService;
+import org.apache.fineract.portfolio.loanaccount.service.LoanOverduePenaltyPreTransactionEventService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanReadPlatformServiceImpl;
 import org.apache.fineract.portfolio.loanaccount.service.LoanRefundService;
@@ -361,7 +363,9 @@ public class LoanAccountConfiguration {
             ForeclosureChargeHelper foreclosureChargeHelper, LoanCapitalizedIncomeBalanceRepository loanCapitalizedIncomeBalanceRepository,
             LoanBuyDownFeeBalanceRepository loanBuyDownFeeBalanceRepository,
             @Lazy InterestRefundServiceDelegate interestRefundServiceDelegate, LoanMaximumAmountCalculator loanMaximumAmountCalculator,
-            NamedParameterJdbcTemplate namedParameterJdbcTemplate, LoanChargeReadPlatformService loanChargeReadPlatformService) {
+            NamedParameterJdbcTemplate namedParameterJdbcTemplate, LoanChargeReadPlatformService loanChargeReadPlatformService,
+            @Lazy LoanChargeWritePlatformService loanChargeWritePlatformService,
+            ExternalBusinessEventConfigurationService externalBusinessEventConfigurationService) {
         return new LoanReadPlatformServiceImpl(jdbcTemplate, context, loanRepositoryWrapper, applicationCurrencyRepository,
                 loanProductReadPlatformService, clientReadPlatformService, groupReadPlatformService, loanDropdownReadPlatformService,
                 fundReadPlatformService, chargeReadPlatformService, codeValueReadPlatformService, calendarReadPlatformService,
@@ -370,7 +374,8 @@ public class LoanAccountConfiguration {
                 delinquencyReadPlatformService, loanTransactionRepository, loanChargePaidByReadService, loanTransactionRelationReadService,
                 loanForeclosureValidator, loanTransactionMapper, loanTransactionProcessingService, loanBalanceService,
                 foreclosureChargeHelper, loanCapitalizedIncomeBalanceRepository, loanBuyDownFeeBalanceRepository,
-                interestRefundServiceDelegate, loanMaximumAmountCalculator, namedParameterJdbcTemplate, loanChargeReadPlatformService);
+                interestRefundServiceDelegate, loanMaximumAmountCalculator, namedParameterJdbcTemplate, loanChargeReadPlatformService,
+                loanChargeWritePlatformService, externalBusinessEventConfigurationService);
     }
 
     @Bean
@@ -609,6 +614,15 @@ public class LoanAccountConfiguration {
             BusinessEventNotifierService businessEventNotifierService,
             LoanBuyDownFeeAmortizationProcessingService loanBuyDownFeeAmortizationProcessingService) {
         return new LoanBuyDownFeeAmortizationEventService(businessEventNotifierService, loanBuyDownFeeAmortizationProcessingService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(LoanOverduePenaltyPreTransactionEventService.class)
+    public LoanOverduePenaltyPreTransactionEventService loanOverduePenaltyPreTransactionEventService(
+            BusinessEventNotifierService businessEventNotifierService, LoanChargeWritePlatformService loanChargeWritePlatformService,
+            ExternalBusinessEventConfigurationService externalBusinessEventConfigurationService) {
+        return new LoanOverduePenaltyPreTransactionEventService(businessEventNotifierService, loanChargeWritePlatformService,
+                externalBusinessEventConfigurationService);
     }
 
     @Bean

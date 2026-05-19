@@ -75,6 +75,8 @@ public interface ConfigurationDomainService {
 
     boolean isBackdatePenaltiesEnabled();
 
+    boolean isEnforceLoanTransactionNotBeforeLastUserTransactionEnabled();
+
     boolean isOrganisationstartDateEnabled();
 
     LocalDate retrieveOrganisationStartDate();

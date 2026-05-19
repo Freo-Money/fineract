@@ -950,6 +950,51 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         return new CommandProcessingResultBuilder().withLoanId(loanId).build();
     }
 
+    @Transactional(readOnly = true)
+    @Override
+    public BigDecimal calculateUnappliedOverduePenaltyAmountTillDate(final Long loanId) {
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        if (!loan.isOpen() || loan.isChargedOff()) {
+            return BigDecimal.ZERO;
+        }
+        final Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList = loanReadPlatformService
+                .retrieveAllOverdueInstallmentsForLoan(loan);
+        if (overdueLoanScheduleDataList.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        final Optional<Charge> optPenaltyCharge = loan.getLoanProduct().getCharges().stream()
+                .filter(e -> ChargeTimeType.OVERDUE_INSTALLMENT.getValue().equals(e.getChargeTimeType()) && e.isLoanCharge()).findFirst();
+        if (optPenaltyCharge.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        final Charge penaltyCharge = optPenaltyCharge.get();
+        BigDecimal remainingCumulativePenaltyCap = null;
+        final BigDecimal maxCumulativePenaltyCap = penaltyCharge.getMaxCumulativePenaltyCap();
+        if (maxCumulativePenaltyCap != null) {
+            final BigDecimal alreadyApplied = calculateExistingPenaltyAmountForCharge(loan, penaltyCharge);
+            remainingCumulativePenaltyCap = maxCumulativePenaltyCap.subtract(alreadyApplied);
+            if (remainingCumulativePenaltyCap.compareTo(BigDecimal.ZERO) <= 0) {
+                return BigDecimal.ZERO;
+            }
+        }
+        BigDecimal projectedPenaltyAmount = BigDecimal.ZERO;
+        for (final OverdueLoanScheduleData overdueInstallment : overdueLoanScheduleDataList) {
+            final JsonElement parsedCommand = this.fromApiJsonHelper.parse(overdueInstallment.toString());
+            final JsonCommand command = JsonCommand.from(overdueInstallment.toString(), parsedCommand, this.fromApiJsonHelper, null, null,
+                    null, null, null, loanId, null, null, null, null, null, null, null, null);
+            final BigDecimal installmentPenaltyAmount = calculateOverduePenaltyAmountForInstallment(loan, overdueInstallment.getChargeId(),
+                    overdueInstallment.getPeriodNumber(), command, remainingCumulativePenaltyCap);
+            projectedPenaltyAmount = projectedPenaltyAmount.add(installmentPenaltyAmount);
+            if (remainingCumulativePenaltyCap != null) {
+                remainingCumulativePenaltyCap = remainingCumulativePenaltyCap.subtract(installmentPenaltyAmount);
+                if (remainingCumulativePenaltyCap.compareTo(BigDecimal.ZERO) <= 0) {
+                    break;
+                }
+            }
+        }
+        return projectedPenaltyAmount;
+    }
+
     private LoanTransaction applyChargeAdjustment(final Loan loan, final LoanCharge loanCharge, final BigDecimal transactionAmount,
             final LocalDate transactionDate, final ExternalId txnExternalId, PaymentDetail paymentDetail) {
         businessEventNotifierService.notifyPreBusinessEvent(new LoanChargeAdjustmentPreBusinessEvent(loan));
@@ -1168,19 +1213,75 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         return DateUtils.isBeforeBusinessDate(loanCharge.getDueLocalDate());
     }
 
+    private BigDecimal calculateOverduePenaltyAmountForInstallment(final Loan loan, final Long loanChargeId, final Integer periodNumber,
+            final JsonCommand command, final BigDecimal remainingCumulativePenaltyCap) {
+        final Charge chargeDefinition = this.chargeRepository.findOneWithNotFoundDetection(loanChargeId);
+        if (remainingCumulativePenaltyCap != null && remainingCumulativePenaltyCap.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        final Map<Integer, LocalDate> scheduleDates = buildOverduePenaltyScheduleDates(loan, chargeDefinition, periodNumber, command);
+        if (scheduleDates.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal projectedAmount = BigDecimal.ZERO;
+        BigDecimal remainingCap = remainingCumulativePenaltyCap;
+        for (final Map.Entry<Integer, LocalDate> entry : scheduleDates.entrySet().stream().sorted(Map.Entry.comparingByValue()).toList()) {
+            final LoanCharge loanCharge = loanChargeAssembler.createNewFromJson(loan, chargeDefinition, command, entry.getValue());
+            if (BigDecimal.ZERO.compareTo(loanCharge.amount()) == 0) {
+                continue;
+            }
+            BigDecimal chargeAmount = loanCharge.amount();
+            if (remainingCap != null) {
+                if (remainingCap.compareTo(BigDecimal.ZERO) <= 0) {
+                    break;
+                }
+                chargeAmount = chargeAmount.min(remainingCap);
+                if (chargeAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+                remainingCap = remainingCap.subtract(chargeAmount);
+            }
+            projectedAmount = projectedAmount.add(chargeAmount);
+        }
+        return projectedAmount;
+    }
+
+    private Map<Integer, LocalDate> buildOverduePenaltyScheduleDates(final Loan loan, final Charge chargeDefinition,
+            final Integer periodNumber, final JsonCommand command) {
+        final Collection<Integer> frequencyNumbers = loanChargeReadPlatformService.retrieveOverdueInstallmentChargeFrequencyNumber(loan,
+                chargeDefinition, periodNumber);
+        final Integer feeFrequency = chargeDefinition.feeFrequency();
+        final ScheduledDateGenerator scheduledDateGenerator = new DefaultScheduledDateGenerator();
+        final Map<Integer, LocalDate> scheduleDates = new HashMap<>();
+        final Long penaltyPostingWaitPeriodValue = this.configurationDomainService.retrieveGraceOnPenaltyPostingPeriod();
+        final LocalDate dueDate = command.localDateValueOfParameterNamed("dueDate");
+        LocalDate startDate = dueDate.plusDays(1L + penaltyPostingWaitPeriodValue);
+        int frequencyNumber = 1;
+        if (feeFrequency == null) {
+            scheduleDates.put(frequencyNumber++, startDate);
+        } else {
+            final int feeInterval = chargeDefinition.feeInterval() != null ? chargeDefinition.feeInterval() : 1;
+            // Penalties through business date (today inclusive): continue while schedule date is not after business
+            // date
+            while (!DateUtils.isAfterBusinessDate(startDate)) {
+                scheduleDates.put(frequencyNumber++, startDate);
+                startDate = scheduledDateGenerator.getRepaymentPeriodDate(PeriodFrequencyType.fromInt(feeFrequency), feeInterval,
+                        startDate);
+            }
+        }
+        for (final Integer frequency : frequencyNumbers) {
+            scheduleDates.remove(frequency);
+        }
+        final LocalDate cutoffDate = overdueChargeCutoffDateResolver.getCutoffDate(loan);
+        scheduleDates.entrySet().removeIf(entry -> DateUtils.isBefore(entry.getValue(), cutoffDate));
+        return scheduleDates;
+    }
+
     private LoanOverdueDTO applyChargeToOverdueLoanInstallment(final Loan loan, final Long loanChargeId, final Integer periodNumber,
             final JsonCommand command, BigDecimal remainingCumulativePenaltyCap) {
         log.info("applyChargeToOverdueLoanInstallment: loanId={}, chargeId={}, periodNumber={}", loan.getId(), loanChargeId, periodNumber);
         boolean runInterestRecalculation = false;
         final Charge chargeDefinition = this.chargeRepository.findOneWithNotFoundDetection(loanChargeId);
-
-        Collection<Integer> frequencyNumbers = loanChargeReadPlatformService.retrieveOverdueInstallmentChargeFrequencyNumber(loan,
-                chargeDefinition, periodNumber);
-
-        Integer feeFrequency = chargeDefinition.feeFrequency();
-        final ScheduledDateGenerator scheduledDateGenerator = new DefaultScheduledDateGenerator();
-        Map<Integer, LocalDate> scheduleDates = new HashMap<>();
-        final Long penaltyPostingWaitPeriodValue = this.configurationDomainService.retrieveGraceOnPenaltyPostingPeriod();
         final LocalDate dueDate = command.localDateValueOfParameterNamed("dueDate");
         if (remainingCumulativePenaltyCap != null && remainingCumulativePenaltyCap.compareTo(BigDecimal.ZERO) <= 0) {
             log.info("applyChargeToOverdueLoanInstallment: loanId={}, periodNumber={}, skipping (cumulative penalty cap reached)",
@@ -1188,39 +1289,14 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             return new LoanOverdueDTO(loan, runInterestRecalculation, DateUtils.getBusinessLocalDate(), dueDate,
                     remainingCumulativePenaltyCap);
         }
-        // penalty-wait-period controls WHEN we pick up the loan (eligibility). grace-on-penalty-posting delays
-        // the first penalty date: first penalty = dueDate + 1 + grace (grace=0 -> 6th, grace=1 -> 7th, grace=2 -> 8th).
-        LocalDate startDate = dueDate.plusDays(1L + penaltyPostingWaitPeriodValue);
-        int frequencyNumber = 1;
-        if (feeFrequency == null) {
-            scheduleDates.put(frequencyNumber++, startDate);
-        } else {
-            // feeInterval may be null for legacy charges; use 1 (every period) as default
-            final int feeInterval = chargeDefinition.feeInterval() != null ? chargeDefinition.feeInterval() : 1;
-            // Apply penalties only up to yesterday: continue while schedule date < business date
-            while (!DateUtils.isAfterBusinessDate(startDate)) {
-                scheduleDates.put(frequencyNumber++, startDate);
-
-                startDate = scheduledDateGenerator.getRepaymentPeriodDate(PeriodFrequencyType.fromInt(feeFrequency), feeInterval,
-                        startDate);
-            }
-        }
-
-        for (Integer frequency : frequencyNumbers) {
-            scheduleDates.remove(frequency);
-        }
-
-        // Filter out charge dates that are before the cutoff date
-        // This ensures charges are only applied from the cutoff date forward
-        final LocalDate cutoffDate = overdueChargeCutoffDateResolver.getCutoffDate(loan);
-        scheduleDates.entrySet().removeIf(entry -> DateUtils.isBefore(entry.getValue(), cutoffDate));
+        final Map<Integer, LocalDate> scheduleDates = buildOverduePenaltyScheduleDates(loan, chargeDefinition, periodNumber, command);
 
         LoanRepaymentScheduleInstallment installment = null;
         LocalDate lastChargeAppliedDate = dueDate;
         LocalDate recalculateFrom = DateUtils.getBusinessLocalDate();
         if (scheduleDates.isEmpty()) {
             log.info("applyChargeToOverdueLoanInstallment: loanId={}, periodNumber={}, no schedule dates to apply (cutoffDate={})",
-                    loan.getId(), periodNumber, cutoffDate);
+                    loan.getId(), periodNumber, overdueChargeCutoffDateResolver.getCutoffDate(loan));
         }
         if (!scheduleDates.isEmpty()) {
             log.info("applyChargeToOverdueLoanInstallment: loanId={}, periodNumber={}, applying penalty for {} schedule date(s)",
