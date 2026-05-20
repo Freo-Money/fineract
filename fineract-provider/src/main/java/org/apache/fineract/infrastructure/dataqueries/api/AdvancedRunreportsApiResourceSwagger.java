@@ -16,17 +16,18 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.core.config;
+package org.apache.fineract.infrastructure.dataqueries.api;
 
-public final class TaskExecutorConstant {
+import io.swagger.v3.oas.annotations.media.Schema;
 
-    private TaskExecutorConstant() {
+public final class AdvancedRunreportsApiResourceSwagger {
 
+    private AdvancedRunreportsApiResourceSwagger() {}
+
+    @Schema(description = "Response for submitting an async report request")
+    public static final class SubmitAsyncReportResponse {
+
+        @Schema(description = "The ID of the submitted async report request", example = "42")
+        public Long requestId;
     }
-
-    public static final String DEFAULT_TASK_EXECUTOR_BEAN_NAME = "fineractDefaultThreadPoolTaskExecutor";
-    public static final String CONFIGURABLE_TASK_EXECUTOR_BEAN_NAME = "fineractConfigurableThreadPoolTaskExecutor";
-    public static final String EVENT_TASK_EXECUTOR_BEAN_NAME = "externalEventJmsProducerExecutor";
-    public static final String LOAN_COB_CATCH_UP_TASK_EXECUTOR_BEAN_NAME = "loanCOBCatchUpThreadPoolTaskExecutor";
-    public static final String ASYNC_REPORT_TASK_EXECUTOR_BEAN_NAME = "asyncReportTaskExecutor";
 }

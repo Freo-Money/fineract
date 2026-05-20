@@ -37,6 +37,16 @@ public class SpringAsyncConfig implements AsyncConfigurer {
         return threadPoolTaskExecutor;
     }
 
+    @Bean(name = TaskExecutorConstant.ASYNC_REPORT_TASK_EXECUTOR_BEAN_NAME)
+    public ThreadPoolTaskExecutor asyncReportTaskExecutor() {
+        ThreadPoolTaskExecutor threadPoolTaskExecutor = new ThreadPoolTaskExecutor();
+        threadPoolTaskExecutor.setCorePoolSize(2);
+        threadPoolTaskExecutor.setMaxPoolSize(5);
+        threadPoolTaskExecutor.setQueueCapacity(25);
+        threadPoolTaskExecutor.setThreadNamePrefix("async-report-");
+        return threadPoolTaskExecutor;
+    }
+
     @Override
     public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
         return new CustomAsyncExceptionHandler();

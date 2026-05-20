@@ -39,6 +39,7 @@ import org.apache.fineract.infrastructure.core.service.migration.TenantDatabaseS
 import org.apache.fineract.infrastructure.core.service.migration.TenantDatabaseUpgradeService;
 import org.apache.fineract.infrastructure.core.service.tenant.TenantDetailsService;
 import org.apache.fineract.infrastructure.dataqueries.service.GenericDataService;
+import org.apache.fineract.infrastructure.documentmanagement.contentrepository.S3ContentRepository;
 import org.apache.fineract.infrastructure.jobs.ScheduledJobRunnerConfig;
 import org.apache.fineract.infrastructure.jobs.service.JobRegisterService;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -217,5 +218,11 @@ public class TestConfiguration {
     @Bean
     public GenericDataService genericDataService() {
         return mock(GenericDataService.class, RETURNS_MOCKS);
+    }
+
+    @Primary
+    @Bean
+    public S3ContentRepository s3ContentRepository() {
+        return mock(S3ContentRepository.class, RETURNS_MOCKS);
     }
 }

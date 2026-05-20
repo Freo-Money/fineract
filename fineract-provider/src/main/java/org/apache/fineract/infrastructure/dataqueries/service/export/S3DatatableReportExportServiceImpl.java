@@ -52,8 +52,14 @@ public class S3DatatableReportExportServiceImpl implements DatatableReportExport
             try (ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream()) {
                 output.write(byteArrayOutputStream);
                 String folder = configurationDomainService.retrieveReportExportS3FolderName();
-                String filePath = DatatableExportUtil.generateS3DatatableExportFileName(AWS_S3_MAXIMUM_KEY_LENGTH, folder, "csv",
-                        reportName, reportParams);
+                String customPath = queryParams.getFirst("reportlocation");
+                final String filePath;
+                if (customPath == null || customPath.isBlank()) {
+                    filePath = DatatableExportUtil.generateS3DatatableExportFileName(AWS_S3_MAXIMUM_KEY_LENGTH, folder, "csv", reportName,
+                            reportParams);
+                } else {
+                    filePath = customPath;
+                }
                 s3Client.putObject(
                         builder -> builder.bucket(properties.getReport().getExport().getS3().getBucketName()).key(filePath).build(),
                         RequestBody.fromBytes(byteArrayOutputStream.toByteArray()));
