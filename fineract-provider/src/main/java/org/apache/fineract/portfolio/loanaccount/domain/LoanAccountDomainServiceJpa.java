@@ -832,7 +832,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                 externalId);
 
         if (payment != null && foreclosureFee.isGreaterThanZero()) {
-            foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
+            foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee, foreClosureDate);
         }
 
         if (payment != null) {

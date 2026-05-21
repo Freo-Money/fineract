@@ -46,10 +46,14 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleProcessingWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeRoundingUtils;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeService;
+import org.apache.fineract.portfolio.loanaccount.service.LoanChargeTaxUtils;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
@@ -59,6 +63,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ForeclosureChargeHelper {
 
+    private static final Logger LOG = LoggerFactory.getLogger(ForeclosureChargeHelper.class);
     private static final Gson GSON = new Gson();
 
     private final ChargeReadPlatformService chargeReadPlatformService;
@@ -230,17 +235,75 @@ public class ForeclosureChargeHelper {
                 final RoundingMode effectiveRoundingMode = LoanChargeRoundingUtils.resolveRoundingMode(chargeDefinition,
                         configurationDomainService);
                 uncappedChargeAmount = uncappedChargeAmount.setScale(effectiveDigits, effectiveRoundingMode);
-                LoanCharge loanCharge = loanChargeService.create(loan, chargeDefinition, loan.getPrincipal().getAmount(),
+
+                final List<LoanCharge> existingForCharge = findActiveForeclosureChargesByChargeId(loan, chargeId);
+                if (!existingForCharge.isEmpty()) {
+                    // Foreclosure retried for the same loan: reuse the first existing row in place rather than
+                    // creating a duplicate. Skipping addLoanCharge() here avoids the Single-wrapper ADD that would
+                    // otherwise accumulate fee_charges_amount on the closing installment. The LOAN_CHARGE_ADDED
+                    // state-machine event is intentionally not re-fired here: the only transition gated by it
+                    // (CLOSED_OBLIGATIONS_MET -> ACTIVE) is not relevant during foreclosure.
+                    final LoanCharge existing = existingForCharge.get(0);
+                    final Charge existingChargeDefinition = existing.getCharge();
+                    LOG.warn(
+                            "Foreclosure charge already present on loan {} for charge_id {} ({} active row(s)); "
+                                    + "updating first row in place and deactivating duplicates.",
+                            loan.getId(), chargeId, existingForCharge.size());
+                    final Money principalOutstanding = Money.of(currency, loan.getSummary().getTotalPrincipalOutstanding());
+                    applyForeclosureChargeUpdate(existing, Money.of(currency, uncappedChargeAmount), principalOutstanding, foreclosureDate,
+                            amountOrPercentage);
+                    // Keep tax breakdown (amount_sans_tax, tax_amount) in sync with the new amount.
+                    // applyForeclosureChargeUpdate -> resetChargeToUnpaidState only updates the principal amount; the
+                    // tax columns must be recomputed explicitly, otherwise a retry with a different percentage leaves
+                    // stale tax values that the shadow-validator flags as CHARGE_amount_sans_tax mismatches.
+                    LoanChargeTaxUtils.calculateAndSetTaxDetails(existing, existingChargeDefinition, foreclosureDate,
+                            configurationDomainService.getTaxRoundingMode());
+                    // Deactivate any secondary duplicates so reprocess() doesn't sum legacy duplicates into the
+                    // closing installment's fee_charges_amount.
+                    for (int i = 1; i < existingForCharge.size(); i++) {
+                        final LoanCharge duplicate = existingForCharge.get(i);
+                        LOG.warn("Deactivating duplicate foreclosure LoanCharge id={} on loan {} for charge_id {}.", duplicate.getId(),
+                                loan.getId(), chargeId);
+                        duplicate.setActive(false);
+                    }
+                    foreclosureCharges.add(existing);
+                    continue;
+                }
+
+                final LoanCharge loanCharge = loanChargeService.create(loan, chargeDefinition, loan.getPrincipal().getAmount(),
                         amountOrPercentage, ChargeTimeType.FORECLOSURE, calculationType, foreclosureDate, null, null, uncappedChargeAmount,
                         null);
                 loanChargeService.addLoanCharge(loan, loanCharge);
                 resetChargeToUnpaidState(loanCharge, uncappedChargeAmount);
                 foreclosureCharges.add(loanCharge);
             } catch (Exception e) {
-                // Ignore invalid charge definitions
+                // Skip the charge so a single misconfigured row does not abort the whole foreclosure; log with
+                // root cause so the operational team can investigate (silent swallowing here previously masked
+                // real misconfigurations -- see shadow-validator NEEDS_MANUAL bucket).
+                LOG.warn("Skipping foreclosure charge for loan {} charge_id {}", loan.getId(), chargeId, e);
             }
         }
         return foreclosureCharges;
+    }
+
+    private List<LoanCharge> findActiveForeclosureChargesByChargeId(final Loan loan, final Long chargeId) {
+        List<LoanCharge> matches = new ArrayList<>();
+        if (loan.getLoanCharges() == null) {
+            return matches;
+        }
+        for (LoanCharge candidate : loan.getLoanCharges()) {
+            if (!candidate.isActive()) {
+                continue;
+            }
+            if (candidate.getCharge() == null || !chargeId.equals(candidate.getCharge().getId())) {
+                continue;
+            }
+            if (!ChargeTimeType.FORECLOSURE.equals(candidate.getChargeTimeType())) {
+                continue;
+            }
+            matches.add(candidate);
+        }
+        return matches;
     }
 
     public void linkForeclosureChargesToPaymentTransactionAndMarkAsPaid(Loan loan, LoanTransaction paymentTransaction) {
@@ -309,6 +372,17 @@ public class ForeclosureChargeHelper {
         return payment;
     }
 
+    /**
+     * Creates or refreshes foreclosure charges on the loan and re-derives every repayment installment's fee/penalty
+     * totals from the canonical set of active {@link LoanCharge} rows (SET-from-truth via
+     * {@link LoanRepaymentScheduleProcessingWrapper#reprocess}).
+     *
+     * <p>
+     * Idempotent: a retried foreclosure reuses an existing active row for the same {@code charge_id} (see
+     * {@link #findActiveForeclosureChargesByChargeId}) instead of creating a duplicate, recomputes its tax breakdown,
+     * and deactivates any legacy duplicates. After reprocess, {@link #clampClosingInstallmentFeePaid} guards against
+     * {@code feeChargesPaid > feeChargesCharged} on the closing installment.
+     */
     public void updateForeclosureCharges(Loan loan, Map<Long, BigDecimal> mergedChargePercentages, LocalDate closureDate) {
         MonetaryCurrency currency = loan.getCurrency();
         Money totalPrincipalOutstanding = Money.of(loan.getCurrency(), loan.getSummary().getTotalPrincipalOutstanding());
@@ -316,14 +390,41 @@ public class ForeclosureChargeHelper {
         if (foreclosureCharges.isEmpty()) {
             return;
         }
-        Money totalForeclosureChargeAmount = Money.zero(currency);
         for (LoanCharge charge : foreclosureCharges) {
-            Money chargeAmount = charge.getAmount(currency);
-            totalForeclosureChargeAmount = totalForeclosureChargeAmount.plus(chargeAmount);
-            applyForeclosureChargeUpdate(charge, chargeAmount, totalPrincipalOutstanding, closureDate,
+            applyForeclosureChargeUpdate(charge, charge.getAmount(currency), totalPrincipalOutstanding, closureDate,
                     mergedChargePercentages.get(charge.getCharge().getId()));
         }
-        applyForeclosureChargeOnRepaymentSchedule(loan, currency, totalForeclosureChargeAmount);
+        // SET-from-truth: re-derive fee_charges_amount on every installment as the sum of LoanCharge.amount due in
+        // that installment's period. This idempotently corrects any inflation caused by Single-wrapper ADD calls
+        // (addLoanCharge) earlier in the foreclosure flow, and lands the foreclosure fee on the installment whose
+        // period contains closureDate -- not the original last installment.
+        final LoanRepaymentScheduleProcessingWrapper scheduleWrapper = new LoanRepaymentScheduleProcessingWrapper();
+        final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
+        scheduleWrapper.reprocess(currency, loan.getDisbursementDate(), installments, loan.getLoanCharges());
+
+        // Item 3 (defensive): after reprocess, feeChargesCharged on the closing installment may be smaller than its
+        // pre-existing feeChargesPaid (e.g. a prior foreclosure attempt marked it paid before this retry shrank the
+        // total fee). getFeeChargesOutstanding() would then return a negative value, which retrieveIncomeOutstanding-
+        // TillDate sums as-is into the foreclosure payment total -- inflating or shrinking it incorrectly. Clamp
+        // paid to charged on the closing installment to keep outstanding non-negative.
+        clampClosingInstallmentFeePaid(installments, closureDate, currency);
+    }
+
+    private void clampClosingInstallmentFeePaid(final List<LoanRepaymentScheduleInstallment> installments, final LocalDate closureDate,
+            final MonetaryCurrency currency) {
+        if (installments == null || installments.isEmpty()) {
+            return;
+        }
+        LoanRepaymentScheduleInstallment closing = LoanRepaymentScheduleProcessingWrapper.findInPeriod(closureDate, installments)
+                .orElseGet(() -> LoanRepaymentScheduleInstallment.getLastNonDownPaymentInstallment(installments));
+        Money charged = closing.getFeeChargesCharged(currency);
+        Money paid = closing.getFeeChargesPaid(currency);
+        if (paid.isGreaterThan(charged)) {
+            LOG.info("Clamping feeChargesPaid {} -> {} on closing installment {} of loan {} to keep outstanding non-negative.",
+                    paid.getAmount(), charged.getAmount(), closing.getInstallmentNumber(),
+                    closing.getLoan() == null ? null : closing.getLoan().getId());
+            closing.setFeeChargesPaid(charged.getAmount());
+        }
     }
 
     private void resetChargeToUnpaidState(final LoanCharge charge, final BigDecimal chargeAmount) {
@@ -347,35 +448,33 @@ public class ForeclosureChargeHelper {
         }
     }
 
-    private void applyForeclosureChargeOnRepaymentSchedule(final Loan loan, final MonetaryCurrency currency,
-            final Money foreclosureAmount) {
-        updateRepaymentScheduleWithForeclosureFee(loan, currency, foreclosureAmount, false);
-    }
-
-    public void syncForeclosureFeeOnRepaymentSchedule(final Loan loan, final Money foreclosureFee) {
-        updateRepaymentScheduleWithForeclosureFee(loan, loan.getCurrency(), foreclosureFee, true);
-    }
-
-    private void updateRepaymentScheduleWithForeclosureFee(final Loan loan, final MonetaryCurrency currency, final Money foreclosureAmount,
-            final boolean markAsPaid) {
-        if (!foreclosureAmount.isGreaterThanZero()) {
+    /**
+     * Post-payment sync: re-derives installment fee totals from the canonical {@link LoanCharge} set and marks the
+     * closing installment's fee portion as paid. Resolves the closing installment by {@code foreClosureDate} (the
+     * installment whose period contains the date) so mid-loan foreclosures land on the actual closing row rather than
+     * the original last installment.
+     */
+    public void syncForeclosureFeeOnRepaymentSchedule(final Loan loan, final Money foreclosureFee, final LocalDate foreClosureDate) {
+        if (!foreclosureFee.isGreaterThanZero()) {
             return;
         }
-        List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
+        final MonetaryCurrency currency = loan.getCurrency();
+        final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
         if (installments == null || installments.isEmpty()) {
             return;
         }
-        LoanRepaymentScheduleInstallment lastInstallment = LoanRepaymentScheduleInstallment.getLastNonDownPaymentInstallment(installments);
-        if (!markAsPaid) {
-            Money existingFeeCharges = lastInstallment.getFeeChargesCharged(currency);
-            if (existingFeeCharges.isEqualTo(foreclosureAmount)) {
-                return;
-            }
-        }
-        lastInstallment.setFeeChargesCharged(foreclosureAmount.getAmount());
-        lastInstallment.setFeeChargesPaid(markAsPaid ? foreclosureAmount.getAmount() : Money.zero(currency).getAmount());
-        lastInstallment.setFeeChargesWaived(Money.zero(currency).getAmount());
-        lastInstallment.setFeeChargesWrittenOff(Money.zero(currency).getAmount());
+
+        // SET-from-truth so the schedule reflects the canonical sum of active LoanCharge rows due in each period.
+        // Idempotently undoes any prior ADD inflation on the closing installment.
+        final LoanRepaymentScheduleProcessingWrapper scheduleWrapper = new LoanRepaymentScheduleProcessingWrapper();
+        scheduleWrapper.reprocess(currency, loan.getDisbursementDate(), installments, loan.getLoanCharges());
+
+        // Mark the closing installment's fee portion as paid. Resolve by date so mid-loan foreclosures land on the
+        // installment whose period contains foreClosureDate, not the original last installment.
+        final LoanRepaymentScheduleInstallment closingInstallment = LoanRepaymentScheduleProcessingWrapper
+                .findInPeriod(foreClosureDate, installments)
+                .orElseGet(() -> LoanRepaymentScheduleInstallment.getLastNonDownPaymentInstallment(installments));
+        closingInstallment.setFeeChargesPaid(closingInstallment.getFeeChargesCharged(currency).getAmount());
     }
 
 }
