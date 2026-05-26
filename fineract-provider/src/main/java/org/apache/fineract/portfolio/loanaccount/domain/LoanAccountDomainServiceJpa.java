@@ -805,6 +805,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
         loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, foreClosureDate, null);
         businessEventNotifierService.notifyPreBusinessEvent(new LoanForeClosurePreBusinessEvent(loan));
+        loanBalanceService.updateLoanSummaryDerivedFields(loan);
         MonetaryCurrency currency = loan.getCurrency();
         List<Long> transactionIds = new ArrayList<>();
         List<LoanTransaction> newTransactions = new ArrayList<>();
@@ -814,9 +815,9 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.mergeForeclosureChargesFromLoanProduct(loan,
                 foreclosureChargePercentageMap);
         final boolean updateCharges = true;
-        Money foreclosureFee = foreclosureChargeHelper.calculateForeclosureFee(loan, mergedChargePercentages, currency);
         final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
                 mergedChargePercentages, updateCharges);
+        Money foreclosureFee = foreclosureChargeHelper.sumActiveForeclosureChargeAmounts(loan);
         loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions, mergedChargePercentages);
         if (!newTransactions.isEmpty()) {
             persistLoanTransactions(loan, newTransactions, null, transactionsToJournal);
@@ -836,6 +837,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
 
         if (payment != null) {
+            foreclosureChargeHelper.linkForeclosureChargesToPaymentTransactionAndMarkAsPaid(loan, payment);
             loanForeclosureValidator.validateForForeclosure(loan, payment.getTransactionDate());
         }
         if (payment != null) {
@@ -1100,6 +1102,18 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                 }
             }
 
+        }
+
+        // Overdue-installment penalty charges (e.g. applied by the pre-foreclosure penalty event) keep a
+        // m_loan_overdue_installment_charge row referencing the installment they were applied to. When that installment
+        // is about to be dropped from the schedule below, the orphan delete would hit the FK from that join row.
+        // Deactivating the charge nulls its overdueInstallmentCharge link (orphanRemoval) so the reference is cleared;
+        // these charges sit on post-closure installments and are not part of the foreclosure payment.
+        for (final LoanCharge loanCharge : loan.getActiveCharges()) {
+            final LoanOverdueInstallmentCharge overdueInstallmentCharge = loanCharge.getOverdueInstallmentCharge();
+            if (overdueInstallmentCharge != null && !newInstallments.contains(overdueInstallmentCharge.getInstallment())) {
+                loanCharge.setActive(false);
+            }
         }
 
         for (LoanDisbursementDetails loanDisbursementDetails : loan.getDisbursementDetails()) {

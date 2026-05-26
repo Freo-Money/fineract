@@ -28,6 +28,7 @@ import java.util.function.Predicate;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
+import org.apache.fineract.portfolio.loanaccount.service.ChargePercentageUtil;
 import org.springframework.lang.NonNull;
 
 /**
@@ -94,34 +95,42 @@ public class LoanRepaymentScheduleProcessingWrapper {
                 } else if (loanCharge.isOverdueInstallmentCharge() && isDue && loanCharge.getChargeCalculation().isPercentageBased()) {
                     cumulative = cumulative.plus(loanCharge.chargeAmount());
                 } else if (isDue && loanCharge.getChargeCalculation().isPercentageBased()) {
-                    BigDecimal amount = BigDecimal.ZERO;
-                    if (loanCharge.getChargeCalculation().isPercentageOfAmountAndInterest()) {
-                        amount = amount.add(totalPrincipal.getAmount()).add(totalInterest.getAmount());
-                    } else if (loanCharge.getChargeCalculation().isPercentageOfInterest()) {
-                        amount = amount.add(totalInterest.getAmount());
+                    if (loanCharge.getChargeCalculation().isPercentageOfPrincipalOutstanding()) {
+                        // Wrapper has no POS context (totalPrincipal here is sum of installment principals,
+                        // structurally always the disbursed amount). The charge amount was already computed against
+                        // POS at create/update time, so trust the stored value the same way the FLAT branch below does.
+                        cumulative = cumulative.plus(loanCharge.getAmount(monetaryCurrency));
                     } else {
-                        // If charge type is specified due date and loan is
-                        // multi disburment loan.
-                        // Then we need to get as of this loan charge due date
-                        // how much amount disbursed.
-                        if (loanCharge.getLoan() != null && loanCharge.isSpecifiedDueDate()
-                                && loanCharge.getLoan().isMultiDisburmentLoan()) {
-                            for (final LoanDisbursementDetails loanDisbursementDetails : loanCharge.getLoan().getDisbursementDetails()) {
-                                if (!DateUtils.isAfter(loanDisbursementDetails.expectedDisbursementDate(), loanCharge.getDueDate())) {
-                                    amount = amount.add(loanDisbursementDetails.principal());
-                                }
-                            }
+                        BigDecimal amount = BigDecimal.ZERO;
+                        if (loanCharge.getChargeCalculation().isPercentageOfAmountAndInterest()) {
+                            amount = amount.add(totalPrincipal.getAmount()).add(totalInterest.getAmount());
+                        } else if (loanCharge.getChargeCalculation().isPercentageOfInterest()) {
+                            amount = amount.add(totalInterest.getAmount());
                         } else {
-                            amount = amount.add(totalPrincipal.getAmount());
+                            // If charge type is specified due date and loan is
+                            // multi disburment loan.
+                            // Then we need to get as of this loan charge due date
+                            // how much amount disbursed.
+                            if (loanCharge.getLoan() != null && loanCharge.isSpecifiedDueDate()
+                                    && loanCharge.getLoan().isMultiDisburmentLoan()) {
+                                for (final LoanDisbursementDetails loanDisbursementDetails : loanCharge.getLoan()
+                                        .getDisbursementDetails()) {
+                                    if (!DateUtils.isAfter(loanDisbursementDetails.expectedDisbursementDate(), loanCharge.getDueDate())) {
+                                        amount = amount.add(loanDisbursementDetails.principal());
+                                    }
+                                }
+                            } else {
+                                amount = amount.add(totalPrincipal.getAmount());
+                            }
                         }
+                        // For overdue charges, utility converts yearly percentage to daily if charge_percentage_type =
+                        // 2
+                        final BigDecimal effectivePercentage = loanCharge.isOverdueInstallmentCharge()
+                                ? ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge, loanCharge.getPercentage())
+                                : loanCharge.getPercentage();
+                        final BigDecimal loanChargeAmt = amount.multiply(effectivePercentage).divide(BigDecimal.valueOf(100));
+                        cumulative = cumulative.plus(loanChargeAmt);
                     }
-                    // For overdue charges, utility converts yearly percentage to daily if charge_percentage_type = 2
-                    final BigDecimal effectivePercentage = loanCharge.isOverdueInstallmentCharge()
-                            ? org.apache.fineract.portfolio.loanaccount.service.ChargePercentageUtil.getEffectiveDailyPercentage(loanCharge,
-                                    loanCharge.getPercentage())
-                            : loanCharge.getPercentage();
-                    final BigDecimal loanChargeAmt = amount.multiply(effectivePercentage).divide(BigDecimal.valueOf(100));
-                    cumulative = cumulative.plus(loanChargeAmt);
                 } else if (isDue) {
                     cumulative = cumulative.plus(loanCharge.amount());
                 }
@@ -194,6 +203,10 @@ public class LoanRepaymentScheduleProcessingWrapper {
                     cumulative = cumulative.plus(getInstallmentFee(currency, period, loanCharge));
                 } else if (loanCharge.isOverdueInstallmentCharge() && isDue && loanCharge.getChargeCalculation().isPercentageBased()) {
                     cumulative = cumulative.plus(loanCharge.chargeAmount());
+                } else if (isDue && loanCharge.getChargeCalculation().isPercentageOfPrincipalOutstanding()) {
+                    // See cumulativeFeeChargesDueWithin: wrapper cannot re-derive POS-based charges; trust the
+                    // stored amount set at create/update time.
+                    cumulative = cumulative.plus(loanCharge.getAmount(currency));
                 } else if (isDue && loanCharge.getChargeCalculation().isPercentageBased()) {
                     BigDecimal amount = BigDecimal.ZERO;
                     if (loanCharge.getChargeCalculation().isPercentageOfAmountAndInterest()) {
