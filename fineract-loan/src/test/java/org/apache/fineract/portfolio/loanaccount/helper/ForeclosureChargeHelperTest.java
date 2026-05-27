@@ -171,22 +171,25 @@ public class ForeclosureChargeHelperTest {
     }
 
     @Test
-    public void sc2_fullTermInst16_preExistingFeePlusForeclosure_setFromTruthSumsCanonicalCharges() {
+    public void finalReprocess_multipleActiveChargesDueInClosingPeriod_setsSumNoDoubleCount() {
+        // NOTE: this is NOT the ticket's Sc.2 (TS_1000614925). That loan ran its full term and the inflation came from
+        // a
+        // non-foreclosure addLoanCharge path (SPECIFIED_DUE_DATE) with no foreclosure reprocess to clear it -- which is
+        // out of scope for this fix and needs a separate structural change on the addLoanCharge path plus data repair.
+        // This test only pins the wrapper invariant relevant to foreclosure: when several active charges are due in the
+        // closing period, the installment fee is SET to their sum (no double-count of any pre-existing inflated value).
         LocalDate disbursementDate = LocalDate.of(2025, 1, 5);
         LocalDate closureDate = LocalDate.of(2026, 4, 20); // inst 16 period (2026-04-05, 2026-05-05]
         List<LoanRepaymentScheduleInstallment> installments = monthlyInstallments(disbursementDate, 16);
-        // Bug state: inst 16 inflated by an uncleared ADD.
-        installments.get(15).setFeeChargesCharged(new BigDecimal("4000.00"));
-        BigDecimal preExistingFee = new BigDecimal("3003.23");
+        installments.get(15).setFeeChargesCharged(new BigDecimal("4000.00")); // pre-existing inflated value
+        BigDecimal flatFee = new BigDecimal("3003.23");
         BigDecimal foreclosureAmount = new BigDecimal("996.77");
-        LoanCharge legitFee = mockCharge(closureDate, preExistingFee, ChargeCalculationType.FLAT, false);
+        LoanCharge legitFee = mockCharge(closureDate, flatFee, ChargeCalculationType.FLAT, false);
         LoanCharge foreclosure = mockCharge(closureDate, foreclosureAmount, ChargeCalculationType.PERCENT_OF_PRINCIPAL_OUTSTANDING, false);
 
         simulateFinalReprocess(disbursementDate, installments, new LinkedHashSet<>(List.of(legitFee, foreclosure)));
 
-        // SET-from-truth: inst 16 = sum of active charges due in its period = 3003.23 + 996.77 (no double-count).
-        assertThat(installments.get(15).getFeeChargesCharged(currency).getAmount())
-                .isEqualByComparingTo(preExistingFee.add(foreclosureAmount));
+        assertThat(installments.get(15).getFeeChargesCharged(currency).getAmount()).isEqualByComparingTo(flatFee.add(foreclosureAmount));
     }
 
     @Test
