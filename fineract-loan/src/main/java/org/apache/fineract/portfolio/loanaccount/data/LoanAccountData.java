@@ -276,6 +276,7 @@ public class LoanAccountData {
     private Boolean chargedOff;
 
     private Boolean enableDownPayment;
+    private Boolean enableExcessPaymentParking;
     private BigDecimal disbursedAmountPercentageForDownPayment;
     private Boolean enableAutoRepaymentForDownPayment;
     private Boolean interestRecognitionOnDisbursementDate;
@@ -486,15 +487,15 @@ public class LoanAccountData {
             final BigDecimal topupAmount, final boolean isEqualAmortization, final BigDecimal fixedPrincipalPercentagePerInstallment,
             final DelinquencyRangeData delinquencyRange, final boolean disallowExpectedDisbursements, final boolean fraud,
             LocalDate lastClosedBusinessDate, LocalDate overpaidOnDate, final boolean chargedOff, final boolean enableDownPayment,
-            final BigDecimal disbursedAmountPercentageForDownPayment, final boolean enableAutoRepaymentForDownPayment,
-            final boolean enableInstallmentLevelDelinquency, final EnumOptionData loanScheduleType,
-            final EnumOptionData loanScheduleProcessingType, final Integer fixedLength, final StringEnumOptionData chargeOffBehaviour,
-            final boolean isInterestRecognitionOnDisbursementDate, final StringEnumOptionData daysInYearCustomStrategy,
-            final boolean enableIncomeCapitalization, final StringEnumOptionData capitalizedIncomeCalculationType,
-            final StringEnumOptionData capitalizedIncomeStrategy, StringEnumOptionData capitalizedIncomeType,
-            final boolean enableBuyDownFee, final StringEnumOptionData buyDownFeeCalculationType,
-            final StringEnumOptionData buyDownFeeStrategy, final StringEnumOptionData buyDownFeeIncomeType,
-            final boolean merchantBuyDownFee, final BigDecimal brokenPeriodInterest) {
+            final boolean enableExcessPaymentParking, final BigDecimal disbursedAmountPercentageForDownPayment,
+            final boolean enableAutoRepaymentForDownPayment, final boolean enableInstallmentLevelDelinquency,
+            final EnumOptionData loanScheduleType, final EnumOptionData loanScheduleProcessingType, final Integer fixedLength,
+            final StringEnumOptionData chargeOffBehaviour, final boolean isInterestRecognitionOnDisbursementDate,
+            final StringEnumOptionData daysInYearCustomStrategy, final boolean enableIncomeCapitalization,
+            final StringEnumOptionData capitalizedIncomeCalculationType, final StringEnumOptionData capitalizedIncomeStrategy,
+            StringEnumOptionData capitalizedIncomeType, final boolean enableBuyDownFee,
+            final StringEnumOptionData buyDownFeeCalculationType, final StringEnumOptionData buyDownFeeStrategy,
+            final StringEnumOptionData buyDownFeeIncomeType, final boolean merchantBuyDownFee, final BigDecimal brokenPeriodInterest) {
 
         final CollectionData delinquent = CollectionData.template();
 
@@ -536,7 +537,8 @@ public class LoanAccountData {
                 .setFixedPrincipalPercentagePerInstallment(fixedPrincipalPercentagePerInstallment).setDelinquent(delinquent)
                 .setDelinquencyRange(delinquencyRange).setDisallowExpectedDisbursements(disallowExpectedDisbursements).setFraud(fraud)
                 .setLastClosedBusinessDate(lastClosedBusinessDate).setOverpaidOnDate(overpaidOnDate).setChargedOff(chargedOff)
-                .setEnableDownPayment(enableDownPayment).setDisbursedAmountPercentageForDownPayment(disbursedAmountPercentageForDownPayment)
+                .setEnableDownPayment(enableDownPayment).setEnableExcessPaymentParking(enableExcessPaymentParking)
+                .setDisbursedAmountPercentageForDownPayment(disbursedAmountPercentageForDownPayment)
                 .setEnableAutoRepaymentForDownPayment(enableAutoRepaymentForDownPayment)
                 .setEnableInstallmentLevelDelinquency(enableInstallmentLevelDelinquency).setLoanScheduleType(loanScheduleType)
                 .setLoanScheduleProcessingType(loanScheduleProcessingType).setFixedLength(fixedLength)

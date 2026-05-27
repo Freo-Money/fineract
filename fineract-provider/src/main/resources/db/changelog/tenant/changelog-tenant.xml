@@ -255,4 +255,9 @@
     <include file="parts/1051_add_loan_product_rounding_mode_permissions.xml" relativeToChangelogFile="true" />
     <include file="parts/1057_add_enable_schedule_archive.xml" relativeToChangelogFile="true" />
     <include file="parts/1058_add_loan_apply_overdue_penalties_before_transaction_external_event.xml" relativeToChangelogFile="true" />
+    <include file="parts/1059_add_excess_payment_portion.xml" relativeToChangelogFile="true" />
+    <include file="parts/1060_add_total_excess_payment_amount.xml" relativeToChangelogFile="true" />
+    <include file="parts/1061_add_enable_excess_payment_parking_loanProduct.xml" relativeToChangelogFile="true" />
+    <include file="parts/1062_add_enable_excess_payment_parking_loan.xml" relativeToChangelogFile="true" />
+    <include file="parts/1063_add_excess_payment_gl_account.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

@@ -121,7 +121,8 @@ public class LoanTransactionReadService {
             return " tr.id as id, tr.transaction_type_enum as transactionType, tr.transaction_date as " + sqlGenerator.escape("date")
                     + ", tr.amount as total, tr.principal_portion_derived as principal, tr.interest_portion_derived as interest, "
                     + " tr.fee_charges_portion_derived as fees, tr.penalty_charges_portion_derived as penalties, tr.loan_id as loanId, "
-                    + " tr.overpayment_portion_derived as overpayment, " + " tr.unrecognized_income_portion as unrecognizedIncome, "
+                    + " tr.overpayment_portion_derived as overpayment, tr.excess_payment_amount as excessPaymentPortion, "
+                    + " tr.unrecognized_income_portion as unrecognizedIncome, "
                     + " tr.manually_adjusted_or_reversed as manuallyReversed, tr.external_id as externalId "
                     + " from m_loan_transaction tr ";
         }
@@ -141,11 +142,12 @@ public class LoanTransactionReadService {
             final BigDecimal feeChargesPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "fees");
             final BigDecimal penaltyChargesPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penalties");
             final BigDecimal overPaymentPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "overpayment");
+            final BigDecimal excessPaymentPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "excessPaymentPortion");
             final BigDecimal unrecognizedIncomePortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "unrecognizedIncome");
             final String externalIdStr = rs.getString("externalId");
             return new LoanTransactionBasicData(id, loanId, transactionType, date, totalAmount, principalPortion, interestPortion,
-                    feeChargesPortion, penaltyChargesPortion, overPaymentPortion, unrecognizedIncomePortion, externalIdStr,
-                    manuallyReversed);
+                    feeChargesPortion, penaltyChargesPortion, overPaymentPortion, excessPaymentPortion, unrecognizedIncomePortion,
+                    externalIdStr, manuallyReversed);
         }
     }
 
