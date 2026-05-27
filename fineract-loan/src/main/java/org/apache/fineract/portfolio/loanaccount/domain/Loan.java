@@ -290,6 +290,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     @Column(name = "loan_product_counter")
     private Integer loanProductCounter;
 
+    @Column(name = "total_excess_payment_amount", scale = 6, precision = 19)
+    private BigDecimal totalExcessPaymentAmount;
+
     @Setter
     @OneToMany(cascade = CascadeType.ALL, mappedBy = "loan", orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<LoanCharge> charges = new HashSet<>();
@@ -1357,6 +1360,26 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     public Money getTotalOverpaidAsMoney() {
         return Money.of(this.getLoanProductRelatedDetail().getCurrency(), this.totalOverpaid);
+    }
+
+    public void addToTotalExcessPaymentAmount(final Money amount) {
+        this.totalExcessPaymentAmount = MathUtil.zeroToNull(MathUtil.add(this.totalExcessPaymentAmount, MathUtil.toBigDecimal(amount)));
+    }
+
+    public void subtractFromTotalExcessPaymentAmount(final Money amount) {
+        if (amount == null || amount.isZero()) {
+            return;
+        }
+        this.totalExcessPaymentAmount = MathUtil
+                .zeroToNull(MathUtil.subtract(this.totalExcessPaymentAmount, MathUtil.toBigDecimal(amount)));
+    }
+
+    public BigDecimal getTotalExcessPaymentAmount() {
+        return this.totalExcessPaymentAmount == null ? BigDecimal.ZERO : this.totalExcessPaymentAmount;
+    }
+
+    public void setTotalExcessPaymentAmount(BigDecimal amount) {
+        this.totalExcessPaymentAmount = amount;
     }
 
     public void updateIsInterestRecalculationEnabled() {
