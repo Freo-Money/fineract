@@ -553,11 +553,38 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
         this.reversed = true;
         this.reversedOnDate = DateUtils.getBusinessLocalDate();
         this.loanTransactionToRepaymentScheduleMappings.clear();
+        prefixExternalIdIfUserTransaction();
     }
 
     public void reverse(final ExternalId reversalExternalId) {
         this.reverse();
         this.reversalExternalId = reversalExternalId;
+    }
+
+    private void prefixExternalIdIfUserTransaction() {
+        if (this.externalId == null || this.externalId.isEmpty() || isSystemGeneratedType()) {
+            return;
+        }
+        // Append the transaction id to keep the reversed external id unique. The same external id can be re-supplied
+        // on a new transaction once this one is reversed; reversing that one too would otherwise collide with this
+        // transaction on "R_<value>" and break the external_id unique constraint.
+        final String prefixed = getId() == null ? "R_" + this.externalId.getValue() : "R_" + this.externalId.getValue() + "_" + getId();
+        // external_id column length is 100; drop the id if the prefixed value would not fit.
+        if (prefixed.length() > 100) {
+            this.externalId = ExternalId.empty();
+        } else {
+            this.externalId = new ExternalId(prefixed);
+        }
+    }
+
+    private boolean isSystemGeneratedType() {
+        final LoanTransactionType type = getTypeOf();
+        return type.isAccrual() || type.isAccrualActivity() || type.isAccrualAdjustment() || type.isAccrualSuspense()
+                || type.isAccrualSuspenseReverse() || type.isAccrualWriteoff() || type.isIncomePosting()
+                || type == LoanTransactionType.CAPITALIZED_INCOME_AMORTIZATION
+                || type == LoanTransactionType.CAPITALIZED_INCOME_AMORTIZATION_ADJUSTMENT
+                || type == LoanTransactionType.BUY_DOWN_FEE_AMORTIZATION
+                || type == LoanTransactionType.BUY_DOWN_FEE_AMORTIZATION_ADJUSTMENT;
     }
 
     public void resetDerivedComponents() {
