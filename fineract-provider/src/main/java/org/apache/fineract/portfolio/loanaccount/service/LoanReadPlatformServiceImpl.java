@@ -1019,7 +1019,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " l.total_expected_costofloan_derived as totalExpectedCostOfLoan, l.total_costofloan_derived as totalCostOfLoan,"
                     + " l.total_waived_derived as totalWaived, l.total_writtenoff_derived as totalWrittenOff,"
                     + " l.writeoff_reason_cv_id as writeoffReasonId, codev.code_value as writeoffReason,"
-                    + " l.total_outstanding_derived as totalOutstanding, l.total_overpaid_derived as totalOverpaid,"
+                    + " l.total_outstanding_derived as totalOutstanding, l.total_overpaid_derived as totalOverpaid, l.total_excess_payment_amount as totalExcessPaymentAmount,"
                     + " l.fixed_emi_amount as fixedEmiAmount, l.max_outstanding_loan_balance as outstandingLoanBalance,"
                     + " l.loan_sub_status_id as loanSubStatusId, la.principal_overdue_derived as principalOverdue, l.is_fraud as isFraud, "
                     + " l.custom_schedule_defined as customScheduleDefined, "
@@ -1315,7 +1315,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                 final BigDecimal penaltyChargesWrittenOff = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penaltyChargesWrittenOff");
                 final BigDecimal penaltyChargesOutstanding = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penaltyChargesOutstanding");
                 final BigDecimal penaltyChargesOverdue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penaltyChargesOverdue");
-
+                final BigDecimal totalExcessPaymentAmount = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "totalExcessPaymentAmount");
                 final BigDecimal totalExpectedRepayment = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "totalExpectedRepayment");
                 final BigDecimal totalRepayment = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "totalRepayment");
                 final BigDecimal totalExpectedCostOfLoan = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "totalExpectedCostOfLoan");
@@ -1347,7 +1347,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                         .totalWaived(totalWaived).totalWrittenOff(totalWrittenOff).totalOutstanding(totalOutstanding)
                         .totalOverdue(totalOverdue).overdueSinceDate(overdueSinceDate).writeoffReasonId(writeoffReasonId)
                         .writeoffReason(writeoffReason).totalRecovered(totalRecovered).chargeOffReasonId(chargeOffReasonId)
-                        .chargeOffReason(chargeOffReason).build();
+                        .chargeOffReason(chargeOffReason).totalExcessPaymentAmount(totalExcessPaymentAmount).build();
 
             }
 
@@ -1943,6 +1943,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + ", tr.amount as total, tr.principal_portion_derived as principal, tr.interest_portion_derived as interest, "
                     + " tr.fee_charges_portion_derived as fees, tr.penalty_charges_portion_derived as penalties,  "
                     + " tr.overpayment_portion_derived as overpayment, tr.outstanding_loan_balance_derived as outstandingLoanBalance, "
+                    + " tr.excess_payment_portion as excessPayment, "
                     + " tr.unrecognized_income_portion as unrecognizedIncome, tr.submitted_on_date as submittedOnDate, "
                     + " tr.manually_adjusted_or_reversed as manuallyReversed, tr.reversal_external_id as reversalExternalId, tr.reversed_on_date as reversedOnDate, "
                     + " pd.payment_type_id as paymentType,pd.account_number as accountNumber,pd.check_number as checkNumber, "
@@ -2017,6 +2018,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             final BigDecimal feeChargesPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "fees");
             final BigDecimal penaltyChargesPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penalties");
             final BigDecimal overPaymentPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "overpayment");
+            final BigDecimal excessPaymentPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "excessPayment");
             final BigDecimal unrecognizedIncomePortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "unrecognizedIncome");
             final BigDecimal outstandingLoanBalance = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "outstandingLoanBalance");
             final String externalIdStr = rs.getString("externalId");
@@ -2055,10 +2057,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     .paymentDetailData(paymentDetailData).currency(currencyData).date(date).amount(totalAmount)
                     .netDisbursalAmount(netDisbursalAmount).principalPortion(principalPortion).interestPortion(interestPortion)
                     .feeChargesPortion(feeChargesPortion).penaltyChargesPortion(penaltyChargesPortion)
-                    .overpaymentPortion(overPaymentPortion).unrecognizedIncomePortion(unrecognizedIncomePortion).externalId(externalId)
-                    .transfer(transfer).outstandingLoanBalance(outstandingLoanBalance).submittedOnDate(submittedOnDate)
-                    .manuallyReversed(manuallyReversed).reversalExternalId(reversalExternalId).reversedOnDate(reversedOnDate).loanId(loanId)
-                    .externalLoanId(externalLoanId).classification(classificationData).transactionMetaData(transactionMetaData).build();
+                    .overpaymentPortion(overPaymentPortion).excessPaymentPortion(excessPaymentPortion)
+                    .unrecognizedIncomePortion(unrecognizedIncomePortion).externalId(externalId).transfer(transfer)
+                    .outstandingLoanBalance(outstandingLoanBalance).submittedOnDate(submittedOnDate).manuallyReversed(manuallyReversed)
+                    .reversalExternalId(reversalExternalId).reversedOnDate(reversedOnDate).loanId(loanId).externalLoanId(externalLoanId)
+                    .classification(classificationData).transactionMetaData(transactionMetaData).build();
         }
     }
 

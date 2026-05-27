@@ -132,6 +132,9 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
     @Column(name = "charge_refund_charge_type", length = 1, unique = true)
     private String chargeRefundChargeType;
 
+    @Column(name = "excess_payment_portion", scale = 6, precision = 19)
+    private BigDecimal excessPaymentPortion;
+
     @OneToMany(cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY, mappedBy = "loanTransaction")
     private Set<LoanCollateralManagement> loanCollateralManagementSet = new HashSet<>();
 
@@ -621,6 +624,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
                 .nullToZero(MathUtil.add(getPrincipalPortion(), getInterestPortion(), getFeeChargesPortion(), getPenaltyChargesPortion()));
     }
 
+    public void setExcessPayment(final Money excessPayment) {
+        this.excessPaymentPortion = MathUtil.zeroToNull(MathUtil.toBigDecimal(excessPayment));
+    }
+
     public void setOverPayments(final Money overPayment) {
         this.overPaymentPortion = MathUtil.zeroToNull(MathUtil.toBigDecimal(overPayment));
     }
@@ -643,6 +650,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
 
     public Money getOverPaymentPortion(final MonetaryCurrency currency) {
         return Money.of(currency, this.overPaymentPortion);
+    }
+
+    public Money getExcessPayment(final MonetaryCurrency currency) {
+        return Money.of(currency, this.excessPaymentPortion);
     }
 
     public Money getAmount(final MonetaryCurrency currency) {
@@ -669,10 +680,14 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
         this.manuallyAdjustedOrReversed = true;
     }
 
+    public boolean isRepaymentFromExcessAmount() {
+        return this.getTypeOf().isRepaymentFromExcessAmount();
+    }
+
     public boolean isRepaymentLikeType() {
         return isRepayment() || isMerchantIssuedRefund() || isPayoutRefund() || isGoodwillCredit() || isChargeRefund()
                 || isChargeAdjustment() || isDownPayment() || isInterestPaymentWaiver() || isInterestRefund()
-                || isCapitalizedIncomeAdjustment();
+                || isCapitalizedIncomeAdjustment() || isRepaymentFromExcessAmount();
     }
 
     public boolean isTypeAllowedForChargeback() {

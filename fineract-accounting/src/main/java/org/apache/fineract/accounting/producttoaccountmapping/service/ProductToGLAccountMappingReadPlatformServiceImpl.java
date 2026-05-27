@@ -137,6 +137,9 @@ public class ProductToGLAccountMappingReadPlatformServiceImpl implements Product
                     accountMappingDetails.put(LoanProductAccountingDataParams.LOAN_PORTFOLIO.getValue(), gLAccountData);
                 } else if (glAccountForLoan.equals(AccrualAccountsForLoan.OVERPAYMENT)) {
                     accountMappingDetails.put(LoanProductAccountingDataParams.OVERPAYMENT.getValue(), gLAccountData);
+                } else if (glAccountForLoan.equals(AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING)
+                        && AccountingValidations.isAccrualPeriodicBasedAccounting(accountingType)) {
+                    accountMappingDetails.put(LoanProductAccountingDataParams.EXCESS_PAYMENT_PARKING.getValue(), gLAccountData);
                 } else if (glAccountForLoan.equals(AccrualAccountsForLoan.TRANSFERS_SUSPENSE)) {
                     accountMappingDetails.put(LoanProductAccountingDataParams.TRANSFERS_SUSPENSE.getValue(), gLAccountData);
                 } else if (glAccountForLoan.equals(AccrualAccountsForLoan.LOSSES_WRITTEN_OFF)) {

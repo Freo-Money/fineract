@@ -78,7 +78,8 @@ public enum LoanTransactionType {
     BUY_DOWN_FEE_AMORTIZATION_ADJUSTMENT(43, "loanTransactionType.buyDownFeeAmortizationAdjustment"), //
     ACCRUAL_SUSPENSE(53, "loanTransactionType.accrualSuspense"), //
     ACCRUAL_WRITEOFF(54, "loanTransactionType.accrualWriteoff"), //
-    ACCRUAL_SUSPENSE_REVERSE(55, "loanTransactionType.accrualSuspenseReverse");
+    ACCRUAL_SUSPENSE_REVERSE(55, "loanTransactionType.accrualSuspenseReverse"), REPAYMENT_FROM_EXCESS_AMOUNT(56,
+            "loanTransactionType.repaymentFromExcessAmount");
 
     private final Integer value;
     private final String code;
@@ -140,6 +141,7 @@ public enum LoanTransactionType {
             case 53 -> LoanTransactionType.ACCRUAL_SUSPENSE;
             case 54 -> LoanTransactionType.ACCRUAL_WRITEOFF;
             case 55 -> LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE;
+            case 56 -> LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT;
             default -> LoanTransactionType.INVALID;
         };
     }
@@ -161,7 +163,7 @@ public enum LoanTransactionType {
     }
 
     public boolean isRepayment() {
-        return this.equals(LoanTransactionType.REPAYMENT);
+        return this.equals(LoanTransactionType.REPAYMENT) || this.equals(LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT);
     }
 
     public boolean isInterestPaymentWaiver() {
@@ -186,7 +188,7 @@ public enum LoanTransactionType {
 
     public boolean isRepaymentType() {
         return (isRepayment() || isMerchantIssuedRefund() || isPayoutRefund() || isGoodwillCredit() || isChargeRefund() || isDownPayment()
-                || isInterestPaymentWaiver());
+                || isInterestPaymentWaiver() || isRepaymentFromExcessAmount());
     }
 
     public boolean isRecoveryRepayment() {
@@ -287,5 +289,9 @@ public enum LoanTransactionType {
 
     public boolean isAccrualSuspenseReverse() {
         return this == LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE;
+    }
+
+    public boolean isRepaymentFromExcessAmount() {
+        return this == LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT;
     }
 }

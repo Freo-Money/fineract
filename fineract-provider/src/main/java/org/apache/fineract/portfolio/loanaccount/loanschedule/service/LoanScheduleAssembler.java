@@ -569,6 +569,8 @@ public class LoanScheduleAssembler {
 
         boolean enableScheduleArchive = loanProduct.getLoanProductRelatedDetail().isEnableScheduleArchive();
 
+        boolean enableExcessPaymentParking = loanProduct.getLoanProductRelatedDetail().isEnableExcessPaymentParking();
+
         LoanApplicationTerms loanApplicationTerms = LoanApplicationTerms.assembleFrom(applicationCurrency.toData(), loanTermFrequency,
                 loanTermPeriodFrequencyType, numberOfRepayments, repaymentEvery, repaymentPeriodFrequencyType, nthDay, weekDayType,
                 amortizationMethod, interestMethod, interestRatePerPeriod, interestRatePeriodFrequencyType, annualNominalInterestRate,
@@ -583,9 +585,9 @@ public class LoanScheduleAssembler {
                 loanTermVariations, isInterestChargedFromDateSameAsDisbursalDateEnabled, numberOfDays, isSkipMeetingOnFirstDay, detailDTO,
                 allowCompoundingOnEod, isEqualAmortization, isInterestToBeRecoveredFirstWhenGreaterThanEMI,
                 fixedPrincipalPercentagePerInstallment, isPrincipalCompoundingDisabledForOverdueLoans, isDownPaymentEnabled,
-                enableScheduleArchive, disbursedAmountPercentageForDownPayment, isAutoRepaymentForDownPaymentEnabled,
-                repaymentStartDateType, submittedOnDate, loanScheduleType, loanScheduleProcessingType, fixedLength,
-                loanProduct.getLoanProductRelatedDetail().isEnableAccrualActivityPosting(),
+                enableScheduleArchive, enableExcessPaymentParking, disbursedAmountPercentageForDownPayment,
+                isAutoRepaymentForDownPaymentEnabled, repaymentStartDateType, submittedOnDate, loanScheduleType, loanScheduleProcessingType,
+                fixedLength, loanProduct.getLoanProductRelatedDetail().isEnableAccrualActivityPosting(),
                 loanProduct.getLoanProductRelatedDetail().getSupportedInterestRefundTypes(),
                 loanProduct.getLoanProductRelatedDetail().getChargeOffBehaviour(), interestRecognitionOnDisbursementDate,
                 loanProduct.getLoanProductRelatedDetail().getDaysInYearCustomStrategy(),
