@@ -53,6 +53,24 @@ public interface LoanRepaymentScheduleTransactionProcessor {
     ChangedTransactionDetail reprocessLoanTransactions(LocalDate disbursementDate, List<LoanTransaction> repaymentsOrWaivers,
             MonetaryCurrency currency, List<LoanRepaymentScheduleInstallment> repaymentScheduleInstallments, Set<LoanCharge> charges);
 
+    /**
+     * Migration-cutoff-aware overload. Transactions with {@code transactionDate < migrationCutoffDate} are treated as
+     * pre-migration: their stored
+     * {@link org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionToRepaymentScheduleMapping} allocations
+     * are honored as-is and the strategy is NOT re-run for them. Transactions on or after the cutoff (or all
+     * transactions if {@code migrationCutoffDate} is {@code null}) flow through the strategy as in the original method.
+     *
+     * <p>
+     * Default behavior delegates to the cutoff-unaware method — implementations that need migration handling override
+     * this overload.
+     * </p>
+     */
+    default ChangedTransactionDetail reprocessLoanTransactions(LocalDate disbursementDate, List<LoanTransaction> repaymentsOrWaivers,
+            MonetaryCurrency currency, List<LoanRepaymentScheduleInstallment> repaymentScheduleInstallments, Set<LoanCharge> charges,
+            LocalDate migrationCutoffDate) {
+        return reprocessLoanTransactions(disbursementDate, repaymentsOrWaivers, currency, repaymentScheduleInstallments, charges);
+    }
+
     Money handleRepaymentSchedule(List<LoanTransaction> transactionsPostDisbursement, MonetaryCurrency currency,
             List<LoanRepaymentScheduleInstallment> installments, Set<LoanCharge> loanCharges);
 

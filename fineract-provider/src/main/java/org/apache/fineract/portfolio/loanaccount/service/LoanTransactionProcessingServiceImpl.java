@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
@@ -48,6 +49,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleD
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanApplicationTerms;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleGenerator;
 import org.apache.fineract.portfolio.loanaccount.mapper.LoanTermVariationsMapper;
+import org.apache.fineract.portfolio.loanaccount.service.strategy.OverdueChargeCutoffDateResolver;
 import org.apache.fineract.portfolio.loanproduct.calc.data.ProgressiveLoanInterestScheduleModel;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
@@ -55,6 +57,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.ObjectUtils;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class LoanTransactionProcessingServiceImpl implements LoanTransactionProcessingService {
@@ -65,6 +68,7 @@ public class LoanTransactionProcessingServiceImpl implements LoanTransactionProc
     private final LoanBalanceService loanBalanceService;
     private final LoanTransactionService loanTransactionService;
     private final LoanProductRoundingModeService loanProductRoundingModeService;
+    private final OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver;
 
     @Override
     public boolean canProcessLatestTransactionOnly(Loan loan, LoanTransaction loanTransaction,
@@ -151,9 +155,23 @@ public class LoanTransactionProcessingServiceImpl implements LoanTransactionProc
     public ChangedTransactionDetail reprocessLoanTransactions(String transactionProcessingStrategyCode, LocalDate disbursementDate,
             List<LoanTransaction> loanTransactions, MonetaryCurrency currency, List<LoanRepaymentScheduleInstallment> installments,
             Set<LoanCharge> charges) {
+        return reprocessLoanTransactions(transactionProcessingStrategyCode, disbursementDate, loanTransactions, currency, installments,
+                charges, null);
+    }
+
+    @Override
+    public ChangedTransactionDetail reprocessLoanTransactions(String transactionProcessingStrategyCode, LocalDate disbursementDate,
+            List<LoanTransaction> loanTransactions, MonetaryCurrency currency, List<LoanRepaymentScheduleInstallment> installments,
+            Set<LoanCharge> charges, LocalDate migrationCutoffDate) {
         final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = getTransactionProcessor(
                 transactionProcessingStrategyCode);
         if (loanRepaymentScheduleTransactionProcessor instanceof AdvancedPaymentScheduleTransactionProcessor advancedProcessor) {
+            if (migrationCutoffDate != null) {
+                final Loan loan = getLoan(loanTransactions, installments, charges);
+                log.warn(
+                        "Migration cutoff ({}) is not honored by AdvancedPaymentScheduleTransactionProcessor; migrated loan {} will be reprocessed with strategy reallocation",
+                        migrationCutoffDate, loan != null ? loan.getId() : null);
+            }
             LocalDate currentDate = DateUtils.getBusinessLocalDate();
             Pair<ChangedTransactionDetail, ProgressiveLoanInterestScheduleModel> result = advancedProcessor
                     .reprocessProgressiveLoanTransactions(disbursementDate, currentDate, loanTransactions, currency, installments, charges);
@@ -163,7 +181,7 @@ public class LoanTransactionProcessingServiceImpl implements LoanTransactionProc
             return result.getLeft();
         } else {
             return loanRepaymentScheduleTransactionProcessor.reprocessLoanTransactions(disbursementDate, loanTransactions, currency,
-                    installments, charges);
+                    installments, charges, migrationCutoffDate);
         }
     }
 
@@ -189,9 +207,10 @@ public class LoanTransactionProcessingServiceImpl implements LoanTransactionProc
         for (LoanTransaction loanTransaction : allNonContraTransactionsPostDisbursement) {
             copyTransactions.add(LoanTransaction.copyTransactionProperties(loanTransaction));
         }
+        final LocalDate migrationCutoffDate = overdueChargeCutoffDateResolver.getMigrationCutoffDateOrNull(loan);
         final ChangedTransactionDetail changedTransactionDetail = loanRepaymentScheduleTransactionProcessor.reprocessLoanTransactions(
                 loan.getDisbursementDate(), copyTransactions, loan.getCurrency(), loan.getRepaymentScheduleInstallments(),
-                loan.getActiveCharges());
+                loan.getActiveCharges(), migrationCutoffDate);
 
         loanBalanceService.updateLoanSummaryDerivedFields(loan);
 
