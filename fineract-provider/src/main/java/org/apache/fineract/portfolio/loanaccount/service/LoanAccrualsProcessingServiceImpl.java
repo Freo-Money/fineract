@@ -348,14 +348,13 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
             final Money totalPenaltyChargesOutstanding = Money.of(currency, loan.getSummary().getTotalPenaltyChargesOutstanding());
             final Money penaltyPortion = totalPenaltyChargesOutstanding.minus(incomeDetails.get(Loan.PENALTIES));
 
-            Money foreclosureFee = foreclosureChargeHelper.calculateForeclosureFee(loan, mergedChargePercentages, currency);
-            if (foreclosureFee.isGreaterThanZero()) {
-                feePortion = feePortion.plus(foreclosureFee);
-            }
+            // Foreclosure fee is already reflected in totalFeeChargesOutstanding via the last-installment update done
+            // in
+            // fetchLoanForeclosureDetail(updateCharges=true), so it must not be added to feePortion again.
+            final boolean includeForeclosureCharges = loan.getActiveCharges().stream().anyMatch(LoanCharge::isDueAtForeclosure);
 
             final Money total = interestPortion.plus(feePortion).plus(penaltyPortion);
             if (total.isGreaterThanZero()) {
-                boolean includeForeclosureCharges = foreclosureFee.isGreaterThanZero();
                 createAccrualTransactionAndUpdateChargesPaidBy(loan, foreClosureDate, newAccrualTransactions, currency, interestPortion,
                         feePortion, penaltyPortion, total, includeForeclosureCharges);
             }
@@ -1292,7 +1291,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
             Money outstanding = loanCharge.getAmountOutstanding(currency);
             if (loanCharge.isDueAtForeclosure()) {
                 if (includeForeclosureCharges) {
-                    attachChargeToAccrual(accrualTransaction, loanCharge, accrualCharges, outstanding);
+                    attachChargeToAccrual(accrualTransaction, loanCharge, accrualCharges, loanCharge.getAmount(currency));
                 }
                 continue;
             }

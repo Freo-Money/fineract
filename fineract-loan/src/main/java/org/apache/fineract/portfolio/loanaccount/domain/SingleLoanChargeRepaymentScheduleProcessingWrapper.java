@@ -130,6 +130,9 @@ public class SingleLoanChargeRepaymentScheduleProcessingWrapper {
         if (calculationType.isFlat()) {
             return loanCharge.getAmount(currency);
         }
+        if (calculationType.isPercentageOfPrincipalOutstanding()) {
+            return loanCharge.getAmount(currency);
+        }
         BigDecimal baseAmount = BigDecimal.ZERO;
         Loan loan = loanCharge.getLoan();
         if (loan != null && loanCharge.isFeeCharge() && !calculationType.hasInterest() && loanCharge.isSpecifiedDueDate()

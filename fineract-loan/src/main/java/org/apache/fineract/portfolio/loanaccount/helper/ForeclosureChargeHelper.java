@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.Set;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.charge.data.ChargeData;
@@ -50,6 +51,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeRoundingUtils;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
@@ -59,6 +62,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class ForeclosureChargeHelper {
 
+    private static final Logger LOG = LoggerFactory.getLogger(ForeclosureChargeHelper.class);
     private static final Gson GSON = new Gson();
 
     private final ChargeReadPlatformService chargeReadPlatformService;
@@ -157,6 +161,17 @@ public class ForeclosureChargeHelper {
         return merged;
     }
 
+    public Money sumActiveForeclosureChargeAmounts(final Loan loan) {
+        final MonetaryCurrency currency = loan.getCurrency();
+        Money total = Money.zero(currency);
+        for (LoanCharge loanCharge : loan.getActiveCharges()) {
+            if (loanCharge.getChargeTimeType().equals(ChargeTimeType.FORECLOSURE)) {
+                total = total.plus(loanCharge.getAmount(currency));
+            }
+        }
+        return total;
+    }
+
     public Money calculateForeclosureFee(Loan loan, Map<Long, BigDecimal> mergedChargePercentages, MonetaryCurrency currency) {
         if (mergedChargePercentages == null || mergedChargePercentages.isEmpty()) {
             return Money.zero(currency);
@@ -197,7 +212,7 @@ public class ForeclosureChargeHelper {
         tempLoanCharge.setCharge(chargeDefinition);
         tempLoanCharge.setChargeCalculation(calculationType.getValue());
         tempLoanCharge.setPercentage(percentage);
-        BigDecimal baseAmount = loanChargeService.calculateAmountPercentageAppliedTo(loan, tempLoanCharge);
+        final BigDecimal baseAmount = loanChargeService.calculateAmountPercentageAppliedTo(loan, tempLoanCharge);
         final MathContext mc = loanProductRoundingModeService.resolveMathContext(loan.getLoanProduct().getId());
         return LoanCharge.percentageOf(baseAmount, percentage, mc);
     }
@@ -237,7 +252,9 @@ public class ForeclosureChargeHelper {
                 resetChargeToUnpaidState(loanCharge, uncappedChargeAmount);
                 foreclosureCharges.add(loanCharge);
             } catch (Exception e) {
-                // Ignore invalid charge definitions
+                // Skip the charge so one misconfigured row does not abort the whole foreclosure; log the root cause
+                // instead of swallowing it silently.
+                LOG.warn("Skipping foreclosure charge for loan {} charge_id {}", loan.getId(), chargeId, e);
             }
         }
         return foreclosureCharges;
@@ -311,7 +328,7 @@ public class ForeclosureChargeHelper {
 
     public void updateForeclosureCharges(Loan loan, Map<Long, BigDecimal> mergedChargePercentages, LocalDate closureDate) {
         MonetaryCurrency currency = loan.getCurrency();
-        Money totalPrincipalOutstanding = Money.of(loan.getCurrency(), loan.getSummary().getTotalPrincipalOutstanding());
+        Money totalPrincipalOutstanding = Money.of(currency, loan.getSummary().getTotalPrincipalOutstanding());
         List<LoanCharge> foreclosureCharges = createAndAddForeclosureChargesToLoan(loan, mergedChargePercentages, closureDate);
         if (foreclosureCharges.isEmpty()) {
             return;
@@ -323,7 +340,7 @@ public class ForeclosureChargeHelper {
             applyForeclosureChargeUpdate(charge, chargeAmount, totalPrincipalOutstanding, closureDate,
                     mergedChargePercentages.get(charge.getCharge().getId()));
         }
-        applyForeclosureChargeOnRepaymentSchedule(loan, currency, totalForeclosureChargeAmount);
+        applyForeclosureChargeOnRepaymentSchedule(loan, currency, totalForeclosureChargeAmount, closureDate);
     }
 
     private void resetChargeToUnpaidState(final LoanCharge charge, final BigDecimal chargeAmount) {
@@ -347,8 +364,31 @@ public class ForeclosureChargeHelper {
         }
     }
 
-    private void applyForeclosureChargeOnRepaymentSchedule(final Loan loan, final MonetaryCurrency currency,
-            final Money foreclosureAmount) {
+    // package-private for testing
+    void applyForeclosureChargeOnRepaymentSchedule(final Loan loan, final MonetaryCurrency currency, final Money foreclosureAmount,
+            final LocalDate closureDate) {
+        if (!foreclosureAmount.isGreaterThanZero()) {
+            return;
+        }
+        final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
+        if (installments == null || installments.isEmpty()) {
+            return;
+        }
+        // If the closure date falls exactly on an installment due date, the foreclosure outstanding is read
+        // installment-by-installment from that installment's own fee
+        // (LoanBalanceService#retrieveIncomeOutstandingTillDate
+        // takes the date-equals branch, not the charge-based overlapping-period branch). Parking the fee on the last
+        // installment (the mid-period behaviour) would then leave it out of the computed payment and the loan would not
+        // close. So add it to the installment ending on the closure date, preserving that installment's already-due
+        // fees, mirroring where the final reprocess lands the charge.
+        final LoanRepaymentScheduleInstallment dueDateInstallment = installments.stream()
+                .filter(installment -> !installment.isDownPayment() && DateUtils.isEqual(closureDate, installment.getDueDate())).findFirst()
+                .orElse(null);
+        if (dueDateInstallment != null) {
+            final Money existingFeeCharges = dueDateInstallment.getFeeChargesCharged(currency);
+            dueDateInstallment.setFeeChargesCharged(existingFeeCharges.plus(foreclosureAmount).getAmount());
+            return;
+        }
         updateRepaymentScheduleWithForeclosureFee(loan, currency, foreclosureAmount, false);
     }
 
