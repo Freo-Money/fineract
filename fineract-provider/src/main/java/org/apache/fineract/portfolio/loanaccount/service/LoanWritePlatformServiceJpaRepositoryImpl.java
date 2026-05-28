@@ -2722,8 +2722,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                         defaultUserMessage, transactionDate);
             }
         }
-        this.loanScheduleHistoryWritePlatformService.createAndSaveLoanScheduleArchive(loan.getRepaymentScheduleInstallments(), loan,
-                loanRescheduleRequest);
+        final boolean scheduleArchiveEnabled = loan.getLoanProductRelatedDetail().isEnableScheduleArchive();
+        final boolean downPaymentEnabled = loan.getLoanProductRelatedDetail().isEnableDownPayment();
+        if (loan.isInterestBearingAndInterestRecalculationEnabled() || downPaymentEnabled || scheduleArchiveEnabled) {
+            final ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, null);
+            createLoanScheduleArchive(loan, scheduleGeneratorDTO);
+        }
 
         LoanTransaction foreclosureTransaction = this.loanAccountDomainService.foreCloseLoan(loan, transactionDate, noteText, externalId,
                 foreclosureChargePercentageMap, changes);
