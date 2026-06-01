@@ -48,9 +48,16 @@ public interface LoanChargeWritePlatformService {
 
     /**
      * Applies overdue-installment penalty charges for a single loan (same logic as COB step
-     * APPLY_CHARGE_TO_OVERDUE_LOANS). Use this for on-demand penalty application via API.
+     * APPLY_CHARGE_TO_OVERDUE_LOANS). Use this for on-demand penalty application via API. NPA loans are skipped.
      */
     CommandProcessingResult applyOverdueChargesForLoanByLoanId(Long loanId);
+
+    /**
+     * Applies overdue-installment penalty charges for a single loan. When {@code skipNpaLoans} is {@code true} (COB /
+     * API behaviour) loans classified as NPA are skipped; when {@code false} penalties are applied even for NPA loans
+     * (used before a repayment/foreclosure transaction so same-day penalties are not missed).
+     */
+    CommandProcessingResult applyOverdueChargesForLoanByLoanId(Long loanId, boolean skipNpaLoans);
 
     BigDecimal calculateUnappliedOverduePenaltyAmountTillDate(Long loanId);
 

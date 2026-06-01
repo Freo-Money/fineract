@@ -201,6 +201,10 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         List<LoanDisbursementDetails> loanDisburseDetails = loan.getDisbursementDetails();
         final Long chargeDefinitionId = command.longValueOfParameterNamed("chargeId");
         final Charge chargeDefinition = this.chargeRepository.findOneWithNotFoundDetection(chargeDefinitionId);
+        if (loan.isNpa() && chargeDefinition.isPenalty()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.penalty.not.allowed.when.npa",
+                    "Adding penalty charge to Loan: " + loanId + " is not allowed while the loan is classified as NPA", loanId);
+        }
 
         if (loan.isDisbursed() && chargeDefinition.isDisbursementCharge()) {
             // validates whether any pending disbursements are available to
@@ -843,6 +847,13 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     @Transactional
     @Override
     public void applyOverdueChargesForLoan(final Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList) {
+        // Scheduled/administrative application (COB job): NPA loans are skipped.
+        boolean skipNpaLoans = true;
+        applyOverdueChargesForLoan(loanId, overdueLoanScheduleDataList, skipNpaLoans);
+    }
+
+    private void applyOverdueChargesForLoan(final Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList,
+            final boolean skipNpaLoans) {
         if (overdueLoanScheduleDataList.isEmpty()) {
             log.info("Apply overdue charges for loan {}: skipping, no overdue installments to process", loanId);
             return;
@@ -853,6 +864,10 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         Loan loan = this.loanAssembler.assembleFrom(loanId);
         if (loan.isChargedOff()) {
             log.warn("Apply overdue charges for loan {}: skipping, loan is charged-off", loanId);
+            return;
+        }
+        if (skipNpaLoans && loan.isNpa()) {
+            log.warn("Apply overdue charges for loan {}: skipping, loan is classified as NPA", loanId);
             return;
         }
         Optional<Charge> optPenaltyCharge = loan.getLoanProduct().getCharges().stream()
@@ -942,6 +957,14 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     @Transactional
     @Override
     public CommandProcessingResult applyOverdueChargesForLoanByLoanId(final Long loanId) {
+        // On-demand application via API: NPA loans are skipped.
+        boolean skipNpaLoans = true;
+        return applyOverdueChargesForLoanByLoanId(loanId, skipNpaLoans);
+    }
+
+    @Transactional
+    @Override
+    public CommandProcessingResult applyOverdueChargesForLoanByLoanId(final Long loanId, final boolean skipNpaLoans) {
         Loan loan = this.loanAssembler.assembleFrom(loanId);
         final Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList = loanReadPlatformService
                 .retrieveAllOverdueInstallmentsForLoan(loan);
@@ -949,7 +972,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             log.debug("No overdue installments to apply penalty charges for loan {}", loanId);
         } else {
             log.info("Applying overdue penalty charges for loan {}, {} overdue installment(s)", loanId, overdueLoanScheduleDataList.size());
-            applyOverdueChargesForLoan(loanId, overdueLoanScheduleDataList);
+            applyOverdueChargesForLoan(loanId, overdueLoanScheduleDataList, skipNpaLoans);
         }
         return new CommandProcessingResultBuilder().withLoanId(loanId).build();
     }

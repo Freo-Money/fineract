@@ -60,7 +60,8 @@ public class LoanOverduePenaltyPreTransactionEventService {
             return;
         }
         log.debug("Applying overdue penalties through business date before loan transaction, loanId={}", loan.getId());
-        loanChargeWritePlatformService.applyOverdueChargesForLoanByLoanId(loan.getId());
+        boolean skipNpaLoans = false;
+        loanChargeWritePlatformService.applyOverdueChargesForLoanByLoanId(loan.getId(), skipNpaLoans);
     }
 
     private final class MakeRepaymentListener implements BusinessEventListener<LoanTransactionMakeRepaymentPreBusinessEvent> {
