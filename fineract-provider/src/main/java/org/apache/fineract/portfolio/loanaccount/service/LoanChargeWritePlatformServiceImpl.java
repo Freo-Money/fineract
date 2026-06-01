@@ -554,8 +554,12 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         }
 
         loanChargeValidator.validateLoanIsNotClosed(loan, loanCharge);
+        LocalDate transactionDate = command.localDateValueOfParameterNamed(LoanApiConstants.transactionDateParamName);
+        if (transactionDate == null) {
+            transactionDate = DateUtils.getLocalDateOfTenant();
+        }
         final LoanTransaction waiveTransaction = waiveLoanCharge(loan, loanCharge, changes, loanInstallmentNumber, scheduleGeneratorDTO,
-                accruedCharge, externalId);
+                accruedCharge, externalId, transactionDate);
 
         if (loan.isInterestBearingAndInterestRecalculationEnabled()
                 && DateUtils.isBefore(loanCharge.getDueLocalDate(), DateUtils.getBusinessLocalDate())) {
@@ -1627,7 +1631,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
 
     public LoanTransaction waiveLoanCharge(final Loan loan, final LoanCharge loanCharge, final Map<String, Object> changes,
             final Integer loanInstallmentNumber, final ScheduleGeneratorDTO scheduleGeneratorDTO, final Money accruedCharge,
-            final ExternalId externalId) {
+            final ExternalId externalId, final LocalDate transactionDate) {
         final Money amountWaived = loanCharge.waive(loan.getCurrency(), loanInstallmentNumber);
         changes.put("amount", amountWaived.getAmount());
 
@@ -1656,22 +1660,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             feeChargesWaived = Money.zero(loan.getCurrency());
         }
 
-        LocalDate transactionDate = loan.getDisbursementDate();
         final LocalDate businessDate = DateUtils.getBusinessLocalDate();
-        if (loanCharge.isDueDateCharge()) {
-            if (DateUtils.isAfter(loanCharge.getDueLocalDate(), businessDate)) {
-                transactionDate = businessDate;
-            } else {
-                transactionDate = loanCharge.getDueLocalDate();
-            }
-        } else if (loanCharge.isInstalmentFee()) {
-            LocalDate repaymentDueDate = loanCharge.getInstallmentLoanCharge(loanInstallmentNumber).getRepaymentInstallment().getDueDate();
-            if (DateUtils.isAfter(repaymentDueDate, businessDate)) {
-                transactionDate = businessDate;
-            } else {
-                transactionDate = repaymentDueDate;
-            }
-        }
 
         scheduleGeneratorDTO.setRecalculateFrom(transactionDate);
 
@@ -1830,6 +1819,12 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         }
         checkClientOrGroupActive(loan);
 
+        // Resolve transaction date from request or default to today's business date
+        LocalDate transactionDate = command.localDateValueOfParameterNamed(LoanApiConstants.transactionDateParamName);
+        if (transactionDate == null) {
+            transactionDate = DateUtils.getLocalDateOfTenant();
+        }
+
         // Extract charge IDs
         final Long[] chargeIdsForWaiver = command.longArrayValueOfParameterNamed("chargeIds");
         if (chargeIdsForWaiver == null || chargeIdsForWaiver.length == 0) {
@@ -1927,7 +1922,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             // Waive the charge using the same method as single charge waiver (reuse business logic)
             final ExternalId externalId = externalIdFactory.create();
             final LoanTransaction waiveTransaction = waiveLoanCharge(loan, loanCharge, changes, loanInstallmentNumber, scheduleGeneratorDTO,
-                    accruedCharge, externalId);
+                    accruedCharge, externalId, transactionDate);
 
             waiveTransactions.add(waiveTransaction);
             totalWaivedAmount = totalWaivedAmount.plus(waiveTransaction.getAmount(loan.getCurrency()));
