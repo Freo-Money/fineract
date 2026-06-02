@@ -20,6 +20,7 @@ package org.apache.fineract.portfolio.common.domain;
 
 import java.time.LocalDate;
 import java.util.Arrays;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 
 /**
  *
@@ -81,5 +82,17 @@ public enum DaysInMonthType {
             return null;
         }
         return this == ACTUAL ? referenceDate.lengthOfMonth() : this.getValue();
+    }
+
+    public int calculateDaysInPeriod(final LocalDate fromDate, final LocalDate toDate) {
+        if (fromDate == null || toDate == null) {
+            return 0;
+        }
+        if (!isDaysInMonth_30()) {
+            return DateUtils.getExactDifferenceInDays(fromDate, toDate);
+        }
+        final int d1 = Math.min(30, fromDate.getDayOfMonth());
+        final int d2 = Math.min(30, toDate.getDayOfMonth());
+        return 360 * (toDate.getYear() - fromDate.getYear()) + 30 * (toDate.getMonthValue() - fromDate.getMonthValue()) + (d2 - d1);
     }
 }
