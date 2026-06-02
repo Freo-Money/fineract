@@ -46,6 +46,7 @@ import org.apache.fineract.organisation.workingdays.data.AdjustedDateDetailsDTO;
 import org.apache.fineract.organisation.workingdays.domain.RepaymentRescheduleType;
 import org.apache.fineract.portfolio.calendar.domain.CalendarInstance;
 import org.apache.fineract.portfolio.calendar.service.CalendarUtils;
+import org.apache.fineract.portfolio.common.domain.DaysInMonthType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
 import org.apache.fineract.portfolio.loanaccount.data.DisbursementData;
 import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
@@ -2884,8 +2885,12 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
         if (!DateUtils.isBefore(startDate, dueDate) || !DateUtils.isBefore(startDate, targetDate)) {
             return zero;
         }
-        int totalNumberOfDays = DateUtils.getExactDifferenceInDays(startDate, dueDate);
-        int daysToBeAccrued = DateUtils.getExactDifferenceInDays(startDate, targetDate);
+        final DaysInMonthType daysInMonthType = loan.getLoanProductRelatedDetail().fetchDaysInMonthType();
+        int totalNumberOfDays = daysInMonthType.calculateDaysInPeriod(startDate, dueDate);
+        int daysToBeAccrued = daysInMonthType.calculateDaysInPeriod(startDate, targetDate);
+        if (totalNumberOfDays <= 0 || daysToBeAccrued <= 0) {
+            return zero;
+        }
         double interestPerDay = interest.doubleValue() / totalNumberOfDays;
         interestPortion = BigDecimal.valueOf(interestPerDay * daysToBeAccrued);
         return Money.of(currency, interestPortion);

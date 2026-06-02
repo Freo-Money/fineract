@@ -30,6 +30,7 @@ import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
+import org.apache.fineract.portfolio.common.domain.DaysInMonthType;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanDisbursementDetails;
@@ -390,8 +391,9 @@ public class LoanBalanceService {
         Money penaltyAccoutedForCurrentPeriod = Money.zero(loan.getCurrency());
         Money feeForCurrentPeriod = Money.zero(loan.getCurrency());
         Money feeAccountedForCurrentPeriod = Money.zero(loan.getCurrency());
-        int totalPeriodDays = DateUtils.getExactDifferenceInDays(installment.getFromDate(), installment.getDueDate());
-        int tillDays = DateUtils.getExactDifferenceInDays(installment.getFromDate(), paymentDate);
+        final DaysInMonthType daysInMonthType = loan.getLoanProductRelatedDetail().fetchDaysInMonthType();
+        final int totalPeriodDays = daysInMonthType.calculateDaysInPeriod(installment.getFromDate(), installment.getDueDate());
+        final int tillDays = daysInMonthType.calculateDaysInPeriod(installment.getFromDate(), paymentDate);
         Money interestForCurrentPeriod = Money.of(loan.getCurrency(), BigDecimal.valueOf(
                 calculateInterestForDays(totalPeriodDays, installment.getInterestCharged(loan.getCurrency()).getAmount(), tillDays)));
         Money interestAccountedForCurrentPeriod = installment.getInterestWaived(loan.getCurrency())
@@ -434,7 +436,7 @@ public class LoanBalanceService {
     }
 
     private double calculateInterestForDays(final int daysInPeriod, final BigDecimal interest, final int days) {
-        if (interest.doubleValue() == 0) {
+        if (interest == null || interest.doubleValue() == 0 || interest.compareTo(BigDecimal.ZERO) == 0 || daysInPeriod <= 0 || days <= 0) {
             return 0;
         }
         return interest.doubleValue() / daysInPeriod * days;
