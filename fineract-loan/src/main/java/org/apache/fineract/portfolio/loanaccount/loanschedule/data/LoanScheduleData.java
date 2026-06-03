@@ -65,6 +65,7 @@ public class LoanScheduleData {
 
     private Collection<LoanSchedulePeriodData> futurePeriods;
     private Set<LoanChargeData> loanCharges;
+    private BigDecimal brokenPeriodInterest;
 
     public LoanScheduleData(final CurrencyData currency, final Collection<LoanSchedulePeriodData> periods, final Integer loanTermInDays,
             final BigDecimal totalPrincipalDisbursed, final BigDecimal totalPrincipalExpected, final BigDecimal totalPrincipalPaid,
@@ -119,5 +120,9 @@ public class LoanScheduleData {
 
     public void setLoanCharges(Set<LoanChargeData> loanCharges) {
         this.loanCharges = loanCharges;
+    }
+
+    public void setBrokenPeriodInterest(BigDecimal brokenPeriodInterest) {
+        this.brokenPeriodInterest = brokenPeriodInterest;
     }
 }

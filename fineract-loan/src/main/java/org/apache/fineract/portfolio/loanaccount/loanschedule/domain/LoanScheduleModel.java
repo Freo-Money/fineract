@@ -141,6 +141,9 @@ public final class LoanScheduleModel {
         if (this.loanCharges != null && !this.loanCharges.isEmpty()) {
             data.setLoanCharges(this.loanCharges);
         }
+        if (this.brokenPeriodInterest != null) {
+            data.setBrokenPeriodInterest(this.brokenPeriodInterest.getAmount());
+        }
         return data;
     }
 
