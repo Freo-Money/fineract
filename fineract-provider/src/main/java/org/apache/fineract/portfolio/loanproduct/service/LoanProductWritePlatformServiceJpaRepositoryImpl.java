@@ -159,8 +159,11 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
             fineractEntityAccessUtil.checkConfigurationAndAddProductResrictionsForUserOffice(
                     FineractEntityAccessType.OFFICE_ACCESS_TO_LOAN_PRODUCTS, loanProduct.getId());
 
-            // Save Broken Period Interest Configuration if provided
-            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper);
+            // Save Broken Period Interest Configuration if provided. When the payload omits the broken-period
+            // days-in-year / days-in-month, inherit them from the product's (main) day conventions.
+            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper,
+                    loanProduct.getLoanProductRelatedDetail().fetchDaysInYearType(),
+                    loanProduct.getLoanProductRelatedDetail().fetchDaysInMonthType());
             if (bpiConfig != null) {
                 final LoanProductConfigMapping configMapping = new LoanProductConfigMapping(loanProduct, bpiConfig);
                 loanProductConfigMappingRepository.saveAndFlush(configMapping);
@@ -315,9 +318,12 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
                         command.enumValueOfParameterNamed(LoanProductConstants.CHARGE_OFF_BEHAVIOUR, LoanChargeOffBehaviour.class));
             }
 
-            // Handle Broken Period Interest Configuration update (upsert logic)
+            // Handle Broken Period Interest Configuration update (upsert logic). When the payload omits the
+            // broken-period days-in-year / days-in-month, inherit them from the product's (main) day conventions.
             final var existingConfig = loanProductConfigMappingRepository.findByLoanProductId(loanProductId);
-            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper);
+            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper,
+                    product.getLoanProductRelatedDetail().fetchDaysInYearType(),
+                    product.getLoanProductRelatedDetail().fetchDaysInMonthType());
             if (bpiConfig != null) {
                 if (existingConfig.isPresent()) {
                     final LoanProductConfigMapping configMapping = existingConfig.get();

@@ -288,8 +288,11 @@ public class LoanAssemblerImpl implements LoanAssembler {
 
         // Handle BPI configuration: override if explicit parameters provided, otherwise copy from product
         if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element)) {
-            // User provided explicit BPI parameters - create loan-specific config (override)
-            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromJsonElement(element, fromApiJsonHelper);
+            // User provided explicit BPI parameters - create loan-specific config (override). Days-in-year /
+            // days-in-month are inherited from the product's (main) day conventions when the loan payload omits them.
+            final BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromJsonElement(element, fromApiJsonHelper,
+                    loanProduct.getLoanProductRelatedDetail().fetchDaysInYearType(),
+                    loanProduct.getLoanProductRelatedDetail().fetchDaysInMonthType());
             if (bpiConfig != null) {
                 final LoanConfigMapping loanConfigMapping = new LoanConfigMapping(loanApplication, loanProduct.getShortName(), bpiConfig);
                 loanApplication.setBpiConfig(loanConfigMapping);
