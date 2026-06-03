@@ -1816,9 +1816,10 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                     remainingAmount, totalOutstanding);
         }
 
+        LoanTransaction chargePaymentTransaction = null;
         if (!allocations.isEmpty()) {
-            this.loanAccountDomainService.makeMultiChargePayment(loan, allocations, transactionDate, totalAmountToPay, paymentDetail,
-                    noteText, requestExternalId, false);
+            chargePaymentTransaction = this.loanAccountDomainService.makeMultiChargePayment(loan, allocations, transactionDate,
+                    totalAmountToPay, paymentDetail, noteText, requestExternalId, false);
             this.loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
         }
 
@@ -1828,7 +1829,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
 
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(chargeId)
                 .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
-                .with(changes).build();
+                .with(changes).withSubEntityId(chargePaymentTransaction != null ? chargePaymentTransaction.getId() : null).build();
     }
 
     @Override
