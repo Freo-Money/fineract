@@ -91,8 +91,19 @@ public enum DaysInMonthType {
         if (!isDaysInMonth_30()) {
             return DateUtils.getExactDifferenceInDays(fromDate, toDate);
         }
-        final int d1 = Math.min(30, fromDate.getDayOfMonth());
-        final int d2 = Math.min(30, toDate.getDayOfMonth());
+        final int d1 = dayOfMonth360(fromDate);
+        final int d2 = dayOfMonth360(toDate);
         return 360 * (toDate.getYear() - fromDate.getYear()) + 30 * (toDate.getMonthValue() - fromDate.getMonthValue()) + (d2 - d1);
+    }
+
+    /**
+     * Day-of-month under the 30E/360 (ISDA) convention: the last calendar day of any month - the 31st of long months
+     * and the 28th (or 29th in a leap year) of February - is treated as the 30th, so every month contributes 30 days.
+     */
+    private static int dayOfMonth360(final LocalDate date) {
+        if (date.getDayOfMonth() == date.lengthOfMonth()) {
+            return 30;
+        }
+        return Math.min(30, date.getDayOfMonth());
     }
 }

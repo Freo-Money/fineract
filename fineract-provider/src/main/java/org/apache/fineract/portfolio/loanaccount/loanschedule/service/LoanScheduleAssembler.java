@@ -562,7 +562,13 @@ public class LoanScheduleAssembler {
                     .extractBooleanNamed(LoanApiConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE, element);
         }
 
-        BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromJsonElement(element, fromApiJsonHelper);
+        // Loan payload's broken-period config wins; when its days-in-year / days-in-month are omitted they are
+        // inherited
+        // from the product's (main) day conventions. If the loan supplies no broken-period config at all, fall back to
+        // the product's broken-period config.
+        BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromJsonElement(element, fromApiJsonHelper,
+                loanProduct.getLoanProductRelatedDetail().fetchDaysInYearType(),
+                loanProduct.getLoanProductRelatedDetail().fetchDaysInMonthType());
         if (bpiConfig == null && loanProduct.getBpiConfig() != null) {
             bpiConfig = loanProduct.getBpiConfig().getBrokenPeriodConfig();
         }

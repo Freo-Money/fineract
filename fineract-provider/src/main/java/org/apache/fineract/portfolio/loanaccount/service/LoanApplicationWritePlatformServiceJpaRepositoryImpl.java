@@ -301,7 +301,12 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
 
             // Handle Broken Period Interest Configuration update (upsert logic)
             // Note: validation already ensures loan is in submittedAndPendingApproval state
-            BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper);
+            // Days-in-year / days-in-month are inherited from the product's (main) day conventions when the loan
+            // payload
+            // omits them.
+            BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromCommand(command, fromApiJsonHelper,
+                    loan.getLoanProduct().getLoanProductRelatedDetail().fetchDaysInYearType(),
+                    loan.getLoanProduct().getLoanProductRelatedDetail().fetchDaysInMonthType());
 
             // Get previous strategy before any updates
             final var existingConfig = loanConfigMappingRepository.findByLoanId(loanId);

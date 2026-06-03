@@ -32,15 +32,29 @@ public final class BrokenPeriodConfigHelper {
         // Utility class - prevent instantiation
     }
 
-    public static BrokenPeriodInterestConfigDTO extractFromCommand(final JsonCommand command, final FromJsonHelper jsonHelper) {
+    /**
+     * Extracts the broken-period interest config from the payload. When the payload omits the broken-period
+     * days-in-year / days-in-month fields, they are inherited from the loan product's (main) days-in-year /
+     * days-in-month instead of the hardcoded 365 / ACTUAL defaults. The fallback types may be {@code null}, in which
+     * case the hardcoded defaults still apply.
+     */
+    public static BrokenPeriodInterestConfigDTO extractFromCommand(final JsonCommand command, final FromJsonHelper jsonHelper,
+            final DaysInYearType productDaysInYear, final DaysInMonthType productDaysInMonth) {
         if (command == null || !command.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE)) {
             return null;
         }
         final JsonElement element = command.parsedJson();
-        return extractFromJsonElement(element, jsonHelper);
+        return extractFromJsonElement(element, jsonHelper, productDaysInYear, productDaysInMonth);
     }
 
-    public static BrokenPeriodInterestConfigDTO extractFromJsonElement(final JsonElement element, final FromJsonHelper jsonHelper) {
+    /**
+     * Extracts the broken-period interest config from the payload. When the payload omits the broken-period
+     * days-in-year / days-in-month fields, they are inherited from the loan product's (main) days-in-year /
+     * days-in-month instead of the hardcoded 365 / ACTUAL defaults. The fallback types may be {@code null}, in which
+     * case the hardcoded defaults still apply.
+     */
+    public static BrokenPeriodInterestConfigDTO extractFromJsonElement(final JsonElement element, final FromJsonHelper jsonHelper,
+            final DaysInYearType productDaysInYear, final DaysInMonthType productDaysInMonth) {
         if (element == null || !jsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element)) {
             return null;
         }
@@ -56,12 +70,13 @@ public final class BrokenPeriodConfigHelper {
         Integer brokenPeriodDaysInYear = jsonHelper.extractIntegerWithLocaleNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR, element);
         Integer brokenPeriodDaysInMonth = jsonHelper.extractIntegerWithLocaleNamed(LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, element);
 
-        // Apply defaults
+        // When omitted by the loan payload, inherit from the product's (main) days-in-year / days-in-month; otherwise
+        // fall back to the hardcoded defaults (e.g. product creation, where there is no product to inherit from).
         if (brokenPeriodDaysInYear == null || brokenPeriodDaysInYear == 0) {
-            brokenPeriodDaysInYear = DaysInYearType.DAYS_365.getValue();
+            brokenPeriodDaysInYear = productDaysInYear != null ? productDaysInYear.getValue() : DaysInYearType.DAYS_365.getValue();
         }
         if (brokenPeriodDaysInMonth == null || brokenPeriodDaysInMonth == 0) {
-            brokenPeriodDaysInMonth = DaysInMonthType.ACTUAL.getValue();
+            brokenPeriodDaysInMonth = productDaysInMonth != null ? productDaysInMonth.getValue() : DaysInMonthType.ACTUAL.getValue();
         }
 
         return toDomainDTO(brokenPeriodMethodType, brokenPeriodDaysInYear, brokenPeriodDaysInMonth);
