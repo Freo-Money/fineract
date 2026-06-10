@@ -115,13 +115,19 @@ public class LoanArrearsAgeingUpdateHandler {
     private String buildQueryForInsertAgeingDetails(boolean isForAllLoans) {
         ArrearsBasedOn arrearsBasedOn = ArrearsBasedOn.fromInt(configurationDomainService.getArrearsBasedOnValue());
         final StringBuilder insertSqlStatementBuilder = new StringBuilder(900);
-        final String principalOverdueCalculationSql = "SUM(COALESCE(mr.principal_amount, 0) - coalesce(mr.principal_completed_derived, 0) - coalesce(mr.principal_writtenoff_derived, 0))";
-        final String interestOverdueCalculationSql = "SUM(COALESCE(mr.interest_amount, 0) - coalesce(mr.interest_writtenoff_derived, 0) - coalesce(mr.interest_waived_derived, 0) - "
-                + "coalesce(mr.interest_completed_derived, 0))";
-        final String feeChargesOverdueCalculationSql = "SUM(COALESCE(mr.fee_charges_amount, 0) - coalesce(mr.fee_charges_writtenoff_derived, 0) - "
-                + "coalesce(mr.fee_charges_waived_derived, 0) - coalesce(mr.fee_charges_completed_derived, 0))";
-        final String penaltyChargesOverdueCalculationSql = "SUM(COALESCE(mr.penalty_charges_amount, 0) - coalesce(mr.penalty_charges_writtenoff_derived, 0) - "
-                + "coalesce(mr.penalty_charges_waived_derived, 0) - coalesce(mr.penalty_charges_completed_derived, 0))";
+        final String principalOutstandingPerInstallment = "COALESCE(mr.principal_amount, 0) - coalesce(mr.principal_completed_derived, 0) - coalesce(mr.principal_writtenoff_derived, 0)";
+        final String interestOutstandingPerInstallment = "COALESCE(mr.interest_amount, 0) - coalesce(mr.interest_writtenoff_derived, 0) - coalesce(mr.interest_waived_derived, 0) - coalesce(mr.interest_completed_derived, 0)";
+        final String feeChargesOutstandingPerInstallment = "COALESCE(mr.fee_charges_amount, 0) - coalesce(mr.fee_charges_writtenoff_derived, 0) - coalesce(mr.fee_charges_waived_derived, 0) - coalesce(mr.fee_charges_completed_derived, 0)";
+        final String penaltyChargesOutstandingPerInstallment = "COALESCE(mr.penalty_charges_amount, 0) - coalesce(mr.penalty_charges_writtenoff_derived, 0) - coalesce(mr.penalty_charges_waived_derived, 0) - coalesce(mr.penalty_charges_completed_derived, 0)";
+        final String qualifyingInstallmentCondition = buildQualifyingInstallmentCondition(arrearsBasedOn,
+                principalOutstandingPerInstallment, interestOutstandingPerInstallment);
+        final String principalOverdueCalculationSql = buildConditionalSum(qualifyingInstallmentCondition,
+                principalOutstandingPerInstallment);
+        final String interestOverdueCalculationSql = buildConditionalSum(qualifyingInstallmentCondition, interestOutstandingPerInstallment);
+        // Fee and penalty arrears cover every past-due installment - the WHERE clause already limits rows to past-due,
+        // not-yet-completed installments - so they are NOT gated by the principal/interest arrears-based-on condition.
+        final String feeChargesOverdueCalculationSql = "SUM(" + feeChargesOutstandingPerInstallment + ")";
+        final String penaltyChargesOverdueCalculationSql = "SUM(" + penaltyChargesOutstandingPerInstallment + ")";
 
         insertSqlStatementBuilder.append(
                 "INSERT INTO m_loan_arrears_aging(loan_id,principal_overdue_derived,interest_overdue_derived,fee_charges_overdue_derived,penalty_charges_overdue_derived,total_overdue_derived,overdue_since_date_derived)");
@@ -133,7 +139,8 @@ public class LoanArrearsAgeingUpdateHandler {
         insertSqlStatementBuilder.append(principalOverdueCalculationSql + "+" + interestOverdueCalculationSql + "+");
         insertSqlStatementBuilder
                 .append(feeChargesOverdueCalculationSql + "+" + penaltyChargesOverdueCalculationSql + " as total_overdue_derived,");
-        insertSqlStatementBuilder.append("MIN(mr.duedate) as overdue_since_date_derived ");
+        insertSqlStatementBuilder.append(buildConditionalMinDueDate(qualifyingInstallmentCondition))
+                .append(" as overdue_since_date_derived ");
         insertSqlStatementBuilder.append(" FROM m_loan ml ");
         insertSqlStatementBuilder.append(" INNER JOIN m_loan_repayment_schedule mr on mr.loan_id = ml.id ");
         insertSqlStatementBuilder.append(" left join m_product_loan_recalculation_details prd on prd.product_id = ml.product_id ");
@@ -141,6 +148,9 @@ public class LoanArrearsAgeingUpdateHandler {
         if (!isForAllLoans) {
             insertSqlStatementBuilder.append(" and ml.id IN (?)");
         }
+        // A fully completed installment has zero principal/interest/fee/penalty outstanding, so it can never satisfy
+        // any
+        // arrears-based-on qualifying condition. Pruning it here is safe for every mode and keeps the scan small.
         insertSqlStatementBuilder.append(" and mr.completed_derived is false ");
         insertSqlStatementBuilder.append(" and mr.duedate < ")
                 .append(sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "COALESCE(ml.grace_on_arrears_ageing, 0)", "day"))
@@ -152,6 +162,24 @@ public class LoanArrearsAgeingUpdateHandler {
         appendArrearsBasedOnFilter(insertSqlStatementBuilder, arrearsBasedOn, principalOverdueCalculationSql,
                 interestOverdueCalculationSql);
         return insertSqlStatementBuilder.toString();
+    }
+
+    private String buildQualifyingInstallmentCondition(final ArrearsBasedOn arrearsBasedOn, final String principalOutstandingPerInstallment,
+            final String interestOutstandingPerInstallment) {
+        if (arrearsBasedOn.isPrincipalOnly()) {
+            return principalOutstandingPerInstallment + " > 0";
+        } else if (arrearsBasedOn.isPrincipalAndInterestOnly()) {
+            return "(" + principalOutstandingPerInstallment + " > 0 OR " + interestOutstandingPerInstallment + " > 0)";
+        }
+        return "mr.completed_derived is false";
+    }
+
+    private String buildConditionalSum(final String qualifyingInstallmentCondition, final String amountPerInstallment) {
+        return "SUM(CASE WHEN " + qualifyingInstallmentCondition + " THEN " + amountPerInstallment + " ELSE 0 END)";
+    }
+
+    private String buildConditionalMinDueDate(final String qualifyingInstallmentCondition) {
+        return "MIN(CASE WHEN " + qualifyingInstallmentCondition + " THEN mr.duedate END)";
     }
 
     private List<String> updateLoanArrearsAgeingDetailsWithOriginalSchedule(List<Long> loanIdsForUpdate) {

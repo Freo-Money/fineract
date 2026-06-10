@@ -150,23 +150,31 @@ public class LoanArrearsAgingServiceImpl implements LoanArrearsAgingService {
         BigDecimal feeOverdue = BigDecimal.ZERO;
         BigDecimal penaltyOverdue = BigDecimal.ZERO;
         LocalDate businessDate = DateUtils.getBusinessLocalDate();
+        // Match the arrears batch job (LoanArrearsAgeingUpdateHandler): an installment is overdue only once its due
+        // date
+        // is before businessDate minus the loan's grace-on-arrears-ageing days.
+        final Integer graceOnArrearsAgeing = loan.getLoanProductRelatedDetail().getGraceOnArrearsAgeing();
+        final LocalDate arrearsCutoffDate = businessDate.minusDays(graceOnArrearsAgeing == null ? 0L : graceOnArrearsAgeing.longValue());
         LocalDate overDueSince = null;
         ArrearsBasedOn arrearsBasedOn = ArrearsBasedOn.fromInt(configurationDomainService.getArrearsBasedOnValue());
         MonetaryCurrency currency = loan.getCurrency();
 
         for (LoanRepaymentScheduleInstallment installment : installments) {
-            if (DateUtils.isBefore(installment.getDueDate(), businessDate)) {
+            if (DateUtils.isBefore(installment.getDueDate(), arrearsCutoffDate)) {
                 BigDecimal principalOutstanding = installment.getPrincipalOutstanding(currency).getAmount();
                 BigDecimal interestOutstanding = installment.getInterestOutstanding(currency).getAmount();
                 BigDecimal feeOutstanding = installment.getFeeChargesOutstanding(currency).getAmount();
                 BigDecimal penaltyOutstanding = installment.getPenaltyChargesOutstanding(currency).getAmount();
                 boolean isAnyOutstanding = installment.isNotFullyPaidOff();
 
+                // Fees & penalties cover every past-due installment (match LoanArrearsAgeingUpdateHandler) - they are
+                // NOT gated by the principal/interest arrears-based-on condition.
+                feeOverdue = feeOverdue.add(feeOutstanding);
+                penaltyOverdue = penaltyOverdue.add(penaltyOutstanding);
+
                 if (shouldConsiderLoanOverdue(arrearsBasedOn, principalOutstanding, interestOutstanding, isAnyOutstanding)) {
                     principalOverdue = principalOverdue.add(principalOutstanding);
                     interestOverdue = interestOverdue.add(interestOutstanding);
-                    feeOverdue = feeOverdue.add(feeOutstanding);
-                    penaltyOverdue = penaltyOverdue.add(penaltyOutstanding);
 
                     LocalDate dueDate = installment.getDueDate();
                     if (overDueSince == null || DateUtils.isAfter(overDueSince, dueDate)) {
@@ -177,7 +185,10 @@ public class LoanArrearsAgingServiceImpl implements LoanArrearsAgingService {
         }
 
         BigDecimal totalOverDue = principalOverdue.add(interestOverdue).add(feeOverdue).add(penaltyOverdue);
-        boolean isOverdue = totalOverDue.compareTo(BigDecimal.ZERO) > 0;
+        // Loan-level arrears gating mirrors the batch job's HAVING clause (appendArrearsBasedOnFilter): a loan whose
+        // only overdue amounts are fees/penalties (no qualifying principal/interest) is NOT in arrears when
+        // arrears-based-on is PRINCIPAL_ONLY or PRINCIPAL_AND_INTEREST.
+        boolean isOverdue = isLoanInArrears(arrearsBasedOn, principalOverdue, interestOverdue, totalOverDue);
 
         LoanArrearsData result = new LoanArrearsData();
         result.setPrincipalOverdue(principalOverdue);
@@ -199,6 +210,19 @@ public class LoanArrearsAgingServiceImpl implements LoanArrearsAgingService {
         } else { // ALL_OUTSTANDING or any other value defaults to "any outstanding"
             return isAnyOutstanding;
         }
+    }
+
+    // Decides whether the loan should appear in m_loan_arrears_aging, mirroring the batch job's HAVING clause
+    // (LoanArrearsAgeingUpdateHandler.appendArrearsBasedOnFilter). For PRINCIPAL_ONLY / PRINCIPAL_AND_INTEREST a loan
+    // with only overdue fees/penalties does not qualify; for ALL_OUTSTANDING any overdue amount qualifies.
+    private boolean isLoanInArrears(ArrearsBasedOn arrearsBasedOn, BigDecimal principalOverdue, BigDecimal interestOverdue,
+            BigDecimal totalOverdue) {
+        if (arrearsBasedOn.isPrincipalOnly()) {
+            return principalOverdue.compareTo(BigDecimal.ZERO) > 0;
+        } else if (arrearsBasedOn.isPrincipalAndInterestOnly()) {
+            return principalOverdue.compareTo(BigDecimal.ZERO) > 0 || interestOverdue.compareTo(BigDecimal.ZERO) > 0;
+        }
+        return totalOverdue.compareTo(BigDecimal.ZERO) > 0;
     }
 
     private String constructUpdateStatement(final Loan loan, boolean isInsertStatement) {
@@ -261,11 +285,14 @@ public class LoanArrearsAgingServiceImpl implements LoanArrearsAgingService {
                         .subtract(loanSchedulePeriodData.getPenaltyChargesPaid());
                 boolean isAnyOutstanding = !loanSchedulePeriodData.getComplete();
 
+                // Fees & penalties cover every past-due installment (match LoanArrearsAgeingUpdateHandler) - they are
+                // NOT gated by the principal/interest arrears-based-on condition.
+                feeOverdue = feeOverdue.add(feeOutstanding);
+                penaltyOverdue = penaltyOverdue.add(penaltyOutstanding);
+
                 if (shouldConsiderLoanOverdue(arrearsBasedOn, principalOutstanding, interestOutstanding, isAnyOutstanding)) {
                     principalOverdue = principalOverdue.add(principalOutstanding);
                     interestOverdue = interestOverdue.add(interestOutstanding);
-                    feeOverdue = feeOverdue.add(feeOutstanding);
-                    penaltyOverdue = penaltyOverdue.add(penaltyOutstanding);
 
                     LocalDate dueDate = loanSchedulePeriodData.getDueDate();
                     if (overDueSince == null || DateUtils.isAfter(overDueSince, dueDate)) {
@@ -275,7 +302,7 @@ public class LoanArrearsAgingServiceImpl implements LoanArrearsAgingService {
             }
 
             BigDecimal totalOverDue = principalOverdue.add(interestOverdue).add(feeOverdue).add(penaltyOverdue);
-            if (totalOverDue.compareTo(BigDecimal.ZERO) > 0) {
+            if (isLoanInArrears(arrearsBasedOn, principalOverdue, interestOverdue, totalOverDue)) {
                 String sqlStatement = isInsertStatement
                         ? constructInsertStatement(loanId, principalOverdue, interestOverdue, feeOverdue, penaltyOverdue, overDueSince)
                         : constructUpdateStatement(loanId, principalOverdue, interestOverdue, feeOverdue, penaltyOverdue, overDueSince);
