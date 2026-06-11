@@ -45,7 +45,6 @@ import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeRoundingUtils;
@@ -273,15 +272,10 @@ public class ForeclosureChargeHelper {
             return;
         }
 
-        paymentTransaction.getLoanChargesPaid().removeIf(
-                paidBy -> paidBy.getLoanCharge() != null && paidBy.getLoanCharge().getChargeTimeType().equals(ChargeTimeType.FORECLOSURE));
-
         for (LoanCharge loanCharge : loanCharges) {
             if (loanCharge.getChargeTimeType().equals(ChargeTimeType.FORECLOSURE) && loanCharge.isActive()) {
                 Money chargeAmount = loanCharge.getAmount(currency);
                 if (chargeAmount.isGreaterThanZero()) {
-                    paymentTransaction.getLoanChargesPaid().add(new LoanChargePaidBy(paymentTransaction, loanCharge,
-                            chargeAmount.getAmount(), null, configurationDomainService.getTaxRoundingMode()));
                     loanCharge.updatePaidAmountBy(chargeAmount, null, chargeAmount);
                     totalForeclosureFeeCharges = totalForeclosureFeeCharges.plus(chargeAmount);
                 }
@@ -290,13 +284,7 @@ public class ForeclosureChargeHelper {
 
         if (totalForeclosureFeeCharges.isGreaterThanZero()) {
             Money currentFeeChargesPortion = paymentTransaction.getFeeChargesPortion(currency);
-            Money sumOfAllFeeChargePaidBy = Money.zero(currency);
-            for (LoanChargePaidBy paidBy : paymentTransaction.getLoanChargesPaid()) {
-                if (paidBy.getLoanCharge() != null && paidBy.getLoanCharge().isFeeCharge()) {
-                    sumOfAllFeeChargePaidBy = sumOfAllFeeChargePaidBy.plus(Money.of(currency, paidBy.getAmount()));
-                }
-            }
-            Money adjustment = sumOfAllFeeChargePaidBy.minus(currentFeeChargesPortion);
+            Money adjustment = totalForeclosureFeeCharges.minus(currentFeeChargesPortion);
             if (!adjustment.isZero()) {
                 paymentTransaction.updateChargesComponents(adjustment, Money.zero(currency));
             }
