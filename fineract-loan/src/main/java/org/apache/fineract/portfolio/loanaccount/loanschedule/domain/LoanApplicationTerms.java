@@ -1753,7 +1753,10 @@ public final class LoanApplicationTerms {
             break;
             case MONTHS:
                 if (daysInMonthType.isDaysInMonth_30()) {
-                    numberOfDaysInPeriod = loanTermFrequencyBigDecimal.multiply(BigDecimal.valueOf(30), mc);
+                    // Use the configured 30/360 day count for the broken period rather than deriving it from the
+                    // actual calendar length of the enclosing month (which would make a 1-day stub 1/31 instead of
+                    // 1/30).
+                    numberOfDaysInPeriod = BigDecimal.valueOf(daysInMonthType.calculateDaysInPeriod(periodStartDate, periodEndDate));
                 }
                 periodicInterestRate = oneDayOfYearInterestRate.multiply(numberOfDaysInPeriod, mc);
             break;
