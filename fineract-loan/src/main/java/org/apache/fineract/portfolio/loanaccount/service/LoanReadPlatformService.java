@@ -103,6 +103,8 @@ public interface LoanReadPlatformService {
 
     Collection<OverdueLoanScheduleData> retrieveAllOverdueInstallmentsForLoan(Loan loan);
 
+    Collection<OverdueLoanScheduleData> retrieveAllOverdueInstallmentsForLoan(Loan loan, LocalDate asOfDate);
+
     Integer retriveLoanCounter(Long groupId, Integer loanType, Long productId);
 
     Integer retriveLoanCounter(Long clientId, Long productId);

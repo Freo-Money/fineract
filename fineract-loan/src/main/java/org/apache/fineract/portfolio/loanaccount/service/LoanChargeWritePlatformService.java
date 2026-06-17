@@ -19,9 +19,11 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.Collection;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanScheduleData;
 
 public interface LoanChargeWritePlatformService {
@@ -59,7 +61,37 @@ public interface LoanChargeWritePlatformService {
      */
     CommandProcessingResult applyOverdueChargesForLoanByLoanId(Long loanId, boolean skipNpaLoans);
 
-    BigDecimal calculateUnappliedOverduePenaltyAmountTillDate(Long loanId);
+    CommandProcessingResult applyOverdueChargesForLoanByLoanId(Long loanId, boolean skipNpaLoans, LocalDate asOfDate);
+
+    /**
+     * Total overdue-installment penalty due up to {@code asOfDate} (applied + not-yet-applied) for installments that
+     * are penalize-able as of that date — i.e. only installments past their penalty-wait-period trigger contribute, and
+     * for those, all days from the day after their due date up to {@code asOfDate} are included. Used by templates to
+     * show the penalty due as of the transaction date.
+     */
+    BigDecimal calculateOverduePenaltyAmountTillDate(Long loanId, LocalDate asOfDate);
+
+    /**
+     * Same as {@link #calculateOverduePenaltyAmountTillDate(Long, LocalDate)} but for callers that already hold the
+     * loan (e.g. template building), avoiding a redundant re-assembly.
+     */
+    BigDecimal calculateOverduePenaltyAmountTillDate(Loan loan, LocalDate asOfDate);
+
+    /**
+     * Reconciles overdue-installment penalties so the loan reflects exactly the penalties due up to {@code asOfDate}:
+     * removes any penalties dated after it (excess) and applies any that are due up to it but not yet applied. Honors
+     * grace-on-penalty-posting and penalty-wait-period and does not skip NPA loans. Used before a repayment / charge
+     * payment / foreclosure transaction (with the transaction date) and to compute the template amount.
+     */
+    void reconcileOverduePenaltiesAsOf(Long loanId, LocalDate asOfDate);
+
+    /**
+     * After a backdated repayment-like transaction on a cumulative-schedule loan, recomputes the overdue penalties for
+     * periods after the transaction date on the new (reduced) outstanding, posting them through the business date. The
+     * pre-transaction {@link #reconcileOverduePenaltiesAsOf(Long, LocalDate)} has already removed the stale penalties
+     * dated after the transaction date. No-op for progressive-schedule loans (handled by transaction reprocessing).
+     */
+    void recalculateOverduePenaltiesAfterBackdatedTransaction(Long loanId, LocalDate transactionDate);
 
     CommandProcessingResult payByChargeId(Long loanId, Long chargeId, JsonCommand command);
 
