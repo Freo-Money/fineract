@@ -367,7 +367,7 @@ public abstract class AbstractCumulativeLoanScheduleGenerator implements LoanSch
 
             if (shouldRoundLastInstallment) {
                 Money roundedTotalInstallmentDue = Money.roundToMultiplesOf(totalInstallmentDue,
-                        loanApplicationTerms.getInstallmentAmountInMultiplesOf(), loanApplicationTerms.getInstallmentRoundingMode());
+                        loanApplicationTerms.getInstallmentAmountInMultiplesOf(), loanApplicationTerms.getAdjustedInterestRoundingMode());
                 Money emiDelta = roundedTotalInstallmentDue.minus(totalInstallmentDue);
                 if (!emiDelta.isZero()) {
                     Money adjustedInterest = currentPeriodParams.getInterestForThisPeriod().plus(emiDelta);
