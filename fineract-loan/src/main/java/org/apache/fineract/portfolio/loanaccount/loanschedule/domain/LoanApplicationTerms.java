@@ -2554,4 +2554,11 @@ public final class LoanApplicationTerms {
         }
         return this.additionalPrincipalGracePeriodRequired;
     }
+
+    public RoundingMode getAdjustedInterestRoundingMode() {
+        if (this.roundingModeConfig != null && this.roundingModeConfig.adjustedRoundingMode() != null) {
+            return RoundingMode.valueOf(this.roundingModeConfig.adjustedRoundingMode());
+        }
+        return getInstallmentRoundingMode();
+    }
 }
