@@ -64,18 +64,18 @@ public interface LoanChargeWritePlatformService {
     CommandProcessingResult applyOverdueChargesForLoanByLoanId(Long loanId, boolean skipNpaLoans, LocalDate asOfDate);
 
     /**
-     * Total overdue-installment penalty due up to {@code asOfDate} (applied + not-yet-applied) for installments that
-     * are penalize-able as of that date — i.e. only installments past their penalty-wait-period trigger contribute, and
-     * for those, all days from the day after their due date up to {@code asOfDate} are included. Used by templates to
-     * show the penalty due as of the transaction date.
+     * Overdue-installment penalty due up to {@code asOfDate} but NOT YET APPLIED, for installments past their
+     * penalty-wait-period trigger (all days from the day after their due date up to {@code asOfDate}, minus the periods
+     * already applied). Templates add this to the preserved outstanding of already-applied penalties to show the total
+     * penalty due as of the transaction date.
      */
-    BigDecimal calculateOverduePenaltyAmountTillDate(Long loanId, LocalDate asOfDate);
+    BigDecimal calculateUnappliedOverduePenaltyAmountTillDate(Long loanId, LocalDate asOfDate);
 
     /**
-     * Same as {@link #calculateOverduePenaltyAmountTillDate(Long, LocalDate)} but for callers that already hold the
-     * loan (e.g. template building), avoiding a redundant re-assembly.
+     * Same as {@link #calculateUnappliedOverduePenaltyAmountTillDate(Long, LocalDate)} but for callers that already
+     * hold the loan (e.g. template building), avoiding a redundant re-assembly.
      */
-    BigDecimal calculateOverduePenaltyAmountTillDate(Loan loan, LocalDate asOfDate);
+    BigDecimal calculateUnappliedOverduePenaltyAmountTillDate(Loan loan, LocalDate asOfDate);
 
     /**
      * Reconciles overdue-installment penalties so the loan reflects exactly the penalties due up to {@code asOfDate}:

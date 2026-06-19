@@ -294,6 +294,23 @@ public class LoanCharge extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         return ChargeTimeType.fromInt(this.chargeTime).equals(ChargeTimeType.OVERDUE_INSTALLMENT);
     }
 
+    /**
+     * For an overdue-installment penalty: whether the installment that triggered it has become penalize-able as of
+     * {@code asOfDate} — i.e. {@code asOfDate} is at least the charge's penalty-wait-period (in days) after the
+     * triggering installment's due date. Charges that are not overdue-installment penalties or have no linked
+     * installment return {@code false}. Centralizes the wait-period trigger rule shared by template valuation and the
+     * transaction-time reconcile so they stay consistent.
+     */
+    public boolean isOverdueInstallmentPenaltyTriggeredAsOf(final LocalDate asOfDate) {
+        if (!isOverdueInstallmentCharge() || this.overdueInstallmentCharge == null
+                || this.overdueInstallmentCharge.getInstallment() == null) {
+            return false;
+        }
+        final int penaltyWaitPeriod = this.charge != null && this.charge.getPenaltyWaitPeriod() != null ? this.charge.getPenaltyWaitPeriod()
+                : 0;
+        return this.overdueInstallmentCharge.getInstallment().isOverdueOn(asOfDate.minusDays(penaltyWaitPeriod).plusDays(1));
+    }
+
     private static boolean isGreaterThanZero(final BigDecimal value) {
         return value.compareTo(BigDecimal.ZERO) > 0;
     }
