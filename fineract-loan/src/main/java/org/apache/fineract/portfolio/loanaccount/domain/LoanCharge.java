@@ -294,6 +294,20 @@ public class LoanCharge extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         return ChargeTimeType.fromInt(this.chargeTime).equals(ChargeTimeType.OVERDUE_INSTALLMENT);
     }
 
+    /**
+     * An active overdue-installment penalty whose linked installment is fully paid (obligations met). Such a penalty is
+     * final and owed: the overdue-penalty reconciliation must neither deactivate it nor net it out of template
+     * adjustments, even though the installment is no longer in the live "overdue" set. Evaluate this before any
+     * deactivation, since {@link #setActive(boolean)} nulls {@code overdueInstallmentCharge}.
+     */
+    public boolean isFrozenOverduePenalty() {
+        if (!isActive() || !isOverdueInstallmentCharge() || this.overdueInstallmentCharge == null) {
+            return false;
+        }
+        final LoanRepaymentScheduleInstallment installment = this.overdueInstallmentCharge.getInstallment();
+        return installment != null && installment.isObligationsMet();
+    }
+
     private static boolean isGreaterThanZero(final BigDecimal value) {
         return value.compareTo(BigDecimal.ZERO) > 0;
     }

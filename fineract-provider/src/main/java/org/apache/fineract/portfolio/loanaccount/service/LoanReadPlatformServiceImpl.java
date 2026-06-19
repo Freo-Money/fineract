@@ -644,33 +644,44 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
         this.context.authenticatedUser();
         try {
+            // Once the loan is matured (as of the transaction date), include every unpaid installment regardless of due
+            // date so the full outstanding fees/penalties (e.g. on a post-maturity additional installment) are shown.
+            final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+            final boolean includeAllOutstanding = loan.isMatured(date);
             RepaymentTransactionTemplateMapper mapper = new RepaymentTransactionTemplateMapper(sqlGenerator);
-            String sql = mapper.schema();
+            String sql = mapper.schema(includeAllOutstanding);
             Map<String, Object> params = new HashMap<>();
             params.put("loanId", loanId);
             params.put("txnTypes", Arrays.asList(LoanTransactionType.REPAYMENT.getValue(), LoanTransactionType.DOWN_PAYMENT.getValue()));
             params.put("asOnDate", date);
             LoanTransactionData loanTransactionData = this.namedParameterJdbcTemplate.queryForObject(sql, params, mapper);
-            loanTransactionData = enrichTemplateWithProjectedOverduePenalties(loanId, loanTransactionData, date);
-            return retrieveLoanOverdueDetails(loanId, loanTransactionData, date);
+            loanTransactionData = enrichTemplateWithProjectedOverduePenalties(loan, loanTransactionData, date);
+            return retrieveLoanOverdueDetails(loanId, loanTransactionData, date, includeAllOutstanding);
         } catch (final EmptyResultDataAccessException e) {
             throw new LoanNotFoundException(loanId, e);
         }
     }
 
-    private LoanTransactionData retrieveLoanOverdueDetails(Long loanId, LoanTransactionData loanTransactionData, LocalDate asOnDate) {
+    private LoanTransactionData retrieveLoanOverdueDetails(Long loanId, LoanTransactionData loanTransactionData, LocalDate asOnDate,
+            boolean includeAllOutstanding) {
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         loanTransactionData.setPaymentTypeOptions(paymentOptions);
-        LoanChargesDueDTO loanChargesDue = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate);
+        LoanChargesDueDTO loanChargesDue = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate, includeAllOutstanding);
         loanTransactionData.setLoanOverdueChargeData(loanChargesDue);
         return loanTransactionData;
     }
 
-    private LoanTransactionData enrichTemplateWithProjectedOverduePenalties(final Long loanId, final LoanTransactionData template,
+    private LoanTransactionData enrichTemplateWithProjectedOverduePenalties(final Loan loan, final LoanTransactionData template,
             final LocalDate transactionDate) {
-        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
-        final BigDecimal penaltyAdjustment = overduePenaltyTemplateAdjustment(loan, transactionDate,
+        BigDecimal penaltyAdjustment = overduePenaltyTemplateAdjustment(loan, transactionDate,
                 overduePenaltyOutstandingInRepaymentBase(loan, transactionDate));
+        // For matured loans the base already includes every applied penalty (all installments, regardless of due date);
+        // still ADD any not-yet-applied penalty due up to the transaction date, but never TRIM penalties dated beyond
+        // it
+        // (clamp the adjustment at zero) — everything owed is collectible now.
+        if (loan.isMatured(transactionDate)) {
+            penaltyAdjustment = penaltyAdjustment.max(BigDecimal.ZERO);
+        }
         if (penaltyAdjustment.signum() == 0) {
             return template;
         }
@@ -770,6 +781,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         final List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
         final int firstNormalInstallmentNumber = LoanRepaymentScheduleProcessingWrapper.fetchFirstNormalInstallmentNumber(installments);
         return sumOverdueInstallmentPenaltyOutstanding(loan, charge -> {
+            // Frozen penalties (on a paid installment) are final and owed: exclude them from the reconcile base so they
+            // pass through the template untouched rather than being netted to zero once the installment is paid.
+            if (charge.isFrozenOverduePenalty()) {
+                return false;
+            }
             for (final LoanRepaymentScheduleInstallment installment : installments) {
                 if (DateUtils.isAfter(installment.getDueDate(), asOnDate)) {
                     continue;
@@ -852,8 +868,16 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         BigDecimal totalAdjusted = outstandingAmounts.getTotalOutstanding().getAmount().subtract(adjustedChargeAmount);
         // The prepayment base is the full outstanding, so it already includes every applied overdue penalty (including
         // any dated beyond the transaction date); reconcile it down to the penalties due up to the transaction date.
-        final BigDecimal penaltyAdjustment = overduePenaltyTemplateAdjustment(loan, onDate,
-                sumOverdueInstallmentPenaltyOutstanding(loan, charge -> true));
+        // Frozen penalties (on a paid installment) are final and owed, so they are excluded from the reconcile base and
+        // flow through untouched.
+        BigDecimal penaltyAdjustment = overduePenaltyTemplateAdjustment(loan, onDate,
+                sumOverdueInstallmentPenaltyOutstanding(loan, charge -> !charge.isFrozenOverduePenalty()));
+        // Matured: only ADD not-yet-applied penalty due up to the transaction date; never TRIM penalties dated beyond
+        // it
+        // (clamp at zero) — everything owed is collectible now, consistent with the other payment templates.
+        if (loan.isMatured(onDate)) {
+            penaltyAdjustment = penaltyAdjustment.max(BigDecimal.ZERO);
+        }
         // Clamp at zero so a (defensive) negative adjustment can never drive the penalty portion / total below zero.
         final BigDecimal basePenalty = outstandingAmounts.penaltyCharges().getAmount();
         final BigDecimal penaltyPortion = MathUtil.add(basePenalty, penaltyAdjustment).max(BigDecimal.ZERO);
@@ -2733,10 +2757,15 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         Money penaltyChargesOutstanding = loanRepaymentScheduleInstallment.getPenaltyChargesOutstanding(currency);
         // The foreclosure base aggregates installment-level penalty outstanding for installments due up to the closure
         // date, so it can include recurring penalty periods dated beyond it; reconcile it to the penalties due up to
-        // the
-        // transaction date (subtract excess, add not-yet-applied).
-        penaltyChargesOutstanding = penaltyChargesOutstanding.plus(Money.of(currency,
-                overduePenaltyTemplateAdjustment(loan, transactionDate, overduePenaltyOutstandingInRepaymentBase(loan, transactionDate))));
+        // the transaction date (subtract excess, add not-yet-applied).
+        BigDecimal penaltyAdjustment = overduePenaltyTemplateAdjustment(loan, transactionDate,
+                overduePenaltyOutstandingInRepaymentBase(loan, transactionDate));
+        // Matured: the base already reflects the full applied penalty (all installments); still ADD any not-yet-applied
+        // due up to the transaction date, but never TRIM penalties dated beyond it (clamp at zero) — collect full now.
+        if (loan.isMatured(transactionDate)) {
+            penaltyAdjustment = penaltyAdjustment.max(BigDecimal.ZERO);
+        }
+        penaltyChargesOutstanding = penaltyChargesOutstanding.plus(Money.of(currency, penaltyAdjustment));
         Money principalOutstanding = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency);
         Money interestOutstanding = loanRepaymentScheduleInstallment.getInterestOutstanding(currency);
         BigDecimal adjustedInterestAmount = loanRepaymentScheduleInstallment.getAdjustedInterestAmount();
@@ -2778,7 +2807,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             this.sqlGenerator = sqlGenerator;
         }
 
-        public String schema() {
+        public String schema(final boolean includeAllOutstanding) {
             StringBuilder sqlBuilder = new StringBuilder();
             sqlBuilder.append("select l.id AS loanId, ");
             sqlBuilder.append(":asOnDate as transactionDate, ");
@@ -2812,7 +2841,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     "         SUM(COALESCE(penalty_charges_amount, 0.0) - COALESCE(penalty_charges_completed_derived, 0.0) - COALESCE(penalty_charges_waived_derived, 0.0)) AS penaltyDue ");
             sqlBuilder.append("  FROM m_loan_repayment_schedule ");
             sqlBuilder.append("  WHERE loan_id = :loanId and completed_derived = false ");
-            sqlBuilder.append("   AND duedate <= :asOnDate ");
+            // Matured loans: include every unpaid installment regardless of due date so the full outstanding shows.
+            if (!includeAllOutstanding) {
+                sqlBuilder.append("   AND duedate <= :asOnDate ");
+            }
             sqlBuilder.append("  GROUP BY loan_id ");
             sqlBuilder.append(") agg ON agg.loan_id = l.id ");
             sqlBuilder.append("WHERE l.id = :loanId ");
@@ -2992,14 +3024,31 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     @Override
     public ChargePaymentTemplateData getChargePaymentTemplateDetails(Long loanId, LocalDate asOnDate) {
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
-        final LoanChargesDueDTO loanChargesDueDTO = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate);
+        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        // Once the loan is matured (as of the transaction date), every outstanding fee/penalty is collectible now —
+        // including charges parked on a post-maturity additional installment dated after the transaction date — so the
+        // as-of-date upper bound is dropped.
+        final boolean includeAllOutstanding = loan.isMatured(asOnDate);
+        final LoanChargesDueDTO loanChargesDueDTO = loanChargeReadPlatformService.fetchDueChargesAsOn(loanId, asOnDate,
+                includeAllOutstanding);
         final Collection<LoanChargeData> loanChargesDue = new ArrayList<>(loanChargesDueDTO.getFeeCharges());
         loanChargesDue.addAll(loanChargesDueDTO.getPenaltyCharges());
         // Reconcile the overdue-installment penalty line to the amount due up to the transaction date (subtract excess
         // applied within the wait period or beyond the date, add not-yet-applied).
-        final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
-        final BigDecimal penaltyAdjustment = overduePenaltyTemplateAdjustment(loan, asOnDate,
-                sumOverdueInstallmentPenaltyInChargePaymentBase(loanChargesDue, loan));
+        // The charge-payment base is the merged per-charge outstanding, which includes frozen penalties (on a paid
+        // installment). Those are final and owed, so subtract their amount from the reconcile base: only the
+        // still-accruing portion is reconciled, and the frozen amount stays in the displayed charge line.
+        final BigDecimal frozenOverduePenaltyOutstanding = sumOverdueInstallmentPenaltyOutstanding(loan,
+                charge -> charge.isFrozenOverduePenalty() && !DateUtils.isAfter(charge.getDueLocalDate(), asOnDate));
+        final BigDecimal overdueAppliedInBase = MathUtil.subtract(sumOverdueInstallmentPenaltyInChargePaymentBase(loanChargesDue, loan),
+                frozenOverduePenaltyOutstanding);
+        BigDecimal penaltyAdjustment = overduePenaltyTemplateAdjustment(loan, asOnDate, overdueAppliedInBase);
+        // Matured: only ADD not-yet-applied penalty due up to the transaction date; never TRIM penalties dated beyond
+        // it
+        // (clamp at zero), so the line reflects the full amount collectible now.
+        if (includeAllOutstanding) {
+            penaltyAdjustment = penaltyAdjustment.max(BigDecimal.ZERO);
+        }
         if (penaltyAdjustment.signum() != 0) {
             addProjectedPenaltyToOverdueInstallmentCharge(loanChargesDue, loan, penaltyAdjustment);
         }

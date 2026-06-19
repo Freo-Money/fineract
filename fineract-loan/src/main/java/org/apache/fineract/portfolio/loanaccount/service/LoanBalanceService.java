@@ -232,8 +232,22 @@ public class LoanBalanceService {
         Money totalPrincipal = Money.of(currency, loan.getSummary().getTotalPrincipalOutstanding()).minus(receivables[3]);
         final LocalDate currentDate = DateUtils.getBusinessLocalDate();
 
+        Money feeReceivable = receivables[1];
+        Money penaltyReceivable = receivables[2];
+        if (loan.isMatured(closureDate)) {
+            // Matured loan: every outstanding fee/penalty is collectible at foreclosure regardless of due date (e.g.
+            // charges parked on a post-maturity additional installment dated after the closure date), so take the full
+            // outstanding across all installments rather than only those due up to the closure date.
+            feeReceivable = Money.zero(currency);
+            penaltyReceivable = Money.zero(currency);
+            for (final LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
+                feeReceivable = feeReceivable.plus(installment.getFeeChargesOutstanding(currency));
+                penaltyReceivable = penaltyReceivable.plus(installment.getPenaltyChargesOutstanding(currency));
+            }
+        }
+
         final LoanRepaymentScheduleInstallment foreclosureDetail = new LoanRepaymentScheduleInstallment(null, 0, currentDate, currentDate,
-                totalPrincipal.getAmount(), receivables[0].getAmount(), receivables[1].getAmount(), receivables[2].getAmount(), false,
+                totalPrincipal.getAmount(), receivables[0].getAmount(), feeReceivable.getAmount(), penaltyReceivable.getAmount(), false,
                 null);
 
         return foreclosureDetail;

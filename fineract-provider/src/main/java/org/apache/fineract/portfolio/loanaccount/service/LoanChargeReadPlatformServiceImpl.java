@@ -197,11 +197,21 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
 
     @Override
     public Collection<LoanChargeData> retrieveLoanChargesDueAsOn(final Long loanId, final LocalDate dueDate) {
+        return retrieveLoanChargesDueAsOn(loanId, dueDate, false);
+    }
+
+    private Collection<LoanChargeData> retrieveLoanChargesDueAsOn(final Long loanId, final LocalDate dueDate,
+            final boolean includeAllOutstanding) {
         final LoanChargeMapper rm = new LoanChargeMapper();
-        final String sql = "select " + rm.schema()
-                + " where lc.loan_id=? AND (lc.due_for_collection_as_of_date IS NULL or lc.due_for_collection_as_of_date <= ?) AND lc.is_active = true AND lc.amount_outstanding_derived > 0 "
+        // When includeAllOutstanding (matured loan), drop the due-date upper bound so every active outstanding charge
+        // is
+        // returned regardless of its due date; otherwise keep the as-of-date window.
+        final String dueDateClause = includeAllOutstanding ? ""
+                : " AND (lc.due_for_collection_as_of_date IS NULL or lc.due_for_collection_as_of_date <= ?) ";
+        final String sql = "select " + rm.schema() + " where lc.loan_id=? " + dueDateClause
+                + " AND lc.is_active = true AND lc.amount_outstanding_derived > 0 "
                 + " order by lc.due_for_collection_as_of_date ASC, lc.charge_time_enum ASC";
-        return this.jdbcTemplate.query(sql, rm, loanId, dueDate);
+        return includeAllOutstanding ? this.jdbcTemplate.query(sql, rm, loanId) : this.jdbcTemplate.query(sql, rm, loanId, dueDate);
     }
 
     @Override
@@ -407,7 +417,12 @@ public class LoanChargeReadPlatformServiceImpl implements LoanChargeReadPlatform
 
     @Override
     public LoanChargesDueDTO fetchDueChargesAsOn(Long loanId, LocalDate date) {
-        Collection<LoanChargeData> chargesDue = retrieveLoanChargesDueAsOn(loanId, date);
+        return fetchDueChargesAsOn(loanId, date, false);
+    }
+
+    @Override
+    public LoanChargesDueDTO fetchDueChargesAsOn(Long loanId, LocalDate date, boolean includeAllOutstanding) {
+        Collection<LoanChargeData> chargesDue = retrieveLoanChargesDueAsOn(loanId, date, includeAllOutstanding);
         Map<Long, LoanChargeData> feeChargeMap = new HashMap<>();
         Map<Long, LoanChargeData> penaltyChargeMap = new HashMap<>();
 

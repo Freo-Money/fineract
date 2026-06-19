@@ -34,6 +34,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -826,11 +827,24 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
      * {@code deactivateOverdue} command and the backdated-transaction penalty recalculation.
      */
     private void deactivateOverdueLoanChargesFrom(final Loan loan, final LocalDate fromDueDate) {
+        // Command path (manual deactivateOverdue): force-deactivate every overdue penalty from the date, unchanged.
+        deactivateOverdueLoanChargesFrom(loan, fromDueDate, charge -> true);
+    }
+
+    /**
+     * As {@link #deactivateOverdueLoanChargesFrom(Loan, LocalDate)} but {@code deactivatable} lets a caller spare
+     * charges that must not be removed. The pre-transaction reconcile passes {@code !isFrozenOverduePenalty()} so a
+     * penalty on a paid installment stays intact even on a backdated transaction; the manual command passes
+     * {@code charge -> true}. NOTE: the marker-clear / accrual-reversal below is date-ranged (not charge-scoped), so in
+     * the rare backdated case where a spared frozen penalty's accrual falls on/after {@code fromDueDate} its accrual
+     * transaction may still be reversed — the charge itself (and its outstanding) remains untouched.
+     */
+    private void deactivateOverdueLoanChargesFrom(final Loan loan, final LocalDate fromDueDate, final Predicate<LoanCharge> deactivatable) {
         List<LoanCharge> loanCharges = loanChargeRepository.findByLoanIdAndFromDueDate(loan.getId(), fromDueDate);
         // Only active overdue-installment penalties are eligible for deactivation; the query also returns fees and
         // already-inactive charges (and the same charge may have been deactivated by the ineligible-installments pass),
         // which inactivateOverdueLoanCharge would reject.
-        loanCharges.stream().filter(LoanCharge::isActive).filter(LoanCharge::isOverdueInstallmentCharge)
+        loanCharges.stream().filter(LoanCharge::isActive).filter(LoanCharge::isOverdueInstallmentCharge).filter(deactivatable)
                 .forEach(this::inactivateOverdueLoanCharge);
 
         List<LoanRepaymentScheduleInstallment> repaymentScheduleInstallments = loan
@@ -853,8 +867,13 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         // Remove penalties for installments not yet past their wait-period trigger (e.g. COB may have posted early).
         deactivateOverduePenaltiesForIneligibleInstallments(loan, asOfDate);
         // Remove penalties dated after the target date (excess applied beyond it, e.g. by COB or by recurring periods
-        // up to today) so the loan reflects exactly the penalties due up to the target date...
-        deactivateOverdueLoanChargesFrom(loan, asOfDate.plusDays(1));
+        // up to today) so the loan reflects exactly the penalties due up to the target date... but never a frozen
+        // penalty on a paid installment (final and owed), so a backdated transaction cannot reduce it. For a matured
+        // loan everything owed is collectible now, so this beyond-date removal is skipped entirely (apply-only): the
+        // collected amount then matches the "collect full" templates and a backdated transaction does not trim it.
+        if (!loan.isMatured(asOfDate)) {
+            deactivateOverdueLoanChargesFrom(loan, asOfDate.plusDays(1), charge -> !charge.isFrozenOverduePenalty());
+        }
         loanRepositoryWrapper.saveAndFlush(loan);
         // ...then apply any penalties that are due up to the target date but not yet applied. NPA loans are not skipped
         // in the transaction context.
@@ -864,21 +883,18 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
 
     /**
      * Deactivates active overdue-installment penalties linked to installments that are not penalize-able as of
-     * {@code asOfDate} (penalty-wait-period not yet elapsed). When no installment is eligible, every active
-     * overdue-installment penalty on the loan is removed.
+     * {@code asOfDate} (penalty-wait-period not yet elapsed). Penalties on installments that are fully paid are
+     * {@link LoanCharge#isFrozenOverduePenalty() frozen} (final and owed) and are always spared, even when no
+     * installment is currently eligible.
      */
     private void deactivateOverduePenaltiesForIneligibleInstallments(final Loan loan, final LocalDate asOfDate) {
-        final Collection<OverdueLoanScheduleData> eligibleInstallments = loanReadPlatformService.retrieveAllOverdueInstallmentsForLoan(loan,
-                asOfDate);
-        if (eligibleInstallments.isEmpty()) {
-            loan.getCharges().stream().filter(LoanCharge::isActive).filter(LoanCharge::isOverdueInstallmentCharge)
-                    .forEach(this::inactivateOverdueLoanCharge);
-            return;
-        }
-        final Set<Integer> eligiblePeriods = eligibleInstallments.stream().map(OverdueLoanScheduleData::getPeriodNumber)
-                .collect(Collectors.toSet());
+        final Set<Integer> eligiblePeriods = loanReadPlatformService.retrieveAllOverdueInstallmentsForLoan(loan, asOfDate).stream()
+                .map(OverdueLoanScheduleData::getPeriodNumber).collect(Collectors.toSet());
+        // Iterate per-charge (no wholesale "deactivate everything when the eligible set is empty" branch): a penalty on
+        // a now-paid installment is final and owed (frozen) and must survive, even though its installment is no longer
+        // in the live overdue set.
         for (final LoanCharge loanCharge : List.copyOf(loan.getCharges())) {
-            if (!loanCharge.isActive() || !loanCharge.isOverdueInstallmentCharge()) {
+            if (!loanCharge.isActive() || !loanCharge.isOverdueInstallmentCharge() || loanCharge.isFrozenOverduePenalty()) {
                 continue;
             }
             final LoanOverdueInstallmentCharge overdueInstallmentCharge = loanCharge.getOverdueInstallmentCharge();
@@ -904,8 +920,12 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         }
         // The pre-transaction reconcile removed penalties dated after the transaction date; re-apply penalties through
         // the business date so the periods after the transaction date are recomputed on the new (reduced) outstanding.
+        // For a matured loan we use "transaction date" semantics (collect exactly what is owed as of the transaction
+        // date and never extend penalties beyond it), so the recompute is capped at the transaction date — the
+        // pre-reconcile also left beyond-date penalties intact, so this neither adds new beyond-date periods nor trims.
         final boolean skipNpaLoans = false;
-        applyOverdueChargesForLoanByLoanId(loanId, skipNpaLoans, DateUtils.getBusinessLocalDate());
+        final LocalDate recomputeThrough = loan.isMatured(transactionDate) ? transactionDate : DateUtils.getBusinessLocalDate();
+        applyOverdueChargesForLoanByLoanId(loanId, skipNpaLoans, recomputeThrough);
     }
 
     private void inactivateOverdueLoanCharge(LoanCharge loanCharge) {

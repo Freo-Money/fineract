@@ -53,4 +53,12 @@ public interface LoanChargeReadPlatformService {
     Long retrieveLoanChargeIdByExternalId(ExternalId loanChargeExternalId);
 
     LoanChargesDueDTO fetchDueChargesAsOn(Long loanId, LocalDate date);
+
+    /**
+     * As {@link #fetchDueChargesAsOn(Long, LocalDate)}, but when {@code includeAllOutstanding} is true the
+     * {@code due_for_collection_as_of_date <= date} upper bound is dropped, so every active charge with an outstanding
+     * amount is returned regardless of its due date. Used for matured loans, where all outstanding fees/penalties (e.g.
+     * charges parked on a post-maturity additional installment) are collectible now.
+     */
+    LoanChargesDueDTO fetchDueChargesAsOn(Long loanId, LocalDate date, boolean includeAllOutstanding);
 }
