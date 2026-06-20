@@ -225,8 +225,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         checkClientOrGroupActive(loan);
         loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
 
-        LoanBusinessEvent repaymentEvent = getLoanRepaymentTypeBusinessEvent(repaymentTransactionType, isRecoveryRepayment, loan,
-                transactionDate);
+        LoanBusinessEvent repaymentEvent = getLoanRepaymentTypeBusinessEvent(repaymentTransactionType, isRecoveryRepayment, loan);
         businessEventNotifierService.notifyPreBusinessEvent(repaymentEvent);
 
         // TODO: Is it required to validate transaction date with meeting dates
@@ -347,10 +346,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     }
 
     private LoanBusinessEvent getLoanRepaymentTypeBusinessEvent(LoanTransactionType repaymentTransactionType, boolean isRecoveryRepayment,
-            Loan loan, LocalDate transactionDate) {
+            Loan loan) {
         LoanBusinessEvent repaymentEvent = null;
         if (repaymentTransactionType.isRepayment()) {
-            repaymentEvent = new LoanTransactionMakeRepaymentPreBusinessEvent(loan, transactionDate);
+            repaymentEvent = new LoanTransactionMakeRepaymentPreBusinessEvent(loan);
         } else if (repaymentTransactionType.isMerchantIssuedRefund()) {
             repaymentEvent = new LoanTransactionMerchantIssuedRefundPreBusinessEvent(loan);
         } else if (repaymentTransactionType.isPayoutRefund()) {
@@ -360,7 +359,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         } else if (repaymentTransactionType.isInterestPaymentWaiver()) {
             repaymentEvent = new LoanTransactionInterestPaymentWaiverPreBusinessEvent(loan);
         } else if (repaymentTransactionType.isChargeRefund()) {
-            repaymentEvent = new LoanChargePaymentPreBusinessEvent(loan, transactionDate);
+            repaymentEvent = new LoanChargePaymentPreBusinessEvent(loan);
         } else if (isRecoveryRepayment) {
             repaymentEvent = new LoanTransactionRecoveryPaymentPreBusinessEvent(loan);
         } else if (repaymentTransactionType.isDownPayment()) {
@@ -409,7 +408,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                     + " backdated transaction is not allowed. Transaction date cannot be earlier than the charge-off date of the loan",
                     loan.getId());
         }
-        businessEventNotifierService.notifyPreBusinessEvent(new LoanChargePaymentPreBusinessEvent(loan, transactionDate));
+        businessEventNotifierService.notifyPreBusinessEvent(new LoanChargePaymentPreBusinessEvent(loan));
 
         final Money paymentAmout = Money.of(loan.getCurrency(), transactionAmount);
         final LoanTransactionType loanTransactionType = LoanTransactionType.fromInt(transactionType);
@@ -479,8 +478,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                     + " backdated transaction is not allowed. Transaction date cannot be earlier than the charge-off date of the loan",
                     loan.getId());
         }
-        // The LoanChargePaymentPreBusinessEvent (which reconciles overdue penalties) is fired by the caller
-        // (payByChargeId) BEFORE the allocations are built, so the allocations reflect any newly-applied penalty.
+        businessEventNotifierService.notifyPreBusinessEvent(new LoanChargePaymentPreBusinessEvent(loan));
 
         final Money paymentAmount = Money.of(loan.getCurrency(), totalTransactionAmount);
         final LoanTransaction newPaymentTransaction = LoanTransaction.loanPayment(null, loan.getOffice(), paymentAmount, paymentDetail,
@@ -806,7 +804,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                     loan.getId());
         }
         loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, foreClosureDate, null);
-        businessEventNotifierService.notifyPreBusinessEvent(new LoanForeClosurePreBusinessEvent(loan, foreClosureDate));
+        businessEventNotifierService.notifyPreBusinessEvent(new LoanForeClosurePreBusinessEvent(loan));
         loanBalanceService.updateLoanSummaryDerivedFields(loan);
         MonetaryCurrency currency = loan.getCurrency();
         List<Long> transactionIds = new ArrayList<>();
