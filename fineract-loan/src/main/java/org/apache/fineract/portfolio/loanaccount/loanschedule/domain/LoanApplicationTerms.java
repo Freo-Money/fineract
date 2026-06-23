@@ -1491,7 +1491,12 @@ public final class LoanApplicationTerms {
                     break;
                     case MONTHS:
                         if (daysInMonthType.isDaysInMonth_30()) {
-                            numberOfDaysInPeriod = loanTermFrequencyBigDecimal.multiply(BigDecimal.valueOf(30), mc);
+                            // Under 30/360, a broken/partial period must use the strict 30/360 day count rather than a
+                            // calendar-proportionate month fraction; the latter leaks the actual enclosing-month length
+                            // (e.g. /31) into the interest. PMT keeps the clean repayment-period basis so the
+                            // installment amount is unchanged.
+                            numberOfDaysInPeriod = isForPMT ? loanTermFrequencyBigDecimal.multiply(BigDecimal.valueOf(30), mc)
+                                    : BigDecimal.valueOf(daysInMonthType.calculateDaysInPeriod(periodStartDate, periodEndDate));
                         }
                         periodicInterestRate = oneDayOfYearInterestRate.multiply(numberOfDaysInPeriod, mc);
                     break;
@@ -1517,8 +1522,14 @@ public final class LoanApplicationTerms {
                 }
             break;
             case SAME_AS_REPAYMENT_PERIOD:
+                BigDecimal frequencyForRate = loanTermFrequencyBigDecimal;
+                if (!isForPMT && this.repaymentPeriodFrequencyType.isMonthly() && daysInMonthType.isDaysInMonth_30()) {
+                    // Express the (possibly broken) period length in strict 30/360 months: 30/360 day count / 30.
+                    frequencyForRate = BigDecimal.valueOf(daysInMonthType.calculateDaysInPeriod(periodStartDate, periodEndDate))
+                            .divide(BigDecimal.valueOf(30), mc);
+                }
                 periodicInterestRate = this.annualNominalInterestRate.divide(loanTermPeriodsInYearBigDecimal, mc).divide(divisor, mc)
-                        .multiply(loanTermFrequencyBigDecimal);
+                        .multiply(frequencyForRate);
             break;
         }
 
