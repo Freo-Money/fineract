@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.infrastructure.event.business.domain.loan.transaction;
 
+import java.time.LocalDate;
 import org.apache.fineract.infrastructure.event.business.domain.loan.LoanBusinessEvent;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 
@@ -25,8 +26,19 @@ public class LoanChargePaymentPreBusinessEvent extends LoanBusinessEvent {
 
     private static final String TYPE = "LoanChargePaymentPreBusinessEvent";
 
+    private final LocalDate transactionDate;
+
     public LoanChargePaymentPreBusinessEvent(Loan value) {
+        this(value, null);
+    }
+
+    public LoanChargePaymentPreBusinessEvent(Loan value, LocalDate transactionDate) {
         super(value);
+        this.transactionDate = transactionDate;
+    }
+
+    public LocalDate getTransactionDate() {
+        return transactionDate;
     }
 
     @Override

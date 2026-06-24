@@ -294,6 +294,29 @@ public class LoanCharge extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         return ChargeTimeType.fromInt(this.chargeTime).equals(ChargeTimeType.OVERDUE_INSTALLMENT);
     }
 
+    /**
+     * Whether this is an overdue-installment penalty that links back to a real triggering installment (as opposed to
+     * the synthetic post-maturity bucket). Used to decide if its wait-period trigger can be evaluated.
+     */
+    public boolean hasLinkedOverdueInstallment() {
+        return isOverdueInstallmentCharge() && this.overdueInstallmentCharge != null
+                && this.overdueInstallmentCharge.getInstallment() != null;
+    }
+
+    /**
+     * Whether this overdue-installment penalty's triggering installment is past its penalty-wait-period as of
+     * {@code asOfDate}. Uses the linked installment's due date (not the additional post-maturity bucket). Returns
+     * {@code false} when not an overdue-installment charge or there is no linked installment.
+     */
+    public boolean isOverdueInstallmentPenaltyTriggeredAsOf(final LocalDate asOfDate) {
+        if (!hasLinkedOverdueInstallment()) {
+            return false;
+        }
+        final int penaltyWaitPeriod = this.charge != null && this.charge.getPenaltyWaitPeriod() != null ? this.charge.getPenaltyWaitPeriod()
+                : 0;
+        return this.overdueInstallmentCharge.getInstallment().isOverdueOn(asOfDate.minusDays(penaltyWaitPeriod).plusDays(1));
+    }
+
     private static boolean isGreaterThanZero(final BigDecimal value) {
         return value.compareTo(BigDecimal.ZERO) > 0;
     }
