@@ -36,6 +36,7 @@ public interface LoanTransactionMapper {
     @Mapping(target = "classificationOptions", ignore = true)
     @Mapping(target = "paymentTypeOptions", ignore = true)
     @Mapping(target = "overpaymentPortion", ignore = true)
+    @Mapping(target = "excessPaymentPortion", expression = "java(loanTransaction.getExcessPaymentPortion() != null ? loanTransaction.getExcessPaymentPortion() : java.math.BigDecimal.ZERO)")
     @Mapping(target = "adjustedInterestPortion", ignore = true)
     @Mapping(target = "transfer", ignore = true)
     @Mapping(target = "fixedEmiAmount", ignore = true)

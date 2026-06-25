@@ -108,6 +108,12 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             final List<LoanTransaction> transactionsPostDisbursement, final MonetaryCurrency currency,
             final List<LoanRepaymentScheduleInstallment> installments, final Set<LoanCharge> charges) {
 
+        if (!transactionsPostDisbursement.isEmpty()) {
+            final Loan loan = transactionsPostDisbursement.get(0).getLoan();
+            loan.subtractFromTotalExcessPaymentAmount(
+                    Money.of(loan.getCurrency(), Optional.ofNullable(loan.getTotalExcessPaymentAmount()).orElse(BigDecimal.ZERO)));
+        }
+
         if (charges != null) {
             for (final LoanCharge loanCharge : charges) {
                 if (!loanCharge.isDueAtDisbursement()) {
@@ -648,28 +654,125 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         if (amountToProcess != null) {
             transactionAmountUnprocessed = amountToProcess;
         }
-        List<LoanTransactionToRepaymentScheduleMapping> transactionMappings = new ArrayList<>();
+        final boolean systemGenerated = isSystemGeneratedTransaction(loanTransaction);
+        final Loan loan = loanTransaction.getLoan();
+        final boolean enableParking = loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking();
 
-        for (final LoanRepaymentScheduleInstallment currentInstallment : installments) {
-            if (transactionAmountUnprocessed.isGreaterThanZero()) {
-                if (currentInstallment.isNotFullyPaidOff()) {
-                    if (isTransactionInAdvanceOfInstallment(installmentIndex, installments, transactionDate)) {
-                        transactionAmountUnprocessed = handleTransactionThatIsPaymentInAdvanceOfInstallment(currentInstallment,
-                                installments, loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
-                    } else if (isTransactionALateRepaymentOnInstallment(installmentIndex, installments, transactionDate)) {
-                        transactionAmountUnprocessed = handleTransactionThatIsALateRepaymentOfInstallment(currentInstallment, installments,
-                                loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
-                    } else {
-                        transactionAmountUnprocessed = handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment,
-                                loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
-                    }
+        if (systemGenerated) {
+            loanTransaction.setExcessPayment(Money.zero(currency));
+            List<LoanTransactionToRepaymentScheduleMapping> transactionMappings = new ArrayList<>();
+
+            for (final LoanRepaymentScheduleInstallment currentInstallment : installments) {
+                if (transactionAmountUnprocessed.isZero()) {
+                    break;
+                }
+                if (currentInstallment.isNotFullyPaidOff() && !currentInstallment.getDueDate().isAfter(transactionDate)) {
+                    transactionAmountUnprocessed = handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment, loanTransaction,
+                            transactionAmountUnprocessed, transactionMappings, charges);
                 }
             }
 
-            installmentIndex++;
+            loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+            if (loan.getTotalExcessPaymentAmount() != null && loan.getTotalExcessPaymentAmount().compareTo(BigDecimal.ZERO) > 0) {
+
+                Money consumedAmount = loanTransaction.getAmount(currency);
+                loan.subtractFromTotalExcessPaymentAmount(consumedAmount);
+
+            }
+
+            return transactionAmountUnprocessed;
         }
+
+        if (!enableParking) {
+            List<LoanTransactionToRepaymentScheduleMapping> transactionMappings = new ArrayList<>();
+
+            for (final LoanRepaymentScheduleInstallment currentInstallment : installments) {
+                if (transactionAmountUnprocessed.isGreaterThanZero()) {
+                    if (currentInstallment.isNotFullyPaidOff()) {
+                        if (isTransactionInAdvanceOfInstallment(installmentIndex, installments, transactionDate)) {
+                            transactionAmountUnprocessed = handleTransactionThatIsPaymentInAdvanceOfInstallment(currentInstallment,
+                                    installments, loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
+                        } else if (isTransactionALateRepaymentOnInstallment(installmentIndex, installments, transactionDate)) {
+                            transactionAmountUnprocessed = handleTransactionThatIsALateRepaymentOfInstallment(currentInstallment,
+                                    installments, loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
+                        } else {
+                            transactionAmountUnprocessed = handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment,
+                                    loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
+                        }
+                    }
+                }
+
+                installmentIndex++;
+            }
+            loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+            return transactionAmountUnprocessed;
+        }
+
+        // EXCESS PAYMENT PARKING FLOW
+        List<LoanTransactionToRepaymentScheduleMapping> transactionMappings = new ArrayList<>();
+
+        for (final LoanRepaymentScheduleInstallment currentInstallment : installments) {
+            if (transactionAmountUnprocessed.isZero()) {
+                break;
+            }
+            if (!currentInstallment.isNotFullyPaidOff()) {
+                continue;
+            }
+
+            // BEFORE DUE DATE
+            if (transactionDate.isBefore(currentInstallment.getDueDate())) {
+
+                loanTransaction.updateTransactionMetaData("{\"transactionSubType\":\"EXCESS_SETTLEMENT\"}");
+                loanTransaction.setExcessPayment(transactionAmountUnprocessed);
+                updateTotalExcessPayment(loanTransaction, transactionAmountUnprocessed);
+
+                loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+
+                return Money.zero(currency);
+            }
+
+            // DUE / LATE PAYMENT
+            if (!currentInstallment.getDueDate().isAfter(transactionDate)) {
+
+                Money outstanding = currentInstallment.getTotalOutstanding(currency);
+
+                Money toApply = transactionAmountUnprocessed.isGreaterThan(outstanding) ? outstanding : transactionAmountUnprocessed;
+
+                if (toApply.isGreaterThanZero()) {
+                    transactionAmountUnprocessed = handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment, loanTransaction,
+                            transactionAmountUnprocessed, transactionMappings, charges);
+                }
+            }
+        }
+
+        // Remaining amount parked as EXCESS
+
+        if (transactionAmountUnprocessed.isGreaterThanZero()) {
+
+            loanTransaction.updateTransactionMetaData("{\"transactionSubType\":\"EXCESS_SETTLEMENT\"}");
+            loanTransaction.setExcessPayment(transactionAmountUnprocessed);
+
+            updateTotalExcessPayment(loanTransaction, transactionAmountUnprocessed);
+        }
+
         loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
-        return transactionAmountUnprocessed;
+
+        return Money.zero(currency);
+    }
+
+    private void updateTotalExcessPayment(final LoanTransaction loanTransaction, final Money excessAmount) {
+
+        if (loanTransaction == null || excessAmount == null || !excessAmount.isGreaterThanZero() || loanTransaction.isReversed()
+                || isSystemGeneratedTransaction(loanTransaction)) {
+            return;
+        }
+
+        loanTransaction.getLoan().addToTotalExcessPaymentAmount(excessAmount);
+    }
+
+    private boolean isSystemGeneratedTransaction(final LoanTransaction tx) {
+
+        return tx != null && tx.getTypeOf() == LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT;
     }
 
     protected Set<LoanCharge> extractFeeCharges(final Set<LoanCharge> loanCharges) {

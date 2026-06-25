@@ -1097,7 +1097,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " l.total_expected_costofloan_derived as totalExpectedCostOfLoan, l.total_costofloan_derived as totalCostOfLoan,"
                     + " l.total_waived_derived as totalWaived, l.total_writtenoff_derived as totalWrittenOff,"
                     + " l.writeoff_reason_cv_id as writeoffReasonId, codev.code_value as writeoffReason,"
-                    + " l.total_outstanding_derived as totalOutstanding, l.total_overpaid_derived as totalOverpaid,"
+                    + " l.total_outstanding_derived as totalOutstanding, l.total_overpaid_derived as totalOverpaid, l.total_excess_payment_amount as totalExcessPaymentAmount,"
                     + " l.fixed_emi_amount as fixedEmiAmount, l.max_outstanding_loan_balance as outstandingLoanBalance,"
                     + " l.loan_sub_status_id as loanSubStatusId, la.principal_overdue_derived as principalOverdue, l.is_fraud as isFraud, "
                     + " l.custom_schedule_defined as customScheduleDefined, "
@@ -1135,7 +1135,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " lp.can_use_for_topup as canUseForTopup, l.is_topup as isTopup, topup.closure_loan_id as closureLoanId, "
                     + " l.total_recovered_derived as totalRecovered, topuploan.account_no as closureLoanAccountNo, "
                     + " topup.topup_amount as topupAmount, l.last_closed_business_date as lastClosedBusinessDate,l.overpaidon_date as overpaidOnDate, "
-                    + " l.is_charged_off as isChargedOff, l.charge_off_reason_cv_id as chargeOffReasonId, codec.code_value as chargeOffReason, l.charged_off_on_date as chargedOffOnDate, l.enable_down_payment as enableDownPayment, l.disbursed_amount_percentage_for_down_payment as disbursedAmountPercentageForDownPayment, l.enable_auto_repayment_for_down_payment as enableAutoRepaymentForDownPayment,"
+                    + " l.is_charged_off as isChargedOff, l.charge_off_reason_cv_id as chargeOffReasonId, codec.code_value as chargeOffReason, l.charged_off_on_date as chargedOffOnDate, l.enable_down_payment as enableDownPayment, l.enable_excess_payment_parking as enableExcessPaymentParking, l.disbursed_amount_percentage_for_down_payment as disbursedAmountPercentageForDownPayment, l.enable_auto_repayment_for_down_payment as enableAutoRepaymentForDownPayment,"
                     + " cobu.username as chargedOffByUsername, cobu.firstname as chargedOffByFirstname, cobu.lastname as chargedOffByLastname, l.loan_schedule_type as loanScheduleType, l.loan_schedule_processing_type as loanScheduleProcessingType, "
                     + " l.broken_period_interest as brokenPeriodInterest,"
                     + " l.charge_off_behaviour as chargeOffBehaviour, l.interest_recognition_on_disbursement_date as interestRecognitionOnDisbursementDate, " //
@@ -1393,7 +1393,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                 final BigDecimal penaltyChargesWrittenOff = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penaltyChargesWrittenOff");
                 final BigDecimal penaltyChargesOutstanding = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penaltyChargesOutstanding");
                 final BigDecimal penaltyChargesOverdue = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penaltyChargesOverdue");
-
+                final BigDecimal totalExcessPaymentAmount = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "totalExcessPaymentAmount");
                 final BigDecimal totalExpectedRepayment = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "totalExpectedRepayment");
                 final BigDecimal totalRepayment = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "totalRepayment");
                 final BigDecimal totalExpectedCostOfLoan = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "totalExpectedCostOfLoan");
@@ -1425,7 +1425,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                         .totalWaived(totalWaived).totalWrittenOff(totalWrittenOff).totalOutstanding(totalOutstanding)
                         .totalOverdue(totalOverdue).overdueSinceDate(overdueSinceDate).writeoffReasonId(writeoffReasonId)
                         .writeoffReason(writeoffReason).totalRecovered(totalRecovered).chargeOffReasonId(chargeOffReasonId)
-                        .chargeOffReason(chargeOffReason).build();
+                        .chargeOffReason(chargeOffReason).totalExcessPaymentAmount(totalExcessPaymentAmount).build();
 
             }
 
@@ -1521,6 +1521,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             final LocalDate overpaidOnDate = JdbcSupport.getLocalDate(rs, "overpaidOnDate");
 
             final boolean enableDownPayment = rs.getBoolean("enableDownPayment");
+            final boolean enableExcessPaymentParking = rs.getBoolean("enableExcessPaymentParking");
             final BigDecimal disbursedAmountPercentageForDownPayment = rs.getBigDecimal("disbursedAmountPercentageForDownPayment");
             final boolean enableAutoRepaymentForDownPayment = rs.getBoolean("enableAutoRepaymentForDownPayment");
             final boolean enableInstallmentLevelDelinquency = rs.getBoolean("enableInstallmentLevelDelinquency");
@@ -1567,12 +1568,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     createStandingInstructionAtDisbursement, isvariableInstallmentsAllowed, minimumGap, maximumGap, loanSubStatus,
                     canUseForTopup, isTopup, closureLoanId, closureLoanAccountNo, topupAmount, isEqualAmortization,
                     fixedPrincipalPercentagePerInstallment, delinquencyRange, disallowExpectedDisbursements, isFraud,
-                    lastClosedBusinessDate, overpaidOnDate, isChargedOff, enableDownPayment, disbursedAmountPercentageForDownPayment,
-                    enableAutoRepaymentForDownPayment, enableInstallmentLevelDelinquency, loanScheduleType.asEnumOptionData(),
-                    loanScheduleProcessingType.asEnumOptionData(), fixedLength, chargeOffBehaviour.getValueAsStringEnumOptionData(),
-                    interestRecognitionOnDisbursementDate, daysInYearCustomStrategy, enableIncomeCapitalization,
-                    capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
-                    buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, brokenPeriodInterest);
+                    lastClosedBusinessDate, overpaidOnDate, isChargedOff, enableDownPayment, enableExcessPaymentParking,
+                    disbursedAmountPercentageForDownPayment, enableAutoRepaymentForDownPayment, enableInstallmentLevelDelinquency,
+                    loanScheduleType.asEnumOptionData(), loanScheduleProcessingType.asEnumOptionData(), fixedLength,
+                    chargeOffBehaviour.getValueAsStringEnumOptionData(), interestRecognitionOnDisbursementDate, daysInYearCustomStrategy,
+                    enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType,
+                    enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee,
+                    brokenPeriodInterest);
 
             // Set BPI configuration
             String bpiMethodType = (brokenPeriodConfig != null && brokenPeriodConfig.getBrokenPeriodMethodType() != null)
@@ -2021,6 +2023,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + ", tr.amount as total, tr.principal_portion_derived as principal, tr.interest_portion_derived as interest, "
                     + " tr.fee_charges_portion_derived as fees, tr.penalty_charges_portion_derived as penalties,  "
                     + " tr.overpayment_portion_derived as overpayment, tr.outstanding_loan_balance_derived as outstandingLoanBalance, "
+                    + " tr.excess_payment_portion as excessPayment, "
                     + " tr.unrecognized_income_portion as unrecognizedIncome, tr.submitted_on_date as submittedOnDate, "
                     + " tr.manually_adjusted_or_reversed as manuallyReversed, tr.reversal_external_id as reversalExternalId, tr.reversed_on_date as reversedOnDate, "
                     + " pd.payment_type_id as paymentType,pd.account_number as accountNumber,pd.check_number as checkNumber, "
@@ -2095,6 +2098,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             final BigDecimal feeChargesPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "fees");
             final BigDecimal penaltyChargesPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "penalties");
             final BigDecimal overPaymentPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "overpayment");
+            final BigDecimal excessPaymentPortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "excessPayment");
             final BigDecimal unrecognizedIncomePortion = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "unrecognizedIncome");
             final BigDecimal outstandingLoanBalance = JdbcSupport.getBigDecimalDefaultToZeroIfNull(rs, "outstandingLoanBalance");
             final String externalIdStr = rs.getString("externalId");
@@ -2133,10 +2137,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     .paymentDetailData(paymentDetailData).currency(currencyData).date(date).amount(totalAmount)
                     .netDisbursalAmount(netDisbursalAmount).principalPortion(principalPortion).interestPortion(interestPortion)
                     .feeChargesPortion(feeChargesPortion).penaltyChargesPortion(penaltyChargesPortion)
-                    .overpaymentPortion(overPaymentPortion).unrecognizedIncomePortion(unrecognizedIncomePortion).externalId(externalId)
-                    .transfer(transfer).outstandingLoanBalance(outstandingLoanBalance).submittedOnDate(submittedOnDate)
-                    .manuallyReversed(manuallyReversed).reversalExternalId(reversalExternalId).reversedOnDate(reversedOnDate).loanId(loanId)
-                    .externalLoanId(externalLoanId).classification(classificationData).transactionMetaData(transactionMetaData).build();
+                    .overpaymentPortion(overPaymentPortion).excessPaymentPortion(excessPaymentPortion)
+                    .unrecognizedIncomePortion(unrecognizedIncomePortion).externalId(externalId).transfer(transfer)
+                    .outstandingLoanBalance(outstandingLoanBalance).submittedOnDate(submittedOnDate).manuallyReversed(manuallyReversed)
+                    .reversalExternalId(reversalExternalId).reversedOnDate(reversedOnDate).loanId(loanId).externalLoanId(externalLoanId)
+                    .classification(classificationData).transactionMetaData(transactionMetaData).build();
         }
     }
 
