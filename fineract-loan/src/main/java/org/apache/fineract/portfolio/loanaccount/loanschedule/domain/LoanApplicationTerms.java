@@ -1118,11 +1118,25 @@ public final class LoanApplicationTerms {
             case DECLINING_BALANCE:
 
                 Boolean isBrokenPeriodApplicable = this.isBrokenPeriodApplicable(periodNumber, periodStartDate, getIdealDisbursementDate());
+                // Separately-rounded interest for the broken first sub-period when no BPI strategy is configured.
+                Money brokenFirstPeriodSplitInterest = null;
                 if (isBrokenPeriodApplicable && bpiConfig != null && (bpiConfig.getStrategy().isAddToFirstInstallmentEmi()
                         || bpiConfig.getStrategy().isAddToFirstInstallmentWithPrincipalGrace())) {
                     brokenPeriodInterestForInstallment = calculateDecliningBrokenPeriodInterestDueForInstallment(calculator, mc,
                             outstandingBalance, periodStartDate, getIdealDisbursementDate(), bpiConfig);
                     this.brokenPeriodInterest = brokenPeriodInterestForInstallment;
+                    periodStartDate = getIdealDisbursementDate();
+                } else if (isBrokenPeriodApplicable && bpiConfig == null && this.daysInMonthType.isDaysInMonth_30()) {
+                    // No BPI strategy configured, but the first period is broken under a 30/360 day count. The
+                    // source-of-truth schedule rounds the broken stub (disbursement -> ideal disbursement) and the
+                    // first whole month (ideal disbursement -> first due date) independently and sums them, rather
+                    // than rounding the combined broken period once. Rounding each sub-period separately can differ
+                    // by the currency's smallest unit (sum-of-rounded vs rounded-sum). Reproduce that here by
+                    // computing the stub leg on its own and letting the regular calc below cover the whole month.
+                    // The EMI is unchanged: this only redistributes the rounding within the first installment's
+                    // interest, and brokenPeriodInterest is left null so the schedule generator does not add it again.
+                    brokenFirstPeriodSplitInterest = calculateDecliningInterestDueForInstallmentBeforeApplyingGrace(calculator, mc,
+                            outstandingBalance, periodStartDate, getIdealDisbursementDate());
                     periodStartDate = getIdealDisbursementDate();
                 }
 
@@ -1141,6 +1155,14 @@ public final class LoanApplicationTerms {
                     interestForInstallment = interestForInstallment.zero();
                 } else {
                     interestBroughtForwardDueToGrace = interestBroughtForwardDueToGrace.plus(interestForThisInstallmentBeforeGrace);
+                }
+                if (brokenFirstPeriodSplitInterest != null && interestForThisInstallmentAfterGrace.isGreaterThanZero()) {
+                    // Add the separately-rounded broken stub interest on top of the (separately-rounded) first whole
+                    // month, so the first installment's interest is round(stub) + round(month). Only added when the
+                    // first month actually charges interest this period: if it was waived or deferred by any grace
+                    // (interest-payment grace, interest-free grace, or an interest-charged-from-date fraction), the
+                    // after-grace month interest is zero and the stub must not leak through.
+                    interestForInstallment = interestForInstallment.plus(brokenFirstPeriodSplitInterest);
                 }
                 if (periodNumber == 1 && isPrincipalGraceApplicableForThisPeriod(periodNumber)
                         && this.additionalPrincipalGracePeriodRequired != null && this.additionalPrincipalGracePeriodRequired
@@ -1523,8 +1545,11 @@ public final class LoanApplicationTerms {
             break;
             case SAME_AS_REPAYMENT_PERIOD:
                 BigDecimal frequencyForRate = loanTermFrequencyBigDecimal;
-                if (!isForPMT && this.repaymentPeriodFrequencyType.isMonthly() && daysInMonthType.isDaysInMonth_30()) {
+                if (!isForPMT && this.repaymentPeriodFrequencyType.isMonthly() && daysInMonthType.isDaysInMonth_30()
+                        && this.allowPartialPeriodInterestCalcualtion) {
                     // Express the (possibly broken) period length in strict 30/360 months: 30/360 day count / 30.
+                    // Gated on partial-period interest so flat same-as-repayment products (which charge one full
+                    // repayment period for a broken first period) are left unchanged.
                     frequencyForRate = BigDecimal.valueOf(daysInMonthType.calculateDaysInPeriod(periodStartDate, periodEndDate))
                             .divide(BigDecimal.valueOf(30), mc);
                 }
