@@ -70,5 +70,9 @@ public interface LoanTransactionMapper {
     @Mapping(target = "loanOverdueChargeData", ignore = true)
     @Mapping(target = "foreclosureChargePercentageMap", ignore = true)
     @Mapping(target = "transactionMetaData", expression = "java(org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData.deserialize(loanTransaction.getTransactionMetaData()))")
+    @Mapping(target = "createdByUsername", ignore = true)
+    @Mapping(target = "createdOnDate", ignore = true)
+    @Mapping(target = "lastModifiedByUsername", ignore = true)
+    @Mapping(target = "lastModifiedOnDate", ignore = true)
     LoanTransactionData mapLoanTransaction(LoanTransaction loanTransaction);
 }
