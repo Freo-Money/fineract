@@ -22,6 +22,7 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -108,6 +109,11 @@ public class LoanTransactionData implements Serializable {
     private transient String transactionType;
     @Setter
     private List<LoanRepaymentScheduleInstallmentData> loanRepaymentScheduleInstallments;
+
+    private String createdByUsername;
+    private OffsetDateTime createdOnDate;
+    private String lastModifiedByUsername;
+    private OffsetDateTime lastModifiedOnDate;
 
     // Reverse Data
     private final ExternalId reversalExternalId;

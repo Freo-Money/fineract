@@ -27,6 +27,7 @@ import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -2035,14 +2036,18 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " totran.id as toTransferId, totran.is_reversed as toTransferReversed, "
                     + " totran.transaction_date as toTransferDate, totran.amount as toTransferAmount, "
                     + " clcv.id as classificationCodeId, clcv.code_value as classificationCodeValue, "
-                    + " tr.transaction_meta_data as transactionMetaData, "
-                    + " totran.description as toTransferDescription from m_loan l join m_loan_transaction tr on tr.loan_id = l.id "
-                    + " join m_currency rc on rc." + sqlGenerator.escape("code") + " = l.currency_code "
-                    + " left JOIN m_payment_detail pd ON tr.payment_detail_id = pd.id"
+                    + " tr.transaction_meta_data as transactionMetaData, " + " totran.description as toTransferDescription, "
+                    + " case when cb.is_self_service_user = false then tr.created_on_utc end as createdOnDate, "
+                    + " case when cb.is_self_service_user = false then cb.firstname end as createdByUsername, "
+                    + " case when mb.is_self_service_user = false then tr.last_modified_on_utc end as lastModifiedOnDate, "
+                    + " case when mb.is_self_service_user = false then mb.firstname end as lastModifiedByUsername "
+                    + " from m_loan l join m_loan_transaction tr on tr.loan_id = l.id " + " join m_currency rc on rc."
+                    + sqlGenerator.escape("code") + " = l.currency_code " + " left JOIN m_payment_detail pd ON tr.payment_detail_id = pd.id"
                     + " left join m_payment_type pt on pd.payment_type_id = pt.id left join m_office office on office.id=tr.office_id"
                     + " left join m_account_transfer_transaction fromtran on fromtran.from_loan_transaction_id = tr.id "
                     + " left join m_account_transfer_transaction totran on totran.to_loan_transaction_id = tr.id "
-                    + " left join m_code_value clcv on clcv.id = tr.classification_cv_id ";
+                    + " left join m_code_value clcv on clcv.id = tr.classification_cv_id "
+                    + " left join m_appuser cb on cb.id = tr.created_by " + " left join m_appuser mb on mb.id = tr.last_modified_by ";
         }
 
         @Override
@@ -2129,6 +2134,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             // Deserialize transactionMetaData from JSON string
             TransactionMetaData transactionMetaData = TransactionMetaData.deserialize(rs.getString("transactionMetaData"));
 
+            final String createdByUsername = rs.getString("createdByUsername");
+            final OffsetDateTime createdOnDate = JdbcSupport.getOffsetDateTime(rs, "createdOnDate");
+            final String lastModifiedByUsername = rs.getString("lastModifiedByUsername");
+            final OffsetDateTime lastModifiedOnDate = JdbcSupport.getOffsetDateTime(rs, "lastModifiedOnDate");
+
             return LoanTransactionData.builder().id(id).officeId(officeId).officeName(officeName).type(transactionType)
                     .paymentDetailData(paymentDetailData).currency(currencyData).date(date).amount(totalAmount)
                     .netDisbursalAmount(netDisbursalAmount).principalPortion(principalPortion).interestPortion(interestPortion)
@@ -2136,7 +2146,9 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     .overpaymentPortion(overPaymentPortion).unrecognizedIncomePortion(unrecognizedIncomePortion).externalId(externalId)
                     .transfer(transfer).outstandingLoanBalance(outstandingLoanBalance).submittedOnDate(submittedOnDate)
                     .manuallyReversed(manuallyReversed).reversalExternalId(reversalExternalId).reversedOnDate(reversedOnDate).loanId(loanId)
-                    .externalLoanId(externalLoanId).classification(classificationData).transactionMetaData(transactionMetaData).build();
+                    .externalLoanId(externalLoanId).classification(classificationData).transactionMetaData(transactionMetaData)
+                    .createdByUsername(createdByUsername).createdOnDate(createdOnDate).lastModifiedByUsername(lastModifiedByUsername)
+                    .lastModifiedOnDate(lastModifiedOnDate).build();
         }
     }
 
