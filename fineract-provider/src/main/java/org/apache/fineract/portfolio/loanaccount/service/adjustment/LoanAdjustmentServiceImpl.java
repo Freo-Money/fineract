@@ -348,6 +348,24 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
             }
         }
 
+        // A waive (interest or charges) on an NPA loan creates an ACCRUAL_WRITEOFF to write off the accrued-but-waived
+        // income. When the waive is reversed, that write-off must be reversed too, otherwise the accrual receivable and
+        // its GL entries stay understated. Note: we intentionally do NOT gate on loan.isNpa() here, because the loan
+        // may
+        // have cured (no longer NPA) between the waive and this reversal; the write-off still exists and must be
+        // undone.
+        // The matcher returns null when no write-off exists, so this is a no-op for loans that never had one.
+        if ((transactionForAdjustment.getTypeOf().isWaiveInterest() || transactionForAdjustment.getTypeOf().isWaiveCharges())
+                && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            LoanTransaction accrualWriteoff = findMatchingAccrualWriteoffTransaction(loan, transactionForAdjustment);
+            if (accrualWriteoff != null) {
+                accrualWriteoff.reverse(reversalExternalId);
+                accrualWriteoff.manuallyAdjustedOrReversed();
+                loanTransactionRepository.saveAndFlush(accrualWriteoff);
+                journalEntryPoster.postJournalEntriesForLoanTransaction(accrualWriteoff, false, false);
+            }
+        }
+
         if (transactionForAdjustment.getTypeOf().equals(LoanTransactionType.MERCHANT_ISSUED_REFUND)
                 || transactionForAdjustment.getTypeOf().equals(LoanTransactionType.PAYOUT_REFUND)) {
             loan.getLoanTransactions().stream() //
@@ -434,6 +452,31 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
         return loan.getLoanTransactions().stream().filter(t -> t.getTypeOf().equals(LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE))
                 .filter(t -> t.getTransactionDate().equals(transactionDate)).filter(LoanTransaction::isNotReversed)
                 .filter(t -> matchesChargePayment(t, paymentInterest, paymentFee, paymentPenalty))
+                .max(Comparator.comparing(this::calculateTotalTransactionAmount)).orElse(null);
+    }
+
+    /**
+     * Finds the ACCRUAL_WRITEOFF transaction created when a waive (interest or charges) was applied, so it can be
+     * reversed alongside the waive. There is no stored relation between the two, so it is matched by transaction date
+     * and by exact interest/fee/penalty portions (the waive transaction and its write-off carry the same portions). If
+     * multiple candidates share the same date, the one with the highest total amount is chosen.
+     */
+    private LoanTransaction findMatchingAccrualWriteoffTransaction(final Loan loan, final LoanTransaction waiveTransaction) {
+        BigDecimal waivedInterest = MathUtil.nullToZero(waiveTransaction.getInterestPortion());
+        BigDecimal waivedFee = MathUtil.nullToZero(waiveTransaction.getFeeChargesPortion());
+        BigDecimal waivedPenalty = MathUtil.nullToZero(waiveTransaction.getPenaltyChargesPortion());
+
+        if (!MathUtil.isGreaterThanZero(MathUtil.add(waivedInterest, waivedFee, waivedPenalty))) {
+            return null;
+        }
+
+        LocalDate transactionDate = waiveTransaction.getTransactionDate();
+
+        return loan.getLoanTransactions().stream().filter(t -> t.getTypeOf().isAccrualWriteoff())
+                .filter(t -> t.getTransactionDate().equals(transactionDate)).filter(LoanTransaction::isNotReversed)
+                .filter(t -> MathUtil.nullToZero(t.getInterestPortion()).compareTo(waivedInterest) == 0
+                        && MathUtil.nullToZero(t.getFeeChargesPortion()).compareTo(waivedFee) == 0
+                        && MathUtil.nullToZero(t.getPenaltyChargesPortion()).compareTo(waivedPenalty) == 0)
                 .max(Comparator.comparing(this::calculateTotalTransactionAmount)).orElse(null);
     }
 
