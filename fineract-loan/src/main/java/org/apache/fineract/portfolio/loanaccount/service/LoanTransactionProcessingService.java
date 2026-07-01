@@ -46,6 +46,17 @@ public interface LoanTransactionProcessingService {
             List<LoanTransaction> repaymentsOrWaivers, MonetaryCurrency currency,
             List<LoanRepaymentScheduleInstallment> repaymentScheduleInstallments, Set<LoanCharge> charges);
 
+    /**
+     * Migration-cutoff-aware overload. When {@code migrationCutoffDate} is non-null, transactions with
+     * {@code transactionDate < migrationCutoffDate} are honored as-is (their stored allocations are preserved) and only
+     * transactions on or after the cutoff flow through the strategy. Loans handled by the advanced (progressive
+     * interest) processor do not honor the migration cutoff — see {@code LoanTransactionProcessingServiceImpl} for the
+     * dispatching warn.
+     */
+    ChangedTransactionDetail reprocessLoanTransactions(String transactionProcessingStrategyCode, LocalDate disbursementDate,
+            List<LoanTransaction> repaymentsOrWaivers, MonetaryCurrency currency,
+            List<LoanRepaymentScheduleInstallment> repaymentScheduleInstallments, Set<LoanCharge> charges, LocalDate migrationCutoffDate);
+
     LoanRepaymentScheduleTransactionProcessor getTransactionProcessor(String transactionProcessingStrategyCode);
 
     Optional<ChangedTransactionDetail> processPostDisbursementTransactions(Loan loan);

@@ -36,6 +36,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
@@ -54,6 +55,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleProcessingWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionComparator;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRelation;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRelationTypeEnum;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionToRepaymentScheduleMapping;
@@ -77,6 +79,7 @@ import org.springframework.util.CollectionUtils;
  * @see HeavensFamilyLoanRepaymentScheduleTransactionProcessor
  * @see CreocoreLoanRepaymentScheduleTransactionProcessor
  */
+@Slf4j
 @RequiredArgsConstructor
 public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implements LoanRepaymentScheduleTransactionProcessor {
 
@@ -107,6 +110,39 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
     public ChangedTransactionDetail reprocessLoanTransactions(final LocalDate disbursementDate,
             final List<LoanTransaction> transactionsPostDisbursement, final MonetaryCurrency currency,
             final List<LoanRepaymentScheduleInstallment> installments, final Set<LoanCharge> charges) {
+        return reprocessLoanTransactions(disbursementDate, transactionsPostDisbursement, currency, installments, charges, null);
+    }
+
+    @Override
+    public ChangedTransactionDetail reprocessLoanTransactions(final LocalDate disbursementDate,
+            final List<LoanTransaction> transactionsPostDisbursement, final MonetaryCurrency currency,
+            final List<LoanRepaymentScheduleInstallment> installments, final Set<LoanCharge> charges, final LocalDate migrationCutoffDate) {
+
+        // Partition transactions into pre-migration (immutable) and post-cutoff (strategy-replayed). When the cutoff
+        // is null, the loan is not within the migrated range; all transactions go through the strategy as before.
+        //
+        // Only repayment-like and charge-payment transactions are eligible for replay-via-mappings. Pre-cutoff
+        // transactions of other types (write-off, refund, chargeback, charge-off, charges/interest waiver, credit
+        // balance refund, etc.) carry semantics that the paid-amount installment methods do not express (e.g.,
+        // write-off uses writePrincipalOff, not payPrincipalComponent). Routing them through the strategy preserves
+        // their existing handlers.
+        final List<LoanTransaction> migratedTransactions;
+        final List<LoanTransaction> currentTransactions;
+        if (migrationCutoffDate != null) {
+            migratedTransactions = new ArrayList<>();
+            currentTransactions = new ArrayList<>();
+            for (final LoanTransaction loanTransaction : transactionsPostDisbursement) {
+                if (DateUtils.isBefore(loanTransaction.getTransactionDate(), migrationCutoffDate)
+                        && isReplayableViaMigratedMappings(loanTransaction)) {
+                    migratedTransactions.add(loanTransaction);
+                } else {
+                    currentTransactions.add(loanTransaction);
+                }
+            }
+        } else {
+            migratedTransactions = Collections.emptyList();
+            currentTransactions = new ArrayList<>(transactionsPostDisbursement);
+        }
 
         if (charges != null) {
             for (final LoanCharge loanCharge : charges) {
@@ -127,9 +163,19 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         final LoanRepaymentScheduleProcessingWrapper wrapper = new LoanRepaymentScheduleProcessingWrapper();
         wrapper.reprocess(currency, disbursementDate, installments, charges);
 
+        // Replay migrated (pre-cutoff) transactions using their stored allocations, in chronological order. The
+        // strategy is intentionally bypassed so that the FinFlux-era principal/interest/fee/penalty splits are
+        // preserved as the authoritative historical state.
+        if (!migratedTransactions.isEmpty()) {
+            migratedTransactions.sort(LoanTransactionComparator.INSTANCE);
+            for (final LoanTransaction migratedTransaction : migratedTransactions) {
+                applyMigratedTransactionToSchedule(migratedTransaction, currency, charges);
+            }
+        }
+
         final ChangedTransactionDetail changedTransactionDetail = new ChangedTransactionDetail();
         final List<LoanTransaction> transactionsToBeProcessed = new ArrayList<>();
-        for (final LoanTransaction loanTransaction : transactionsPostDisbursement) {
+        for (final LoanTransaction loanTransaction : currentTransactions) {
             if (loanTransaction.isChargePayment()) {
                 List<LoanChargePaidDetail> chargePaidDetails = new ArrayList<>();
                 final Set<LoanChargePaidBy> chargePaidBies = loanTransaction.getLoanChargesPaid();
@@ -242,8 +288,140 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 recalculateChargeOffTransaction(changedTransactionDetail, loanTransaction, currency, installments);
             }
         }
-        reprocessInstallments(disbursementDate, transactionsToBeProcessed, installments, currency);
+        // reprocessInstallments scans the transactions list for the last charge-waiver to update obligationsMet on
+        // the final installment. Pre-cutoff charge-waiver transactions sit in `currentTransactions` (replay-via-
+        // mappings is gated to paid-amount semantics only), so the union here is `migratedTransactions` +
+        // `transactionsToBeProcessed`. Note that `transactionsToBeProcessed` already excludes charge-payments — those
+        // were handled inline above and don't affect obligationsMet logic.
+        final List<LoanTransaction> transactionsForInstallmentReprocess;
+        if (migratedTransactions.isEmpty()) {
+            transactionsForInstallmentReprocess = transactionsToBeProcessed;
+        } else {
+            transactionsForInstallmentReprocess = new ArrayList<>(migratedTransactions.size() + transactionsToBeProcessed.size());
+            transactionsForInstallmentReprocess.addAll(migratedTransactions);
+            transactionsForInstallmentReprocess.addAll(transactionsToBeProcessed);
+        }
+        reprocessInstallments(disbursementDate, transactionsForInstallmentReprocess, installments, currency);
         return changedTransactionDetail;
+    }
+
+    /**
+     * Returns {@code true} when the transaction's allocation is expressible via the installment paid-amount methods
+     * ({@code payPrincipalComponent} etc.) — i.e., repayment-like or charge-payment. Other types (write-off, refund,
+     * chargeback, charge-off, charges/interest waiver, credit balance refund, accrual variants) carry semantics that
+     * paid-amount methods do not capture and must flow through the strategy / specific handlers.
+     * <p>
+     * {@code isInterestWaiver()} is intentionally excluded: WAIVE_INTEREST uses {@code waiveInterestComponent}, not
+     * {@code payInterestComponent}. Pre-cutoff WAIVE_INTEREST transactions are routed through the strategy and
+     * re-derived against the post-migrated-repayment state. For typical migrated loans (no waivers) this has no impact;
+     * if a migrated loan does contain a waiver, the waiver amount may shift to match current outstanding.
+     * </p>
+     * <p>
+     * <b>Ordering limitation:</b> Migrated transactions are replayed FIRST (lines 169-174), then current transactions
+     * in their chronological order. If a pre-cutoff non-replayable transaction (e.g., a non-terminal write-off) sits
+     * chronologically between two migrated repayments, it will be applied AFTER all migrated repayments instead of in
+     * true chronological position. For terminal write-offs (the typical case) this is a non-issue. A strictly
+     * chronological pass would require merging the migrated-replay into the existing transaction loop — deferred to
+     * Part 2 if migrated loans with mid-stream write-offs / chargebacks are encountered.
+     * </p>
+     */
+    private static boolean isReplayableViaMigratedMappings(final LoanTransaction t) {
+        return t.isRepaymentLikeType() || t.isRecoveryRepayment() || t.isChargePayment();
+    }
+
+    /**
+     * Replays a pre-migration transaction onto the (already-reset) schedule using its existing
+     * {@link LoanTransactionToRepaymentScheduleMapping} rows and {@link LoanChargePaidBy} links. The strategy is
+     * intentionally bypassed: the migrated allocation is treated as the authoritative historical state and is NOT
+     * re-derived from current schedule conditions. Charge {@code amountPaid} values are re-linked via the transaction's
+     * {@code LoanChargePaidBy} rows that survived {@link LoanCharge#resetPaidAmount(MonetaryCurrency)}.
+     * <p>
+     * <b>Deliberate trade-off:</b> {@link LoanTransaction#adjustInterestComponent()} is NOT invoked on the migrated
+     * transaction. That method reconciles rounding drift between the transaction-level {@code interestPortion} and the
+     * sum of mapped portions, using the current Fineract rounding/unrecognised-income conventions. Migrated
+     * transactions were stored using the source system's conventions; reapplying Fineract's adjustment would mutate the
+     * authoritative historical interest portion. The component-sum validation below catches gross mis-storage.
+     * </p>
+     * <p>
+     * If the mapping portions do not sum to the transaction amount, a warning is logged and the transaction is skipped.
+     * This guards against bad migration data corrupting the schedule but does not break the overall reprocess for other
+     * transactions on the loan.
+     * </p>
+     */
+    private void applyMigratedTransactionToSchedule(final LoanTransaction migratedTransaction, final MonetaryCurrency currency,
+            final Set<LoanCharge> charges) {
+
+        final Set<LoanTransactionToRepaymentScheduleMapping> mappings = migratedTransaction.getLoanTransactionToRepaymentScheduleMappings();
+        if (mappings == null || mappings.isEmpty()) {
+            // Nothing to replay (e.g., disbursement-only or non-monetary), leave components untouched.
+            return;
+        }
+
+        final Money transactionAmount = migratedTransaction.getAmount(currency);
+        Money mappedSum = Money.zero(currency);
+        for (final LoanTransactionToRepaymentScheduleMapping mapping : mappings) {
+            mappedSum = mappedSum.plus(mapping.getPrincipalPortion(currency)).plus(mapping.getInterestPortion(currency))
+                    .plus(mapping.getFeeChargesPortion(currency)).plus(mapping.getPenaltyChargesPortion(currency));
+        }
+        if (!mappedSum.isEqualTo(transactionAmount)) {
+            final Long loanId = migratedTransaction.getLoan() != null ? migratedTransaction.getLoan().getId() : null;
+            log.warn(
+                    "Skipping migrated transaction replay: loanId={}, transactionId={}, transactionDate={}, transactionAmount={}, mappedSum={}",
+                    loanId, migratedTransaction.getId(), migratedTransaction.getTransactionDate(), transactionAmount.getAmount(),
+                    mappedSum.getAmount());
+            return;
+        }
+
+        final LocalDate transactionDate = migratedTransaction.getTransactionDate();
+        for (final LoanTransactionToRepaymentScheduleMapping mapping : mappings) {
+            final LoanRepaymentScheduleInstallment installment = mapping.getLoanRepaymentScheduleInstallment();
+            if (installment == null) {
+                continue;
+            }
+            applyMigratedComponentToInstallment(installment, transactionDate, mapping.getInterestPortion(currency), "interest",
+                    migratedTransaction, installment::payInterestComponent);
+            applyMigratedComponentToInstallment(installment, transactionDate, mapping.getPrincipalPortion(currency), "principal",
+                    migratedTransaction, installment::payPrincipalComponent);
+            applyMigratedComponentToInstallment(installment, transactionDate, mapping.getFeeChargesPortion(currency), "fee",
+                    migratedTransaction, installment::payFeeChargesComponent);
+            applyMigratedComponentToInstallment(installment, transactionDate, mapping.getPenaltyChargesPortion(currency), "penalty",
+                    migratedTransaction, installment::payPenaltyChargesComponent);
+        }
+
+        // Re-link LoanCharge.amountPaid via the existing LoanChargePaidBy rows (these survive resetPaidAmount).
+        if (charges != null && !charges.isEmpty()) {
+            for (final LoanChargePaidBy chargePaidBy : migratedTransaction.getLoanChargesPaid()) {
+                final LoanCharge loanCharge = chargePaidBy.getLoanCharge();
+                if (loanCharge == null || chargePaidBy.getAmount() == null) {
+                    continue;
+                }
+                final Money incrementBy = Money.of(currency, chargePaidBy.getAmount());
+                if (incrementBy.isZero()) {
+                    continue;
+                }
+                loanCharge.updatePaidAmountBy(incrementBy, chargePaidBy.getInstallmentNumber(), incrementBy);
+            }
+        }
+    }
+
+    private interface InstallmentPayFn {
+
+        Money apply(LocalDate transactionDate, Money amount);
+    }
+
+    private void applyMigratedComponentToInstallment(final LoanRepaymentScheduleInstallment installment, final LocalDate transactionDate,
+            final Money portion, final String componentName, final LoanTransaction migratedTransaction, final InstallmentPayFn payFn) {
+        if (portion.isZero()) {
+            return;
+        }
+        final Money applied = payFn.apply(transactionDate, portion);
+        if (applied.isLessThan(portion)) {
+            final Long loanId = migratedTransaction.getLoan() != null ? migratedTransaction.getLoan().getId() : null;
+            log.warn(
+                    "Migrated transaction {} on loan {} short-applied {} portion to installment {}: requested={}, applied={} (installment outstanding insufficient — migration data may be inconsistent)",
+                    migratedTransaction.getId(), loanId, componentName, installment.getInstallmentNumber(), portion.getAmount(),
+                    applied.getAmount());
+        }
     }
 
     @Override

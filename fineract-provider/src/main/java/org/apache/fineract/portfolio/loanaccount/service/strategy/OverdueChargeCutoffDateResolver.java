@@ -69,4 +69,21 @@ public class OverdueChargeCutoffDateResolver {
     public LocalDate getCutoffDate(final Loan loan) {
         return resolveStrategy(loan).getCutoffDate(loan);
     }
+
+    /**
+     * Returns the migration cutoff date only when the loan falls within the migrated range; otherwise returns
+     * {@code null}. Transactions with {@code transactionDate < migrationCutoffDate} are pre-migration and should not be
+     * reallocated by the strategy during reprocess.
+     *
+     * @param loan
+     *            the loan for which to determine the migration cutoff date
+     * @return the migration cutoff date if the loan is within the migrated range, otherwise {@code null}
+     */
+    public LocalDate getMigrationCutoffDateOrNull(final Loan loan) {
+        final OverdueChargeCutoffDateStrategy strategy = resolveStrategy(loan);
+        if (strategy instanceof MigrationDateCutoffDateStrategy) {
+            return strategy.getCutoffDate(loan);
+        }
+        return null;
+    }
 }

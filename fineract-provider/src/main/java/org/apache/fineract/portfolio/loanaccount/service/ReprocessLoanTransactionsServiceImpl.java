@@ -45,6 +45,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.Mon
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.TransactionCtx;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.AdvancedPaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.ProgressiveTransactionCtx;
+import org.apache.fineract.portfolio.loanaccount.service.strategy.OverdueChargeCutoffDateResolver;
 import org.apache.fineract.portfolio.loanproduct.calc.data.ProgressiveLoanInterestScheduleModel;
 import org.springframework.stereotype.Service;
 
@@ -63,6 +64,7 @@ public class ReprocessLoanTransactionsServiceImpl implements ReprocessLoanTransa
     private final LoanJournalEntryPoster loanJournalEntryPoster;
     private final BusinessEventNotifierService businessEventNotifierService;
     private final LoanAccrualActivityProcessingService loanAccrualActivityProcessingService;
+    private final OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver;
 
     @Override
     public void reprocessTransactions(final Loan loan) {
@@ -225,9 +227,10 @@ public class ReprocessLoanTransactionsServiceImpl implements ReprocessLoanTransa
 
     private ChangedTransactionDetail reprocessTransactionsAndFetchChangedTransactions(final Loan loan,
             final List<LoanTransaction> loanTransactions) {
+        final LocalDate migrationCutoffDate = overdueChargeCutoffDateResolver.getMigrationCutoffDateOrNull(loan);
         final ChangedTransactionDetail changedTransactionDetail = loanTransactionProcessingService.reprocessLoanTransactions(
                 loan.getTransactionProcessingStrategyCode(), loan.getDisbursementDate(), loanTransactions, loan.getCurrency(),
-                loan.getRepaymentScheduleInstallments(), loan.getActiveCharges());
+                loan.getRepaymentScheduleInstallments(), loan.getActiveCharges(), migrationCutoffDate);
         for (TransactionChangeData change : changedTransactionDetail.getTransactionChanges()) {
             change.getNewTransaction().updateLoan(loan);
         }
