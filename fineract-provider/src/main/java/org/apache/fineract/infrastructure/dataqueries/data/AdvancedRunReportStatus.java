@@ -16,17 +16,9 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.fineract.infrastructure.core.config;
+package org.apache.fineract.infrastructure.dataqueries.data;
 
-public final class TaskExecutorConstant {
+public enum AdvancedRunReportStatus {
 
-    private TaskExecutorConstant() {
-
-    }
-
-    public static final String DEFAULT_TASK_EXECUTOR_BEAN_NAME = "fineractDefaultThreadPoolTaskExecutor";
-    public static final String CONFIGURABLE_TASK_EXECUTOR_BEAN_NAME = "fineractConfigurableThreadPoolTaskExecutor";
-    public static final String EVENT_TASK_EXECUTOR_BEAN_NAME = "externalEventJmsProducerExecutor";
-    public static final String LOAN_COB_CATCH_UP_TASK_EXECUTOR_BEAN_NAME = "loanCOBCatchUpThreadPoolTaskExecutor";
-    public static final String ASYNC_REPORT_TASK_EXECUTOR_BEAN_NAME = "asyncReportTaskExecutor";
+    PENDING, RUNNING, COMPLETED, FAILED;
 }
