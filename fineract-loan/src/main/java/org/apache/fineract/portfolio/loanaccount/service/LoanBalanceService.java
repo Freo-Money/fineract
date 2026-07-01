@@ -68,7 +68,12 @@ public class LoanBalanceService {
             cumulativeTotalWaivedOnInstallments = cumulativeTotalWaivedOnInstallments.plus(scheduledRepayment.getInterestWaived(currency));
         }
 
-        if (loan.isForeclosure() && loan.getSummary() != null && loan.getSummary().getTotalOutstanding(currency).isZero()) {
+        // A fully-settled foreclosure normally has no overpayment, so suppress any spurious computed difference.
+        // But when a same-day repayment (or any extra payment) genuinely overpays the loan, the transaction
+        // processor stamps a real overpayment portion on a transaction - in that case keep the overpayment so the
+        // loan can transition to OVERPAID instead of silently swallowing it.
+        if (loan.isForeclosure() && loan.getSummary() != null && loan.getSummary().getTotalOutstanding(currency).isZero()
+                && !hasActualOverpaymentPortion(loan, currency)) {
             return Money.zero(currency);
         }
 
@@ -95,6 +100,15 @@ public class LoanBalanceService {
         // if total paid in transactions doesn't match repayment schedule then there's
         // an overpayment.
         return totalPaidInRepayments.minus(cumulativeTotalPaidOnInstallments);
+    }
+
+    private boolean hasActualOverpaymentPortion(final Loan loan, final MonetaryCurrency currency) {
+        for (final LoanTransaction loanTransaction : loan.getLoanTransactions()) {
+            if (loanTransaction.isNotReversed() && loanTransaction.getOverPaymentPortion(currency).isGreaterThanZero()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean isOverPaid(final Loan loan) {
