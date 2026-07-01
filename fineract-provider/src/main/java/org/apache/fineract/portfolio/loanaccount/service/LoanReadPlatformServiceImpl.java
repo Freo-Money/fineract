@@ -2036,7 +2036,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " totran.id as toTransferId, totran.is_reversed as toTransferReversed, "
                     + " totran.transaction_date as toTransferDate, totran.amount as toTransferAmount, "
                     + " clcv.id as classificationCodeId, clcv.code_value as classificationCodeValue, "
-                    + " tr.transaction_meta_data as transactionMetaData, " + " totran.description as toTransferDescription, "
+                    + " tr.transaction_meta_data as transactionMetaData, " + " note.note as note, "
+                    + " totran.description as toTransferDescription, "
                     + " case when cb.is_self_service_user = false then tr.created_on_utc end as createdOnDate, "
                     + " case when cb.is_self_service_user = false then cb.firstname end as createdByUsername, "
                     + " case when mb.is_self_service_user = false then tr.last_modified_on_utc end as lastModifiedOnDate, "
@@ -2047,7 +2048,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " left join m_account_transfer_transaction fromtran on fromtran.from_loan_transaction_id = tr.id "
                     + " left join m_account_transfer_transaction totran on totran.to_loan_transaction_id = tr.id "
                     + " left join m_code_value clcv on clcv.id = tr.classification_cv_id "
-                    + " left join m_appuser cb on cb.id = tr.created_by " + " left join m_appuser mb on mb.id = tr.last_modified_by ";
+                    + " left join m_appuser cb on cb.id = tr.created_by " + " left join m_appuser mb on mb.id = tr.last_modified_by "
+                    + " left join m_note note on note.loan_transaction_id = tr.id ";
         }
 
         @Override
@@ -2133,6 +2135,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
             // Deserialize transactionMetaData from JSON string
             TransactionMetaData transactionMetaData = TransactionMetaData.deserialize(rs.getString("transactionMetaData"));
+            final String note = rs.getString("note");
 
             final String createdByUsername = rs.getString("createdByUsername");
             final OffsetDateTime createdOnDate = JdbcSupport.getOffsetDateTime(rs, "createdOnDate");
@@ -2146,7 +2149,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     .overpaymentPortion(overPaymentPortion).unrecognizedIncomePortion(unrecognizedIncomePortion).externalId(externalId)
                     .transfer(transfer).outstandingLoanBalance(outstandingLoanBalance).submittedOnDate(submittedOnDate)
                     .manuallyReversed(manuallyReversed).reversalExternalId(reversalExternalId).reversedOnDate(reversedOnDate).loanId(loanId)
-                    .externalLoanId(externalLoanId).classification(classificationData).transactionMetaData(transactionMetaData)
+                    .externalLoanId(externalLoanId).classification(classificationData).transactionMetaData(transactionMetaData).note(note)
                     .createdByUsername(createdByUsername).createdOnDate(createdOnDate).lastModifiedByUsername(lastModifiedByUsername)
                     .lastModifiedOnDate(lastModifiedOnDate).build();
         }

@@ -447,7 +447,7 @@ public class AccountDetailsReadPlatformServiceJpaRepositoryImpl implements Accou
 
                     .append(" glim.account_number as parentAccountNumber,")
 
-                    .append("l.principal_disbursed_derived as originalLoan,").append("l.total_outstanding_derived as loanBalance,")
+                    .append("l.principal_disbursed_derived as originalLoan,").append("l.principal_outstanding_derived as loanBalance,")
                     .append("l.total_repayment_derived as amountPaid,")
 
                     .append(" l.loan_product_counter as loanCycle,")

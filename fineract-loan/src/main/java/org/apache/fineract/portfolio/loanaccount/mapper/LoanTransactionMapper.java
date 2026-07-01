@@ -74,5 +74,6 @@ public interface LoanTransactionMapper {
     @Mapping(target = "createdOnDate", ignore = true)
     @Mapping(target = "lastModifiedByUsername", ignore = true)
     @Mapping(target = "lastModifiedOnDate", ignore = true)
+    @Mapping(target = "note", ignore = true)
     LoanTransactionData mapLoanTransaction(LoanTransaction loanTransaction);
 }

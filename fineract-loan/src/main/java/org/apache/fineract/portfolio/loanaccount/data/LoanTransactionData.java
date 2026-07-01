@@ -114,6 +114,7 @@ public class LoanTransactionData implements Serializable {
     private OffsetDateTime createdOnDate;
     private String lastModifiedByUsername;
     private OffsetDateTime lastModifiedOnDate;
+    private String note;
 
     // Reverse Data
     private final ExternalId reversalExternalId;
