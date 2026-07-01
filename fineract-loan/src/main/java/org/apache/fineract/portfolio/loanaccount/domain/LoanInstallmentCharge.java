@@ -227,6 +227,7 @@ public class LoanInstallmentCharge extends AbstractPersistableCustom<Long> imple
         this.amountPaid = BigDecimal.ZERO;
         this.amountOutstanding = calculateAmountOutstanding(currency);
         this.paid = false;
+        this.amountThroughChargePayment = BigDecimal.ZERO;
     }
 
     public void undoWaiveFlag() {

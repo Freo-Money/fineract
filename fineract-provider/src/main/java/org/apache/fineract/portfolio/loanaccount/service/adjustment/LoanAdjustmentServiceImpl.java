@@ -32,6 +32,7 @@ import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
@@ -50,6 +51,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService
 import org.apache.fineract.portfolio.loanaccount.domain.LoanBuyDownFeeBalance;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeBalance;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanEvent;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallmentRepository;
@@ -105,6 +107,30 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
     @Override
     public CommandProcessingResult adjustLoanTransaction(Loan loan, LoanTransaction transactionToAdjust, LoanAdjustmentParameter parameter,
             Long commandId, Map<String, Object> changes) {
+        // A charge payment can only be reversed (undone), never adjusted to a different amount. Reversing it and
+        // reprocessing the loan restores the repayment schedule, charges due and accruals as if it never happened.
+        if (transactionToAdjust.getTypeOf().isChargePayment()) {
+            if (transactionToAdjust.isReversed()) {
+                throw new GeneralPlatformDomainRuleException("error.msg.loan.charge.payment.already.reversed",
+                        "Loan charge payment transaction " + transactionToAdjust.getId() + " has already been reversed.",
+                        transactionToAdjust.getId());
+            }
+            if (MathUtil.isGreaterThanZero(parameter.getTransactionAmount())) {
+                throw new InvalidLoanTransactionTypeException("transaction", "charge.payment.cannot.be.adjusted",
+                        "Charge payment transaction " + transactionToAdjust.getId()
+                                + " can only be reversed, not adjusted to a new amount.");
+            }
+            // Due-at-disbursement charges are intentionally skipped by schedule reprocessing, so reversing their
+            // payment
+            // cannot be cleanly restored to outstanding. Block the undo rather than leave the charge stuck as paid.
+            final boolean paysDisbursementCharge = transactionToAdjust.getLoanChargesPaid().stream().map(LoanChargePaidBy::getLoanCharge)
+                    .anyMatch(LoanCharge::isDueAtDisbursement);
+            if (paysDisbursementCharge) {
+                throw new InvalidLoanTransactionTypeException("transaction", "charge.payment.for.disbursement.charge.cannot.be.undone",
+                        "Undo is not supported for a charge payment of a disbursement charge (transaction " + transactionToAdjust.getId()
+                                + ").");
+            }
+        }
         LocalDate transactionDate = parameter.getTransactionDate();
         BigDecimal transactionAmount = parameter.getTransactionAmount();
         PaymentDetail paymentDetail = parameter.getPaymentDetail();
@@ -296,6 +322,40 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
                 .with(changes).build();
     }
 
+    /**
+     * For NPA loans with periodic accrual accounting, paying a charge created an ACCRUAL_SUSPENSE_REVERSE transaction.
+     * When that charge payment is undone, reverse the ACCRUAL_SUSPENSE_REVERSE and re-create the ACCRUAL_SUSPENSE so
+     * the suspense balance returns to its pre-payment state.
+     */
+    private void restoreAccrualSuspenseForReversedChargePayment(final Loan loan, final LoanTransaction chargePaymentTransaction,
+            final ExternalId reversalExternalId) {
+        if (!loan.isNpa() || !loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            return;
+        }
+        final LoanTransaction suspenseReverseTransaction = findMatchingSuspenseReverseTransaction(loan, chargePaymentTransaction);
+        if (suspenseReverseTransaction == null) {
+            return;
+        }
+        suspenseReverseTransaction.reverse(reversalExternalId);
+        suspenseReverseTransaction.manuallyAdjustedOrReversed();
+        loanTransactionRepository.saveAndFlush(suspenseReverseTransaction);
+        journalEntryPoster.postJournalEntriesForLoanTransaction(suspenseReverseTransaction, false, false);
+
+        final BigDecimal interestPortion = suspenseReverseTransaction.getInterestPortion();
+        final BigDecimal feePortion = suspenseReverseTransaction.getFeeChargesPortion();
+        final BigDecimal penaltyPortion = suspenseReverseTransaction.getPenaltyChargesPortion();
+        final BigDecimal totalAmount = MathUtil.add(interestPortion, feePortion, penaltyPortion);
+        if (MathUtil.isGreaterThanZero(totalAmount)) {
+            final LoanTransaction accrualSuspenseTransaction = LoanTransaction.accrueSuspenseTransaction(loan, loan.getOffice(),
+                    chargePaymentTransaction.getTransactionDate(), totalAmount, interestPortion, feePortion, penaltyPortion,
+                    reversalExternalId);
+            final LoanTransaction savedSuspenseTransaction = loanTransactionRepository.save(accrualSuspenseTransaction);
+            loanTransactionRepository.flush();
+            loan.addLoanTransaction(savedSuspenseTransaction);
+            journalEntryPoster.postJournalEntriesForLoanTransaction(savedSuspenseTransaction, false, false);
+        }
+    }
+
     public void adjustExistingTransaction(final Loan loan, final LoanTransaction newTransactionDetail,
             final LoanTransaction transactionForAdjustment, final ScheduleGeneratorDTO scheduleGeneratorDTO,
             final ExternalId reversalExternalId) {
@@ -305,10 +365,10 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
         if (!transactionForAdjustment.isAccrualRelated() && transactionForAdjustment.isNotRepaymentLikeType()
                 && transactionForAdjustment.isNotWaiver() && transactionForAdjustment.isNotCreditBalanceRefund()
                 && !transactionForAdjustment.isDeferredIncome() && !transactionForAdjustment.isCapitalizedIncomeAdjustment()
-                && !transactionForAdjustment.isBuyDownFeeAdjustment()) {
-            final String errorMessage = "Only (non-reversed) transactions of type repayment, waiver, accrual, credit balance refund, capitalized income, capitalized income adjustment, buy down fee or buy down fee adjustment can be adjusted.";
+                && !transactionForAdjustment.isBuyDownFeeAdjustment() && !transactionForAdjustment.isChargePayment()) {
+            final String errorMessage = "Only (non-reversed) transactions of type repayment, waiver, accrual, credit balance refund, capitalized income, capitalized income adjustment, buy down fee, buy down fee adjustment or charge payment can be adjusted.";
             throw new InvalidLoanTransactionTypeException("transaction",
-                    "adjustment.is.only.allowed.to.repayment.or.waiver.or.creditbalancerefund.or.capitalizedIncome.or.capitalizedIncomeAdjustment.or.buyDownFee.or.buyDownFeeAdjustment.transactions",
+                    "adjustment.is.only.allowed.to.repayment.or.waiver.or.creditbalancerefund.or.capitalizedIncome.or.capitalizedIncomeAdjustment.or.buyDownFee.or.buyDownFeeAdjustment.or.chargePayment.transactions",
                     errorMessage);
         }
 
@@ -317,35 +377,10 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
         transactionForAdjustment.reverse(reversalExternalId);
         transactionForAdjustment.manuallyAdjustedOrReversed();
 
-        // For NPA loans, when CHARGE_PAYMENT is reversed, create ACCRUAL_SUSPENSE to restore suspense balance
-        // (since ACCRUAL_SUSPENSE_REVERSE was created when payment was made)
-        if (transactionForAdjustment.getTypeOf().equals(LoanTransactionType.CHARGE_PAYMENT) && loan.isNpa()
-                && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
-            LoanTransaction suspenseReverseTransaction = findMatchingSuspenseReverseTransaction(loan, transactionForAdjustment);
-
-            if (suspenseReverseTransaction != null) {
-                // Reverse the ACCRUAL_SUSPENSE_REVERSE transaction
-                suspenseReverseTransaction.reverse(reversalExternalId);
-                suspenseReverseTransaction.manuallyAdjustedOrReversed();
-                loanTransactionRepository.saveAndFlush(suspenseReverseTransaction);
-                journalEntryPoster.postJournalEntriesForLoanTransaction(suspenseReverseTransaction, false, false);
-
-                // Create ACCRUAL_SUSPENSE to restore the suspense balance
-                BigDecimal interestPortion = suspenseReverseTransaction.getInterestPortion();
-                BigDecimal feePortion = suspenseReverseTransaction.getFeeChargesPortion();
-                BigDecimal penaltyPortion = suspenseReverseTransaction.getPenaltyChargesPortion();
-                BigDecimal totalAmount = MathUtil.add(interestPortion, feePortion, penaltyPortion);
-
-                if (MathUtil.isGreaterThanZero(totalAmount)) {
-                    LoanTransaction accrualSuspenseTransaction = LoanTransaction.accrueSuspenseTransaction(loan, loan.getOffice(),
-                            transactionForAdjustment.getTransactionDate(), totalAmount, interestPortion, feePortion, penaltyPortion,
-                            reversalExternalId);
-                    LoanTransaction savedSuspenseTransaction = loanTransactionRepository.save(accrualSuspenseTransaction);
-                    loanTransactionRepository.flush(); // Flush to ensure ID is available for journal entry posting
-                    loan.addLoanTransaction(savedSuspenseTransaction);
-                    journalEntryPoster.postJournalEntriesForLoanTransaction(savedSuspenseTransaction, false, false);
-                }
-            }
+        // For NPA loans, when a CHARGE_PAYMENT is reversed, restore the accrual suspense balance changed at payment
+        // time.
+        if (transactionForAdjustment.getTypeOf().isChargePayment()) {
+            restoreAccrualSuspenseForReversedChargePayment(loan, transactionForAdjustment, reversalExternalId);
         }
 
         if (transactionForAdjustment.getTypeOf().equals(LoanTransactionType.MERCHANT_ISSUED_REFUND)
@@ -379,7 +414,11 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
                     scheduleGeneratorDTO);
         }
 
-        if (transactionForAdjustment.getTypeOf().equals(LoanTransactionType.CAPITALIZED_INCOME)) {
+        // A reversed charge payment is replayed out by reprocessing all remaining (non-reversed) transactions, which
+        // restores the repayment schedule and charges due. When the charge was paid by multiple transactions, only the
+        // reversed transaction's amount becomes outstanding again - the other payments stay applied.
+        if (transactionForAdjustment.getTypeOf().equals(LoanTransactionType.CAPITALIZED_INCOME)
+                || transactionForAdjustment.getTypeOf().isChargePayment()) {
             reprocessLoanTransactionsService.reprocessTransactions(loan);
         }
     }
@@ -416,7 +455,11 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
      * Note: ACCRUAL_SUSPENSE_REVERSE amounts are capped to available suspense balance, so they may be <= charge payment
      * amounts. Matching criteria: 1. Same transaction date 2. Reverse amounts are <= charge payment amounts (capped) 3.
      * At least one portion matches exactly (to handle cases where capping occurred) 4. If multiple matches, prefer the
-     * one with the highest total amount (most specific match)
+     * one with the highest total amount (most specific match).
+     * <p>
+     * This is a heuristic: when two charge payments have identical portions on the same date, either suspense-reverse
+     * may be matched. That is numerically harmless because the restore uses the matched transaction's own portions
+     * (which are identical), but it remains an approximation rather than a hard link.
      */
     private LoanTransaction findMatchingSuspenseReverseTransaction(final Loan loan, final LoanTransaction chargePaymentTransaction) {
         BigDecimal paymentInterest = MathUtil.nullToZero(chargePaymentTransaction.getInterestPortion());
