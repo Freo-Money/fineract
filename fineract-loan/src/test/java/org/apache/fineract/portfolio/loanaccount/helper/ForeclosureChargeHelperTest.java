@@ -42,7 +42,6 @@ import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargeRepositoryWrapper;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
-import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
@@ -75,9 +74,8 @@ public class ForeclosureChargeHelperTest {
 
     private final MonetaryCurrency currency = MonetaryCurrency.fromCurrencyData(new CurrencyData("INR", 2, 1));
 
-    private final ForeclosureChargeHelper underTest = new ForeclosureChargeHelper(mock(ChargeReadPlatformService.class),
-            mock(ChargeRepositoryWrapper.class), mock(LoanChargeService.class), mock(ConfigurationDomainService.class),
-            mock(LoanProductRoundingModeService.class));
+    private final ForeclosureChargeHelper underTest = new ForeclosureChargeHelper(mock(ChargeRepositoryWrapper.class),
+            mock(LoanChargeService.class), mock(ConfigurationDomainService.class), mock(LoanProductRoundingModeService.class));
 
     @BeforeAll
     public static void init() {

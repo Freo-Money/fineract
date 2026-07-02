@@ -203,6 +203,7 @@ import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanResch
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanApplicationValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTransactionValidator;
+import org.apache.fineract.portfolio.loanaccount.serialization.LoanForeclosureValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanOfficerValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanUpdateCommandFromApiJsonDeserializer;
@@ -232,6 +233,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     private final PlatformSecurityContext context;
     private final LoanTransactionValidator loanTransactionValidator;
+    private final LoanForeclosureValidator loanForeclosureValidator;
     private final LoanUpdateCommandFromApiJsonDeserializer loanUpdateCommandFromApiJsonDeserializer;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
     private final LoanAccountDomainService loanAccountDomainService;
@@ -2705,7 +2707,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     LoanApiConstants.foreclosureChargePercentageMapParamName);
             throw new PlatformApiDataValidationException(List.of(error), e);
         }
-        this.loanTransactionValidator.validateLoanForeclosureChargePercentages(loan, foreclosureChargePercentageMap);
+        this.loanForeclosureValidator.validateForeclosureChargePercentages(loan, foreclosureChargePercentageMap);
         final Map<String, Object> changes = new LinkedHashMap<>();
         // Got changed to match with the rest of the APIs
         changes.put("dateFormat", command.dateFormat());
