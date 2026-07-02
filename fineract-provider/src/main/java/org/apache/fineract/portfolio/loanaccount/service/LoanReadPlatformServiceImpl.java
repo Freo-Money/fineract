@@ -728,10 +728,16 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
      * whose triggering installment (via {@link LoanCharge#isOverdueInstallmentPenaltyTriggeredAsOf}) is past its wait
      * period. Includes post-maturity penalties in the additional bucket because each charge links to the real overdue
      * installment.
+     *
+     * <p>
+     * When a penalty charge has no linked overdue installment (e.g. the earliest daily penalties for an installment can
+     * be missing their {@code m_loan_overdue_installment_charge} link) the trigger cannot be re-derived, so the
+     * charge's own due date is authoritative: an already-applied penalty dated on/before {@code asOfDate} is still
+     * counted rather than silently dropped from the amount due.
      */
     private BigDecimal overduePenaltyOutstandingTillDate(final Loan loan, final LocalDate asOfDate) {
         return sumOverdueInstallmentPenaltyOutstanding(loan, charge -> !DateUtils.isAfter(charge.getDueLocalDate(), asOfDate)
-                && charge.isOverdueInstallmentPenaltyTriggeredAsOf(asOfDate));
+                && (!charge.hasLinkedOverdueInstallment() || charge.isOverdueInstallmentPenaltyTriggeredAsOf(asOfDate)));
     }
 
     private BigDecimal sumOverdueInstallmentPenaltyOutstanding(final Loan loan, final java.util.function.Predicate<LoanCharge> filter) {
