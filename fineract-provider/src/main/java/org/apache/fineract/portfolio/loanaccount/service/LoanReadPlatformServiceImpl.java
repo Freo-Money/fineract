@@ -2036,20 +2036,21 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " totran.id as toTransferId, totran.is_reversed as toTransferReversed, "
                     + " totran.transaction_date as toTransferDate, totran.amount as toTransferAmount, "
                     + " clcv.id as classificationCodeId, clcv.code_value as classificationCodeValue, "
-                    + " tr.transaction_meta_data as transactionMetaData, " + " note.note as note, "
-                    + " totran.description as toTransferDescription, "
+                    + " tr.transaction_meta_data as transactionMetaData, " + " totran.description as toTransferDescription, "
                     + " case when cb.is_self_service_user = false then tr.created_on_utc end as createdOnDate, "
-                    + " case when cb.is_self_service_user = false then cb.firstname end as createdByUsername, "
-                    + " case when mb.is_self_service_user = false then tr.last_modified_on_utc end as lastModifiedOnDate, "
-                    + " case when mb.is_self_service_user = false then mb.firstname end as lastModifiedByUsername "
-                    + " from m_loan l join m_loan_transaction tr on tr.loan_id = l.id " + " join m_currency rc on rc."
-                    + sqlGenerator.escape("code") + " = l.currency_code " + " left JOIN m_payment_detail pd ON tr.payment_detail_id = pd.id"
+                    + " case when cb.is_self_service_user = false then cb.username end as createdByUsername, "
+                    + " tr.created_by as createdById, " + " cb.firstname as createdByFirstname, " + " cb.lastname as createdByLastname, "
+                    + " case when mb.is_self_service_user = false then tr.last_modified_on_utc end as updatedOnDate, "
+                    + " case when mb.is_self_service_user = false then mb.username end as lastModifiedByUsername, "
+                    + " tr.last_modified_by as lastModifiedById, " + " mb.firstname as lastModifiedByFirstname, "
+                    + " mb.lastname as lastModifiedByLastname " + " from m_loan l join m_loan_transaction tr on tr.loan_id = l.id "
+                    + " join m_currency rc on rc." + sqlGenerator.escape("code") + " = l.currency_code "
+                    + " left JOIN m_payment_detail pd ON tr.payment_detail_id = pd.id"
                     + " left join m_payment_type pt on pd.payment_type_id = pt.id left join m_office office on office.id=tr.office_id"
                     + " left join m_account_transfer_transaction fromtran on fromtran.from_loan_transaction_id = tr.id "
                     + " left join m_account_transfer_transaction totran on totran.to_loan_transaction_id = tr.id "
                     + " left join m_code_value clcv on clcv.id = tr.classification_cv_id "
-                    + " left join m_appuser cb on cb.id = tr.created_by " + " left join m_appuser mb on mb.id = tr.last_modified_by "
-                    + " left join m_note note on note.loan_transaction_id = tr.id ";
+                    + " left join m_appuser cb on cb.id = tr.created_by " + " left join m_appuser mb on mb.id = tr.last_modified_by ";
         }
 
         @Override
@@ -2135,12 +2136,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
             // Deserialize transactionMetaData from JSON string
             TransactionMetaData transactionMetaData = TransactionMetaData.deserialize(rs.getString("transactionMetaData"));
-            final String note = rs.getString("note");
-
+            final Long createdById = JdbcSupport.getLong(rs, "createdById");
             final String createdByUsername = rs.getString("createdByUsername");
+            final String createdByFirstname = rs.getString("createdByFirstname");
+            final String createdByLastname = rs.getString("createdByLastname");
             final OffsetDateTime createdOnDate = JdbcSupport.getOffsetDateTime(rs, "createdOnDate");
+
+            final Long lastModifiedById = JdbcSupport.getLong(rs, "lastModifiedById");
             final String lastModifiedByUsername = rs.getString("lastModifiedByUsername");
-            final OffsetDateTime lastModifiedOnDate = JdbcSupport.getOffsetDateTime(rs, "lastModifiedOnDate");
+            final String lastModifiedByFirstname = rs.getString("lastModifiedByFirstname");
+            final String lastModifiedByLastname = rs.getString("lastModifiedByLastname");
+            final OffsetDateTime updatedOnDate = JdbcSupport.getOffsetDateTime(rs, "updatedOnDate");
 
             return LoanTransactionData.builder().id(id).officeId(officeId).officeName(officeName).type(transactionType)
                     .paymentDetailData(paymentDetailData).currency(currencyData).date(date).amount(totalAmount)
@@ -2149,9 +2155,11 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     .overpaymentPortion(overPaymentPortion).unrecognizedIncomePortion(unrecognizedIncomePortion).externalId(externalId)
                     .transfer(transfer).outstandingLoanBalance(outstandingLoanBalance).submittedOnDate(submittedOnDate)
                     .manuallyReversed(manuallyReversed).reversalExternalId(reversalExternalId).reversedOnDate(reversedOnDate).loanId(loanId)
-                    .externalLoanId(externalLoanId).classification(classificationData).transactionMetaData(transactionMetaData).note(note)
-                    .createdByUsername(createdByUsername).createdOnDate(createdOnDate).lastModifiedByUsername(lastModifiedByUsername)
-                    .lastModifiedOnDate(lastModifiedOnDate).build();
+                    .externalLoanId(externalLoanId).classification(classificationData).transactionMetaData(transactionMetaData)
+                    .createdById(createdById).createdByUsername(createdByUsername).createdByFirstname(createdByFirstname)
+                    .createdByLastname(createdByLastname).createdOnDate(createdOnDate).updatedById(lastModifiedById)
+                    .updatedByUsername(lastModifiedByUsername).updatedByFirstname(lastModifiedByFirstname)
+                    .updatedByLastname(lastModifiedByLastname).updatedOnDate(updatedOnDate).build();
         }
     }
 

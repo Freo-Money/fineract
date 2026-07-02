@@ -110,11 +110,17 @@ public class LoanTransactionData implements Serializable {
     @Setter
     private List<LoanRepaymentScheduleInstallmentData> loanRepaymentScheduleInstallments;
 
+    private Long createdById;
     private String createdByUsername;
+    private String createdByFirstname;
+    private String createdByLastname;
     private OffsetDateTime createdOnDate;
-    private String lastModifiedByUsername;
-    private OffsetDateTime lastModifiedOnDate;
-    private String note;
+
+    private Long updatedById;
+    private String updatedByUsername;
+    private String updatedByFirstname;
+    private String updatedByLastname;
+    private OffsetDateTime updatedOnDate;
 
     // Reverse Data
     private final ExternalId reversalExternalId;
