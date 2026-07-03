@@ -1070,6 +1070,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder recalculateLoanSummary(final Long loanId) {
+        this.actionName = "RECALCULATESUMMARY";
+        this.entityName = "LOAN";
+        this.entityId = loanId;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "?command=recalculateSummary";
+        return this;
+    }
+
     public CommandWrapperBuilder updateDisbusementDate(final Long loanId, final Long disbursementId) {
         this.actionName = "UPDATE";
         this.entityName = "DISBURSEMENTDETAIL";
