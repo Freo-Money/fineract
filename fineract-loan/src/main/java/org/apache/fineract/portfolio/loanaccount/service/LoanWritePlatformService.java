@@ -119,6 +119,8 @@ public interface LoanWritePlatformService {
 
     CommandProcessingResult markLoanAsFraud(Long loanId, JsonCommand command);
 
+    CommandProcessingResult recalculateLoanSummary(Long loanId, JsonCommand command);
+
     CommandProcessingResult chargeOff(JsonCommand command);
 
     @Transactional

@@ -2584,6 +2584,35 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     @Override
     @Transactional
+    public CommandProcessingResult recalculateLoanSummary(final Long loanId, final JsonCommand command) {
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+
+        // A not-yet-disbursed loan (submitted/approved/rejected/withdrawn) has no live balances to reconcile; reject
+        // rather than let updateLoanSummaryDerivedFields zero the summary.
+        if (loan.isNotDisbursed()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.recalculate.summary.not.disbursed",
+                    "Loan summary cannot be recalculated because loan with id `" + loanId + "` is not disbursed.", loanId);
+        }
+
+        // Rebuilds the denormalized m_loan summary/derived balances from the current repayment schedule, charges and
+        // transactions using the same domain logic the engine runs after every transaction. It does NOT regenerate the
+        // schedule or re-allocate transactions, so any out-of-band installment corrections are preserved and re-summed.
+        this.loanBalanceService.updateLoanSummaryDerivedFields(loan);
+        this.loanRepository.saveAndFlush(loan);
+
+        return new CommandProcessingResultBuilder() //
+                .withCommandId(command.commandId()) //
+                .withEntityId(loan.getId()) //
+                .withEntityExternalId(loan.getExternalId()) //
+                .withOfficeId(loan.getOfficeId()) //
+                .withClientId(loan.getClientId()) //
+                .withGroupId(loan.getGroupId()) //
+                .withLoanId(loan.getId()) //
+                .build();
+    }
+
+    @Override
+    @Transactional
     public CommandProcessingResult makeLoanRefund(Long loanId, JsonCommand command) {
 
         this.loanTransactionValidator.validateNewRefundTransaction(command.json());

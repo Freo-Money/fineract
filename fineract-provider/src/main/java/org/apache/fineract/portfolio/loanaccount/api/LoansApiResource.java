@@ -1354,6 +1354,8 @@ public class LoansApiResource {
             commandRequest = builder.unassignLoanOfficer(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, "recoverGuarantees")) {
             commandRequest = new CommandWrapperBuilder().recoverFromGuarantor(resolvedLoanId).build();
+        } else if (CommandParameterUtil.is(commandParam, "recalculateSummary")) {
+            commandRequest = builder.recalculateLoanSummary(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, "assigndelinquency")) {
             commandRequest = builder.assignDelinquency(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, LoanApiConstants.CONTRACT_TERMINATION_COMMAND)) {
