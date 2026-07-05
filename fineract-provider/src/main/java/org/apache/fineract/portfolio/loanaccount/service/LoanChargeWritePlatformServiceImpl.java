@@ -2004,13 +2004,14 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         // Never block incoming money: any amount beyond the targeted charge's outstanding (rounding or intentional
         // extra) is booked as a regular repayment. It cascades penalty->fee->interest->principal per the product's
         // strategy and parks any true surplus as an overpayment. The same PaymentDetail is reused because this is one
-        // physical payment (one receipt) - a separate detail would double-count the receipt in cash reconciliation. A
-        // fresh external id is minted for the repayment (external_id is unique per transaction and the caller's id, if
-        // any, is already consumed by the charge payment); both transaction ids are returned for traceability.
+        // physical payment (one receipt) - a separate detail would double-count the receipt in cash reconciliation. The
+        // repayment's external id is derived from the caller's (gateway) external id with an "_E" suffix so the excess
+        // leg is recognisable during reconciliation (see buildExcessRepaymentExternalId); both transaction ids are
+        // returned for traceability.
         final BigDecimal repaymentAmount = remainingAmount;
         LoanTransaction repaymentTransaction = null;
         if (repaymentAmount.compareTo(BigDecimal.ZERO) > 0) {
-            final ExternalId repaymentExternalId = externalIdFactory.create();
+            final ExternalId repaymentExternalId = buildExcessRepaymentExternalId(requestExternalId);
             repaymentTransaction = this.loanAccountDomainService.makeRepayment(LoanTransactionType.REPAYMENT, loan, transactionDate,
                     repaymentAmount, paymentDetail, noteText, repaymentExternalId, false, null, false, null, false);
             loan = repaymentTransaction.getLoan();
@@ -2029,6 +2030,25 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withEntityId(chargeId)
                 .withOfficeId(loan.getOfficeId()).withClientId(loan.getClientId()).withGroupId(loan.getGroupId()).withLoanId(loanId)
                 .with(changes).withSubEntityId(primaryTransactionId).build();
+    }
+
+    /**
+     * Builds the external id for the excess-settlement repayment leg of a charge payment. When the caller supplies a
+     * (gateway) external id, the repayment reuses it with an "_E" suffix so it is recognisable as the excess leg of the
+     * same settlement during reconciliation. Falls back to the default external id (auto-generated when enabled, else
+     * empty) when no external id was supplied, or when the suffixed value would exceed the {@code external_id} column
+     * length ({@code m_loan_transaction.external_id} is {@code VARCHAR(100)}).
+     */
+    private ExternalId buildExcessRepaymentExternalId(final ExternalId requestExternalId) {
+        final int externalIdMaxLength = 100;
+        final String excessSuffix = "_E";
+        if (requestExternalId != null && !requestExternalId.isEmpty()) {
+            final String candidate = requestExternalId.getValue() + excessSuffix;
+            if (candidate.length() <= externalIdMaxLength) {
+                return new ExternalId(candidate);
+            }
+        }
+        return externalIdFactory.create();
     }
 
     @Override
