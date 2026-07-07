@@ -570,6 +570,11 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     }
 
     @Override
+    public boolean isSkipNpaLoansForOverduePenaltyEnabled() {
+        return getGlobalConfigurationPropertyData(GlobalConfigurationConstants.SKIP_NPA_LOANS_FOR_OVERDUE_PENALTY).isEnabled();
+    }
+
+    @Override
     public String getAssetOwnerTransferOustandingInterestStrategy() {
         return getGlobalConfigurationPropertyData(
                 GlobalConfigurationConstants.ASSET_OWNER_TRANSFER_OUTSTANDING_INTEREST_CALCULATION_STRATEGY).getStringValue();

@@ -257,4 +257,5 @@
     <include file="parts/1058_add_loan_apply_overdue_penalties_before_transaction_external_event.xml" relativeToChangelogFile="true" />
     <include file="parts/1059_add_recalculate_loan_summary_permission.xml" relativeToChangelogFile="true" />
     <include file="parts/1060_add_reprocess_loan_transactions_permission.xml" relativeToChangelogFile="true" />
+    <include file="parts/1061_add_skip_npa_loans_for_overdue_penalty_configuration.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

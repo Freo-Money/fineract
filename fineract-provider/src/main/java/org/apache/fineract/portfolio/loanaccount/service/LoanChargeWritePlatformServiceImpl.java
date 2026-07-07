@@ -1008,8 +1008,10 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     @Transactional
     @Override
     public void applyOverdueChargesForLoan(final Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList) {
-        // Scheduled/administrative application (COB job): NPA loans are skipped, penalties posted through today.
-        boolean skipNpaLoans = true;
+        // Scheduled/administrative application (COB job): whether NPA loans are skipped is controlled by the
+        // "skip-npa-loans-for-overdue-penalty" global configuration (enabled by default = skip). Penalties posted
+        // through today.
+        boolean skipNpaLoans = this.configurationDomainService.isSkipNpaLoansForOverduePenaltyEnabled();
         applyOverdueChargesForLoan(loanId, overdueLoanScheduleDataList, skipNpaLoans, DateUtils.getBusinessLocalDate());
     }
 
@@ -1124,8 +1126,9 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     @Transactional
     @Override
     public CommandProcessingResult applyOverdueChargesForLoanByLoanId(final Long loanId) {
-        // On-demand application via API: NPA loans are skipped.
-        boolean skipNpaLoans = true;
+        // On-demand application via API: whether NPA loans are skipped is controlled by the
+        // "skip-npa-loans-for-overdue-penalty" global configuration (enabled by default = skip).
+        boolean skipNpaLoans = this.configurationDomainService.isSkipNpaLoansForOverduePenaltyEnabled();
         return applyOverdueChargesForLoanByLoanId(loanId, skipNpaLoans);
     }
 
