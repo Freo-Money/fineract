@@ -155,6 +155,8 @@ public interface ConfigurationDomainService {
 
     boolean isImmediateChargeAccrualPostMaturityEnabled();
 
+    boolean isSkipNpaLoansForOverduePenaltyEnabled();
+
     String getAssetOwnerTransferOustandingInterestStrategy();
 
     Integer getArrearsBasedOnValue();
