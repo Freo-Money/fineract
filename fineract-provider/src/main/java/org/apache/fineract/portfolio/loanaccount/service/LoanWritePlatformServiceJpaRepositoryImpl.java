@@ -2613,6 +2613,46 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     @Override
     @Transactional
+    public CommandProcessingResult reprocessLoanTransactions(final Long loanId, final JsonCommand command) {
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+
+        // A not-yet-disbursed loan has no posted transactions to reprocess; reject rather than silently no-op.
+        if (loan.isNotDisbursed()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.reprocess.transactions.not.disbursed",
+                    "Loan transactions cannot be reprocessed because loan with id `" + loanId + "` is not disbursed.", loanId);
+        }
+
+        // Scope is limited to classic/cumulative loans. Progressive (advanced payment) loans reprocess through a
+        // different interest-model update path and are intentionally out of scope for this command.
+        if (loan.isProgressiveSchedule()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.reprocess.transactions.unsupported.schedule.type",
+                    "Loan transactions can only be reprocessed for cumulative (classic) loans; loan with id `" + loanId
+                            + "` uses a progressive schedule.",
+                    loanId);
+        }
+
+        // Re-applies the existing transactions against the CURRENT repayment schedule installments WITHOUT regenerating
+        // the schedule: installment due (principal/interest) amounts are preserved and only the paid allocation and
+        // derived balances are re-derived. Transactions whose allocation changes are reverse-replayed (old reversed,
+        // new
+        // created) and their journal entries are posted, so the general ledger stays consistent. Unchanged transactions
+        // produce no new transaction and no journal churn.
+        this.reprocessLoanTransactionsService.reprocessTransactions(loan);
+        this.loanRepository.saveAndFlush(loan);
+
+        return new CommandProcessingResultBuilder() //
+                .withCommandId(command.commandId()) //
+                .withEntityId(loan.getId()) //
+                .withEntityExternalId(loan.getExternalId()) //
+                .withOfficeId(loan.getOfficeId()) //
+                .withClientId(loan.getClientId()) //
+                .withGroupId(loan.getGroupId()) //
+                .withLoanId(loan.getId()) //
+                .build();
+    }
+
+    @Override
+    @Transactional
     public CommandProcessingResult makeLoanRefund(Long loanId, JsonCommand command) {
 
         this.loanTransactionValidator.validateNewRefundTransaction(command.json());

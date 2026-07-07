@@ -121,6 +121,8 @@ public interface LoanWritePlatformService {
 
     CommandProcessingResult recalculateLoanSummary(Long loanId, JsonCommand command);
 
+    CommandProcessingResult reprocessLoanTransactions(Long loanId, JsonCommand command);
+
     CommandProcessingResult chargeOff(JsonCommand command);
 
     @Transactional
