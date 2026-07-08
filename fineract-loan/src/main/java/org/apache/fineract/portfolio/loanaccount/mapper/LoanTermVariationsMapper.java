@@ -108,9 +108,12 @@ public class LoanTermVariationsMapper {
         if (interestChargedFromDate == null && scheduleGeneratorDTO.isInterestChargedFromDateAsDisbursementDateEnabled()) {
             interestChargedFromDate = loan.getDisbursementDate();
         }
-        // Use loan-level BPI config if available, otherwise fall back to product-level config
-        final BrokenPeriodInterestConfigDTO bpiConfig = loan.getBpiConfig() != null ? loan.getBpiConfig().getBrokenPeriodConfig()
-                : (loan.getLoanProduct().getBpiConfig() != null ? loan.getLoanProduct().getBpiConfig().getBrokenPeriodConfig() : null);
+        // The loan-level BPI config is authoritative: it is copied from the product at submit/modify time for loans
+        // that inherit, and left null for loans that explicitly opted out ("none"). Do NOT fall back to the product
+        // config here, otherwise a "none" loan (null loan.bpiConfig) would silently re-apply the product's
+        // broken-period
+        // strategy every time the schedule is regenerated (approve, disburse, transaction reprocessing, reschedule).
+        final BrokenPeriodInterestConfigDTO bpiConfig = loan.getBpiConfig() != null ? loan.getBpiConfig().getBrokenPeriodConfig() : null;
 
         LoanApplicationTerms loanApplicationTerms = LoanApplicationTerms.assembleFrom(scheduleGeneratorDTO.getCurrency(), loanTermFrequency,
                 loan.getTermPeriodFrequencyType(), nthDayType, dayOfWeekType, loan.getDisbursementDate(),
