@@ -565,11 +565,14 @@ public class LoanScheduleAssembler {
         // Loan payload's broken-period config wins; when its days-in-year / days-in-month are omitted they are
         // inherited
         // from the product's (main) day conventions. If the loan supplies no broken-period config at all, fall back to
-        // the product's broken-period config.
+        // the product's broken-period config. An explicit "none" in the payload is an intentional opt-out and must NOT
+        // fall back to the product config (extractFromJsonElement returns null for both "none" and "omitted", so we
+        // distinguish them via parameterExists).
         BrokenPeriodInterestConfigDTO bpiConfig = BrokenPeriodConfigHelper.extractFromJsonElement(element, fromApiJsonHelper,
                 loanProduct.getLoanProductRelatedDetail().fetchDaysInYearType(),
                 loanProduct.getLoanProductRelatedDetail().fetchDaysInMonthType());
-        if (bpiConfig == null && loanProduct.getBpiConfig() != null) {
+        final boolean bpiProvidedInPayload = this.fromApiJsonHelper.parameterExists(LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, element);
+        if (bpiConfig == null && !bpiProvidedInPayload && loanProduct.getBpiConfig() != null) {
             bpiConfig = loanProduct.getBpiConfig().getBrokenPeriodConfig();
         }
 
