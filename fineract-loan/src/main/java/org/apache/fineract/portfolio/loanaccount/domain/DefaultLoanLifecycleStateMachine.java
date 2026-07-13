@@ -304,7 +304,9 @@ public class DefaultLoanLifecycleStateMachine implements LoanLifecycleStateMachi
     private LoanStatusTransition determineTransition(final Loan loan, final LoanStatus currentStatus, final LocalDate transactionDate) {
         final boolean hasOutstanding = loan.getSummary().getTotalOutstanding(loan.getCurrency()).isGreaterThanZero();
         final boolean isRepaidInFull = loan.getSummary().isRepaidInFull(loan.getCurrency());
-        final boolean isOverpaid = MathUtil.isGreaterThanZero(loan.getTotalOverpaid());
+        final boolean isParkingEnabled = loan.getLoanProductRelatedDetail() != null
+                && loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking();
+        final boolean isOverpaid = !isParkingEnabled && MathUtil.isGreaterThanZero(loan.getTotalOverpaid());
         final boolean isAllChargesPaid = loan.getLoanCharges().stream().allMatch(
                 charge -> !charge.isActive() || charge.amount().compareTo(BigDecimal.ZERO) <= 0 || charge.isPaid() || charge.isWaived());
 

@@ -140,9 +140,9 @@ public final class LoanProductDataValidator {
             LoanProductAccountingParams.FUND_SOURCE.getValue(), LoanProductAccountingParams.INCOME_FROM_FEES.getValue(),
             LoanProductAccountingParams.INCOME_FROM_PENALTIES.getValue(), LoanProductAccountingParams.INTEREST_ON_LOANS.getValue(),
             LoanProductAccountingParams.INTEREST_RECEIVABLE.getValue(), LoanProductAccountingParams.LOAN_PORTFOLIO.getValue(),
-            LoanProductAccountingParams.OVERPAYMENT.getValue(), LoanProductAccountingParams.TRANSFERS_SUSPENSE.getValue(),
-            LoanProductAccountingParams.LOSSES_WRITTEN_OFF.getValue(), LoanProductAccountingParams.GOODWILL_CREDIT.getValue(),
-            LoanProductAccountingParams.PENALTIES_RECEIVABLE.getValue(),
+            LoanProductAccountingParams.OVERPAYMENT.getValue(), LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(),
+            LoanProductAccountingParams.TRANSFERS_SUSPENSE.getValue(), LoanProductAccountingParams.LOSSES_WRITTEN_OFF.getValue(),
+            LoanProductAccountingParams.GOODWILL_CREDIT.getValue(), LoanProductAccountingParams.PENALTIES_RECEIVABLE.getValue(),
             LoanProductAccountingParams.PAYMENT_CHANNEL_FUND_SOURCE_MAPPING.getValue(),
             LoanProductAccountingParams.FEE_INCOME_ACCOUNT_MAPPING.getValue(), LoanProductAccountingParams.INCOME_FROM_RECOVERY.getValue(),
             LoanProductAccountingParams.PENALTY_INCOME_ACCOUNT_MAPPING.getValue(),
@@ -197,9 +197,10 @@ public final class LoanProductDataValidator {
             LoanProductConstants.OVER_APPLIED_NUMBER, LoanProductConstants.DELINQUENCY_BUCKET_PARAM_NAME,
             LoanProductConstants.DUE_DAYS_FOR_REPAYMENT_EVENT, LoanProductConstants.OVER_DUE_DAYS_FOR_REPAYMENT_EVENT,
             LoanProductConstants.ENABLE_DOWN_PAYMENT, LoanProductConstants.ENABLE_SCHEDULE_ARCHIVE,
-            LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT, LoanProductConstants.ENABLE_AUTO_REPAYMENT_DOWN_PAYMENT,
-            LoanProductConstants.REPAYMENT_START_DATE_TYPE, LoanProductConstants.ENABLE_INSTALLMENT_LEVEL_DELINQUENCY,
-            LoanProductConstants.LOAN_SCHEDULE_TYPE, LoanProductConstants.LOAN_SCHEDULE_PROCESSING_TYPE, LoanProductConstants.FIXED_LENGTH,
+            LoanProductConstants.ENABLE_EXCESS_PAYMENT_PARKING, LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT,
+            LoanProductConstants.ENABLE_AUTO_REPAYMENT_DOWN_PAYMENT, LoanProductConstants.REPAYMENT_START_DATE_TYPE,
+            LoanProductConstants.ENABLE_INSTALLMENT_LEVEL_DELINQUENCY, LoanProductConstants.LOAN_SCHEDULE_TYPE,
+            LoanProductConstants.LOAN_SCHEDULE_PROCESSING_TYPE, LoanProductConstants.FIXED_LENGTH,
             LoanProductConstants.ENABLE_ACCRUAL_ACTIVITY_POSTING, LoanProductConstants.SUPPORTED_INTEREST_REFUND_TYPES,
             LoanProductConstants.CHARGE_OFF_BEHAVIOUR, LoanProductConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE,
             LoanProductConstants.DAYS_IN_YEAR_CUSTOM_STRATEGY_TYPE_PARAMETER_NAME,
@@ -727,6 +728,14 @@ public final class LoanProductDataValidator {
             baseDataValidator.reset().parameter(LoanProductAccountingParams.OVERPAYMENT.getValue()).value(overpaymentAccountId).notNull()
                     .integerGreaterThanZero();
 
+            final Long excessPaymentParkingAccountId = this.fromApiJsonHelper
+                    .extractLongNamed(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), element);
+            if (this.fromApiJsonHelper.parameterExists("enableExcessPaymentParking", element)
+                    && this.fromApiJsonHelper.extractBooleanNamed("enableExcessPaymentParking", element)) {
+                baseDataValidator.reset().parameter(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue())
+                        .value(excessPaymentParkingAccountId).notNull().integerGreaterThanZero();
+            }
+
             final Long incomeFromChargeOffInterestAccountId = this.fromApiJsonHelper
                     .extractLongNamed(LoanProductAccountingParams.INCOME_FROM_CHARGE_OFF_INTEREST.getValue(), element);
             baseDataValidator.reset().parameter(LoanProductAccountingParams.INCOME_FROM_CHARGE_OFF_INTEREST.getValue())
@@ -869,6 +878,17 @@ public final class LoanProductDataValidator {
             }
         }
 
+        if (this.fromApiJsonHelper.parameterExists("enableScheduleArchive", element)) {
+            final Boolean enableScheduleArchive = this.fromApiJsonHelper.extractBooleanNamed("enableScheduleArchive", element);
+            baseDataValidator.reset().parameter("enableScheduleArchive").value(enableScheduleArchive).ignoreIfNull()
+                    .validateForBooleanValue();
+        }
+
+        if (this.fromApiJsonHelper.parameterExists("enableExcessPaymentParking", element)) {
+            final Boolean enableExcessPaymentParking = this.fromApiJsonHelper.extractBooleanNamed("enableExcessPaymentParking", element);
+            baseDataValidator.reset().parameter("enableExcessPaymentParking").value(enableExcessPaymentParking).ignoreIfNull()
+                    .validateForBooleanValue();
+        }
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.LOAN_SCHEDULE_TYPE, element)) {
             validateLoanScheduleType(transactionProcessingStrategyCode, baseDataValidator, element);
         }
@@ -1864,6 +1884,16 @@ public final class LoanProductDataValidator {
                 element);
         baseDataValidator.reset().parameter(LoanProductAccountingParams.OVERPAYMENT.getValue()).value(overpaymentAccountId).ignoreIfNull()
                 .integerGreaterThanZero();
+
+        final Long excessPaymentParkingAccountId = this.fromApiJsonHelper
+                .extractLongNamed(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), element);
+
+        if (this.fromApiJsonHelper.parameterExists("enableExcessPaymentParking", element)
+                && this.fromApiJsonHelper.extractBooleanNamed("enableExcessPaymentParking", element)) {
+
+            baseDataValidator.reset().parameter(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue())
+                    .value(excessPaymentParkingAccountId).notNull().integerGreaterThanZero();
+        }
 
         final Long receivableInterestAccountId = this.fromApiJsonHelper
                 .extractLongNamed(LoanProductAccountingParams.INTEREST_RECEIVABLE.getValue(), element);
