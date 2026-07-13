@@ -118,6 +118,13 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
 
     String FIND_LOAN_BY_EXTERNAL_ID = "SELECT loan FROM Loan loan WHERE loan.externalId = :externalId";
 
+    String FIND_LOANS_WITH_EXCESS_AMOUNT = "select loan from Loan loan where loan.totalExcessPaymentAmount > 0 "
+            + "and exists (select inst.id from LoanRepaymentScheduleInstallment inst " + "where inst.loan.id = loan.id "
+            + "and inst.dueDate <= :currentDate " + "and inst.obligationsMet = false)";
+
+    @Query(FIND_LOANS_WITH_EXCESS_AMOUNT)
+    List<Loan> getLoansWithExcessAmount(@Param("currentDate") LocalDate currentDate);
+
     @Query(FIND_GROUP_LOANS_DISBURSED_AFTER)
     List<Loan> getGroupLoansDisbursedAfter(@Param("disbursementDate") LocalDate disbursementDate, @Param("groupId") Long groupId,
             @Param("loanType") AccountType loanType);

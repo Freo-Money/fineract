@@ -97,9 +97,14 @@ public class LoanBalanceService {
             }
         }
 
-        // if total paid in transactions doesn't match repayment schedule then there's
-        // an overpayment.
-        return totalPaidInRepayments.minus(cumulativeTotalPaidOnInstallments);
+        // If excess payment parking is enabled, parked excess should not contribute to
+        // totalOverpaid. Exclude the currently parked excess amount from the computed
+        // difference so that only genuine overpayments remain.
+        Money overpayment = totalPaidInRepayments.minus(cumulativeTotalPaidOnInstallments);
+        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            overpayment = overpayment.minus(Money.of(currency, MathUtil.nullToZero(loan.getTotalExcessPaymentAmount())));
+        }
+        return overpayment;
     }
 
     private boolean hasActualOverpaymentPortion(final Loan loan, final MonetaryCurrency currency) {

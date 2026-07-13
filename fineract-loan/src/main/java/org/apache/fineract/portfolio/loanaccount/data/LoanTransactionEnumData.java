@@ -39,6 +39,7 @@ public class LoanTransactionEnumData implements Serializable {
     private final boolean disbursement;
     private final boolean repaymentAtDisbursement;
     private final boolean repayment;
+    private final boolean repaymentFromExcessAmount;
     private final boolean merchantIssuedRefund;
     private final boolean payoutRefund;
     private final boolean goodwillCredit;
@@ -87,6 +88,7 @@ public class LoanTransactionEnumData implements Serializable {
         this.disbursement = Long.valueOf(1).equals(this.id);
         this.repaymentAtDisbursement = Long.valueOf(5).equals(this.id);
         this.repayment = Long.valueOf(2).equals(this.id);
+        this.repaymentFromExcessAmount = Long.valueOf(LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT.getValue()).equals(this.id);
         this.merchantIssuedRefund = Long.valueOf(21).equals(this.id);
         this.payoutRefund = Long.valueOf(22).equals(this.id);
         this.goodwillCredit = Long.valueOf(23).equals(this.id);
@@ -131,9 +133,13 @@ public class LoanTransactionEnumData implements Serializable {
         this.accrualSuspenseReverse = Long.valueOf(LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE.getValue()).equals(this.id);
     }
 
+    public boolean isRepaymentFromExcessAmount() {
+        return this.repaymentFromExcessAmount;
+    }
+
     public boolean isRepaymentType() {
-        if (isRepayment() || isMerchantIssuedRefund() || isPayoutRefund() || isGoodwillCredit() || isChargeRefund() || isChargeAdjustment()
-                || isDownPayment()) {
+        if (isRepayment() || isRepaymentFromExcessAmount() || isMerchantIssuedRefund() || isPayoutRefund() || isGoodwillCredit()
+                || isChargeRefund() || isChargeAdjustment() || isDownPayment()) {
             return true;
         }
         return false;

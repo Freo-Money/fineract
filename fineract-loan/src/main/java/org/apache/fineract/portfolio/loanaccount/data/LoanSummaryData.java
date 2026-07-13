@@ -76,6 +76,7 @@ public class LoanSummaryData {
     private final LocalDate overdueSinceDate;
     private final Long writeoffReasonId;
     private final String writeoffReason;
+    private final BigDecimal totalExcessPaymentAmount;
 
     // Adding fields for transaction summary
     private BigDecimal totalMerchantRefund;
