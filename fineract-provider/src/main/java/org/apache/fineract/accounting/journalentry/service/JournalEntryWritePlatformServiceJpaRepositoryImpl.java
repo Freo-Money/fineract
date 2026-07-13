@@ -932,6 +932,7 @@ public class JournalEntryWritePlatformServiceJpaRepositoryImpl implements Journa
         transactionDTO.setFeeChargesPortion(loanTransaction.getFeeChargesPortion());
         transactionDTO.setPenaltyChargesPortion(loanTransaction.getPenaltyChargesPortion());
         transactionDTO.setOverPaymentPortion(loanTransaction.getOverPaymentPortion());
+        transactionDTO.setExcessPaymentPortion(loanTransaction.getExcessPayment(currency).getAmount());
 
         // Handle ChargeRefund transactions
         if (transactionDTO.getType().isChargeRefund()) {

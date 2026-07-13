@@ -355,6 +355,9 @@ public final class LoanEnumerations {
             case ACCRUAL_SUSPENSE_REVERSE ->
                 new LoanTransactionEnumData(LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE.getValue().longValue(),
                         LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE.getCode(), "Accrual Suspense Reverse");
+            case REPAYMENT_FROM_EXCESS_AMOUNT ->
+                new LoanTransactionEnumData(LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT.getValue().longValue(),
+                        LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT.getCode(), "Repayment From Excess Amount");
         };
     }
 
