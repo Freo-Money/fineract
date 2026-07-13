@@ -332,7 +332,7 @@ public class LoanBalanceService {
                 .fetchFirstNormalInstallmentNumber(loan.getRepaymentScheduleInstallments());
         for (final LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
             boolean isFirstNormalInstallment = installment.getInstallmentNumber().equals(firstNormalInstallmentNumber);
-            if (DateUtils.isEqual(paymentDate, installment.getDueDate())) {
+            if (!installment.isDownPayment() && DateUtils.isEqual(paymentDate, installment.getDueDate())) {
                 Money interest = installment.getInterestCharged(currency);
                 Money fee = installment.getFeeChargesCharged(currency);
                 Money penalty = installment.getPenaltyChargesCharged(currency);
@@ -340,7 +340,8 @@ public class LoanBalanceService {
                 balances[1] = fee;
                 balances[2] = penalty;
                 break;
-            } else if (DateUtils.isDateInRangeExclusive(paymentDate, installment.getFromDate(), installment.getDueDate())) {
+            } else if (DateUtils.isDateInRangeExclusive(paymentDate, installment.getFromDate(), installment.getDueDate())
+                    || (isFirstNormalInstallment && DateUtils.isEqual(paymentDate, installment.getFromDate()))) {
                 balances = fetchInterestFeeAndPenaltyTillDate(loan, paymentDate, currency, installment, isFirstNormalInstallment);
                 break;
             }
@@ -365,7 +366,8 @@ public class LoanBalanceService {
                 interest = interest.plus(installment.getInterestOutstanding(currency));
                 penalty = penalty.plus(installment.getPenaltyChargesOutstanding(currency));
                 fee = fee.plus(installment.getFeeChargesOutstanding(currency));
-            } else if (DateUtils.isAfter(paymentDate, installment.getFromDate())) {
+            } else if (DateUtils.isAfter(paymentDate, installment.getFromDate())
+                    || (isFirstNormalInstallment && DateUtils.isEqual(paymentDate, installment.getFromDate()))) {
                 Money[] balancesForCurrentPeriod = fetchInterestFeeAndPenaltyTillDate(loan, paymentDate, currency, installment,
                         isFirstNormalInstallment);
                 if (balancesForCurrentPeriod[0].isGreaterThan(balancesForCurrentPeriod[5])) {
