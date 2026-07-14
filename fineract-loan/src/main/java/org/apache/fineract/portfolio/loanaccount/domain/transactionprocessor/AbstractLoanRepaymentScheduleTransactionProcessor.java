@@ -36,6 +36,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
@@ -48,6 +49,7 @@ import org.apache.fineract.portfolio.loanaccount.data.TransactionChangeData;
 import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeEffectiveDueDateComparator;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeOffBehaviour;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
@@ -77,6 +79,7 @@ import org.springframework.util.CollectionUtils;
  * @see HeavensFamilyLoanRepaymentScheduleTransactionProcessor
  * @see CreocoreLoanRepaymentScheduleTransactionProcessor
  */
+@Slf4j
 @RequiredArgsConstructor
 public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implements LoanRepaymentScheduleTransactionProcessor {
 
@@ -135,31 +138,62 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 final Set<LoanChargePaidBy> chargePaidBies = loanTransaction.getLoanChargesPaid();
                 final Set<LoanCharge> transferCharges = new HashSet<>();
                 for (final LoanChargePaidBy chargePaidBy : chargePaidBies) {
-                    LoanCharge loanCharge = chargePaidBy.getLoanCharge();
-                    transferCharges.add(loanCharge);
-                    if (loanCharge.isInstalmentFee()) {
-                        chargePaidDetails.addAll(loanCharge.fetchRepaymentInstallment(currency));
-                    }
+                    transferCharges.add(chargePaidBy.getLoanCharge());
                 }
-                LocalDate startDate = disbursementDate;
                 int firstNormalInstallmentNumber = LoanRepaymentScheduleProcessingWrapper.fetchFirstNormalInstallmentNumber(installments);
-                for (final LoanRepaymentScheduleInstallment installment : installments) {
-                    boolean isFirstPeriod = installment.getInstallmentNumber().equals(firstNormalInstallmentNumber);
-                    for (final LoanCharge loanCharge : transferCharges) {
-                        boolean isDue = loanCharge.isDueInPeriod(startDate, installment.getDueDate(), isFirstPeriod);
-                        if (isDue) {
-                            Money amountForProcess = loanCharge.getAmount(currency);
-                            if (amountForProcess.isGreaterThan(loanTransaction.getAmount(currency))) {
-                                amountForProcess = loanTransaction.getAmount(currency);
-                            }
-                            LoanChargePaidDetail chargePaidDetail = new LoanChargePaidDetail(amountForProcess, installment,
-                                    loanCharge.isFeeCharge());
-                            chargePaidDetails.add(chargePaidDetail);
+                if (hasMultipleChargeAllocations(chargePaidBies)) {
+                    // Multi-charge payment: the stored receipts are authoritative - they were built as exact
+                    // (charge, installment, amount) allocations that sum to the transaction amount. Replay them as-is.
+                    // Re-deriving the amounts from each charge's CURRENT full amount and due period (the legacy path
+                    // below) is wrong here: a partially-allocated charge would be processed for its full amount and
+                    // starve the remaining allocations, and any later change to a charge's amount would shift money
+                    // between allocations on every reprocess, so the applied portions would no longer match the
+                    // receipts or the transaction amount.
+                    for (final LoanChargePaidBy chargePaidBy : chargePaidBies) {
+                        final LoanRepaymentScheduleInstallment installment = findInstallmentForChargePaidBy(installments,
+                                firstNormalInstallmentNumber, chargePaidBy);
+                        if (installment != null) {
+                            chargePaidDetails.add(new LoanChargePaidDetail(Money.of(currency, chargePaidBy.getAmount()), installment,
+                                    chargePaidBy.getLoanCharge().isFeeCharge()));
+                        } else {
+                            // Only reachable when the loan has no installments at all; surface it rather than silently
+                            // diverting the allocation to overpayment.
+                            final LoanCharge loanCharge = chargePaidBy.getLoanCharge();
+                            log.warn("Charge payment reprocess: could not map LoanChargePaidBy [id={}] (loanChargeId={}, amount={}) "
+                                    + "on transaction [id={}] of loan [id={}] to any installment; its amount will fall through to overpayment.",
+                                    chargePaidBy.getId(), loanCharge != null ? loanCharge.getId() : null, chargePaidBy.getAmount(),
+                                    loanTransaction.getId(), loanTransaction.getLoan() != null ? loanTransaction.getLoan().getId() : null);
                         }
                     }
-                    startDate = installment.getDueDate();
+                } else {
+                    for (final LoanCharge loanCharge : transferCharges) {
+                        if (loanCharge.isInstalmentFee()) {
+                            chargePaidDetails.addAll(loanCharge.fetchRepaymentInstallment(currency));
+                        }
+                    }
+                    LocalDate startDate = disbursementDate;
+                    for (final LoanRepaymentScheduleInstallment installment : installments) {
+                        boolean isFirstPeriod = installment.getInstallmentNumber().equals(firstNormalInstallmentNumber);
+                        for (final LoanCharge loanCharge : transferCharges) {
+                            boolean isDue = loanCharge.isDueInPeriod(startDate, installment.getDueDate(), isFirstPeriod);
+                            if (isDue) {
+                                Money amountForProcess = loanCharge.getAmount(currency);
+                                if (amountForProcess.isGreaterThan(loanTransaction.getAmount(currency))) {
+                                    amountForProcess = loanTransaction.getAmount(currency);
+                                }
+                                LoanChargePaidDetail chargePaidDetail = new LoanChargePaidDetail(amountForProcess, installment,
+                                        loanCharge.isFeeCharge());
+                                chargePaidDetails.add(chargePaidDetail);
+                            }
+                        }
+                        startDate = installment.getDueDate();
+                    }
                 }
                 loanTransaction.resetDerivedComponents();
+                // A charge payment is processed one charge at a time below, each in its own processTransaction call.
+                // Clear the existing installment mappings once up front so that the per-charge calls can accumulate
+                // (rather than overwrite) portions when multiple charges fall in the same installment.
+                loanTransaction.clearLoanTransactionToRepaymentScheduleMappings();
                 Money unprocessed = loanTransaction.getAmount(currency);
                 for (LoanChargePaidDetail chargePaidDetail : chargePaidDetails) {
                     final List<LoanRepaymentScheduleInstallment> processInstallments = new ArrayList<>(1);
@@ -254,6 +288,13 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             case CHARGEBACK -> handleChargeback(loanTransaction, ctx);
             case CHARGE_OFF -> handleChargeOff(loanTransaction, ctx);
             default -> {
+                if (loanTransaction.isChargePayment()) {
+                    // Charge payments accumulate (rather than overwrite) their installment mappings in
+                    // processTransaction, since one payment is processed one charge at a time. That accumulation is
+                    // only correct starting from an empty set, so reset here to guarantee a re-processed or
+                    // re-submitted charge payment can never double its mappings, regardless of caller.
+                    loanTransaction.clearLoanTransactionToRepaymentScheduleMappings();
+                }
                 Money transactionAmountUnprocessed = handleTransactionAndCharges(loanTransaction, ctx.getCurrency(), ctx.getInstallments(),
                         ctx.getCharges(), null, false);
                 if (transactionAmountUnprocessed.isGreaterThanZero()) {
@@ -609,6 +650,14 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         if (loanTransaction.isRepaymentLikeType() || loanTransaction.isInterestWaiver() || loanTransaction.isRecoveryRepayment()) {
             loanTransaction.resetDerivedComponents();
         }
+        // Charge payments are processed one allocation at a time and the transaction's fee/penalty portions accumulate
+        // across those calls (the transaction is reset once, before the per-allocation loop). Capture the portions
+        // before processing this allocation so charges can be marked by the DELTA this allocation actually applied,
+        // not by the running cumulative total (which would re-mark earlier allocations and push the charges'
+        // amount-paid above the transaction amount).
+        final Money feeChargesBefore = loanTransaction.getFeeChargesPortion(currency);
+        final Money penaltyChargesBefore = loanTransaction.getPenaltyChargesPortion(currency);
+
         Money transactionAmountUnprocessed = processTransaction(loanTransaction, currency, installments, charges, chargeAmountToProcess);
 
         final Set<LoanCharge> loanFees = extractFeeCharges(charges);
@@ -619,21 +668,40 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         }
 
         if (loanTransaction.isNotWaiver() && !loanTransaction.isAccrual() && !loanTransaction.isAccrualActivity()) {
-            Money feeCharges = loanTransaction.getFeeChargesPortion(currency);
-            Money penaltyCharges = loanTransaction.getPenaltyChargesPortion(currency);
-            if (chargeAmountToProcess != null && feeCharges.isGreaterThan(chargeAmountToProcess)) {
+            if (loanTransaction.isChargePayment() && chargeAmountToProcess != null) {
+                // Per-allocation charge payment (the reprocessing loop passes a non-null per-allocation amount). Mark
+                // only the charge type this allocation targets, and only for the amount actually applied in this call
+                // (the delta). This keeps the sum of the charges' amount-paid for the transaction equal to the
+                // transaction amount, and avoids the cumulative double-marking that the fee-only cap below could not
+                // catch for penalty allocations.
                 if (isFeeCharge) {
-                    feeCharges = chargeAmountToProcess;
+                    final Money feeChargesDelta = loanTransaction.getFeeChargesPortion(currency).minus(feeChargesBefore);
+                    if (feeChargesDelta.isGreaterThanZero()) {
+                        updateChargesPaidAmountBy(loanTransaction, feeChargesDelta, loanFees, installmentNumber);
+                    }
                 } else {
-                    penaltyCharges = chargeAmountToProcess;
+                    final Money penaltyChargesDelta = loanTransaction.getPenaltyChargesPortion(currency).minus(penaltyChargesBefore);
+                    if (penaltyChargesDelta.isGreaterThanZero()) {
+                        updateChargesPaidAmountBy(loanTransaction, penaltyChargesDelta, loanPenalties, installmentNumber);
+                    }
                 }
-            }
-            if (feeCharges.isGreaterThanZero()) {
-                updateChargesPaidAmountBy(loanTransaction, feeCharges, loanFees, installmentNumber);
-            }
+            } else {
+                Money feeCharges = loanTransaction.getFeeChargesPortion(currency);
+                Money penaltyCharges = loanTransaction.getPenaltyChargesPortion(currency);
+                if (chargeAmountToProcess != null && feeCharges.isGreaterThan(chargeAmountToProcess)) {
+                    if (isFeeCharge) {
+                        feeCharges = chargeAmountToProcess;
+                    } else {
+                        penaltyCharges = chargeAmountToProcess;
+                    }
+                }
+                if (feeCharges.isGreaterThanZero()) {
+                    updateChargesPaidAmountBy(loanTransaction, feeCharges, loanFees, installmentNumber);
+                }
 
-            if (penaltyCharges.isGreaterThanZero()) {
-                updateChargesPaidAmountBy(loanTransaction, penaltyCharges, loanPenalties, installmentNumber);
+                if (penaltyCharges.isGreaterThanZero()) {
+                    updateChargesPaidAmountBy(loanTransaction, penaltyCharges, loanPenalties, installmentNumber);
+                }
             }
         }
         return transactionAmountUnprocessed;
@@ -668,7 +736,13 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
 
             installmentIndex++;
         }
-        loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+        if (loanTransaction.isChargePayment()) {
+            // Charge payments are processed one charge at a time; accumulate the portions into the installment
+            // mapping so that multiple charges hitting the same installment are summed instead of overwritten.
+            loanTransaction.addLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+        } else {
+            loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+        }
         return transactionAmountUnprocessed;
     }
 
@@ -718,10 +792,20 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             if (!amountPaidTowardsCharge.isZero()) {
                 Set<LoanChargePaidBy> chargesPaidBies = loanTransaction.getLoanChargesPaid();
                 if (loanTransaction.isChargePayment()) {
-                    for (final LoanChargePaidBy chargePaidBy : chargesPaidBies) {
-                        LoanCharge loanCharge = chargePaidBy.getLoanCharge();
+                    // A multi-charge payment pre-builds one LoanChargePaidBy per (charge, installment) allocation, and
+                    // those amounts already sum to the transaction amount. Re-deriving them here is destructive: this
+                    // loop walks a running remainder via findEarliestUnpaidCharge and writes each iteration's partial
+                    // chunk onto whichever receipt matches by charge id, so a charge whose payment straddles two chunks
+                    // is left with only a partial amount and the receipts no longer sum to the transaction amount.
+                    // Only the legacy single-charge flow, which pre-builds ONE receipt with the gross transaction
+                    // amount, still needs its amount capped to what was actually applied. When there are multiple
+                    // receipts (see hasMultipleChargeAllocations) the pre-built allocations are authoritative and must
+                    // be left untouched.
+                    if (!hasMultipleChargeAllocations(chargesPaidBies) && chargesPaidBies.size() == 1) {
+                        final LoanChargePaidBy soleChargePaidBy = chargesPaidBies.iterator().next();
+                        final LoanCharge loanCharge = soleChargePaidBy.getLoanCharge();
                         if (loanCharge != null && Objects.equals(loanCharge.getId(), unpaidCharge.getId())) {
-                            chargePaidBy.setAmount(amountPaidTowardsCharge.getAmount(), taxRoundingMode);
+                            soleChargePaidBy.setAmount(amountPaidTowardsCharge.getAmount(), taxRoundingMode);
                         }
                     }
                 } else {
@@ -749,32 +833,70 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         };
     }
 
-    protected LoanCharge findEarliestUnpaidChargeFromUnOrderedSet(final Set<LoanCharge> charges, final MonetaryCurrency currency) {
-        LoanCharge earliestUnpaidCharge = null;
-        LoanCharge installemntCharge = null;
-        LoanInstallmentCharge chargePerInstallment = null;
-        for (final LoanCharge loanCharge : charges) {
-            if (loanCharge.getAmountOutstanding(currency).isGreaterThanZero() && !loanCharge.isDueAtDisbursement()) {
-                if (loanCharge.isInstalmentFee()) {
-                    LoanInstallmentCharge unpaidLoanChargePerInstallment = loanCharge.getUnpaidInstallmentLoanCharge();
-                    if (chargePerInstallment == null || DateUtils.isAfter(chargePerInstallment.getRepaymentInstallment().getDueDate(),
-                            unpaidLoanChargePerInstallment.getRepaymentInstallment().getDueDate())) {
-                        installemntCharge = loanCharge;
-                        chargePerInstallment = unpaidLoanChargePerInstallment;
-                    }
-                } else if (earliestUnpaidCharge == null
-                        || DateUtils.isBefore(loanCharge.getDueLocalDate(), earliestUnpaidCharge.getDueLocalDate())) {
-                    earliestUnpaidCharge = loanCharge;
+    /**
+     * A multi-charge payment pre-builds one {@link LoanChargePaidBy} per (charge, installment) allocation, and those
+     * amounts already sum to the transaction amount. When more than one such receipt exists the allocations are
+     * authoritative and must be replayed as-is (rather than re-derived from each charge's current amount), so this is
+     * the single source of truth for the "multi-charge payment" decision used across reprocessing and charge marking.
+     */
+    private static boolean hasMultipleChargeAllocations(final Set<LoanChargePaidBy> chargePaidBies) {
+        return chargePaidBies.size() > 1;
+    }
+
+    /**
+     * Resolves the installment a multi-charge-payment receipt applies to: by the receipt's installment number when
+     * present (instalment fees), otherwise by the period the charge is due in (regular/overdue charges), mirroring how
+     * the allocation's installment was picked when the payment was made. When neither resolves - e.g. an
+     * overdue/post-maturity penalty (installment_number = NULL) whose due date falls beyond the last scheduled period,
+     * or a schedule that shrank after a reschedule/re-age - it falls back to the latest-due installment (the
+     * matured/additional installment that carries such penalties) so the allocation is never silently dropped into
+     * overpayment. Returns {@code null} only when there are no installments at all.
+     */
+    private LoanRepaymentScheduleInstallment findInstallmentForChargePaidBy(final List<LoanRepaymentScheduleInstallment> installments,
+            final int firstNormalInstallmentNumber, final LoanChargePaidBy chargePaidBy) {
+        final Integer installmentNumber = chargePaidBy.getInstallmentNumber();
+        if (installmentNumber != null) {
+            for (final LoanRepaymentScheduleInstallment installment : installments) {
+                if (installmentNumber.equals(installment.getInstallmentNumber())) {
+                    return installment;
                 }
             }
         }
-
-        if (earliestUnpaidCharge == null || (chargePerInstallment != null && DateUtils.isAfter(earliestUnpaidCharge.getDueLocalDate(),
-                chargePerInstallment.getRepaymentInstallment().getDueDate()))) {
-            earliestUnpaidCharge = installemntCharge;
+        final LoanCharge charge = chargePaidBy.getLoanCharge();
+        if (charge != null) {
+            for (final LoanRepaymentScheduleInstallment installment : installments) {
+                final boolean isFirstPeriod = installment.getInstallmentNumber().equals(firstNormalInstallmentNumber);
+                if (charge.isDueInPeriod(installment.getFromDate(), installment.getDueDate(), isFirstPeriod)) {
+                    return installment;
+                }
+            }
         }
+        LoanRepaymentScheduleInstallment latestInstallment = null;
+        for (final LoanRepaymentScheduleInstallment installment : installments) {
+            if (latestInstallment == null || DateUtils.isAfter(installment.getDueDate(), latestInstallment.getDueDate())) {
+                latestInstallment = installment;
+            }
+        }
+        if (latestInstallment != null) {
+            log.warn(
+                    "Charge payment reprocess: LoanChargePaidBy (loanChargeId={}, installmentNumber={}, amount={}) matched no installment "
+                            + "by number or due period; falling back to latest-due installment [number={}].",
+                    charge != null ? charge.getId() : null, installmentNumber, chargePaidBy.getAmount(),
+                    latestInstallment.getInstallmentNumber());
+        }
+        return latestInstallment;
+    }
 
-        return earliestUnpaidCharge;
+    protected LoanCharge findEarliestUnpaidChargeFromUnOrderedSet(final Set<LoanCharge> charges, final MonetaryCurrency currency) {
+        // The receipt for money applied to a charge must always land on the same charge that a charge payment would
+        // target, and must be stable across reprocessing. Selecting the outstanding charge with the smallest
+        // (effective due date, charge id) - the exact ordering used by the charge payment path
+        // (LoanChargeEffectiveDueDateComparator) - makes this deterministic: without the charge-id tiebreak two charges
+        // sharing a due date would be picked based on the (unordered) set's iteration order, so the receipt could be
+        // attributed to a different same-due-date charge than the one the money actually reduced.
+        return charges.stream()
+                .filter(loanCharge -> !loanCharge.isDueAtDisbursement() && loanCharge.getAmountOutstanding(currency).isGreaterThanZero())
+                .min(LoanChargeEffectiveDueDateComparator.INSTANCE).orElse(null);
     }
 
     protected void handleWriteOff(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
@@ -864,20 +986,26 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         while (amountRemaining.isGreaterThanZero()) {
             final LoanCharge paidCharge = findLatestPaidChargeFromUnOrderedSet(charges, chargeAmount.getCurrency());
 
-            if (paidCharge != null) {
-                Money feeAmount = chargeAmount.zero();
-
-                final Money amountDeductedTowardsCharge = paidCharge.undoPaidOrPartiallyAmountBy(amountRemaining, installmentNumber,
-                        feeAmount);
-                if (amountDeductedTowardsCharge.isGreaterThanZero()) {
-
-                    final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(loanTransaction, paidCharge,
-                            amountDeductedTowardsCharge.getAmount().multiply(new BigDecimal(-1)), null, taxRoundingMode);
-                    loanTransaction.getLoanChargesPaid().add(loanChargePaidBy);
-
-                    amountRemaining = amountRemaining.minus(amountDeductedTowardsCharge);
-                }
+            // No paid charge left to unwind: stop rather than spin forever on the remaining amount.
+            if (paidCharge == null) {
+                break;
             }
+
+            Money feeAmount = chargeAmount.zero();
+
+            final Money amountDeductedTowardsCharge = paidCharge.undoPaidOrPartiallyAmountBy(amountRemaining, installmentNumber, feeAmount);
+
+            // No progress made on this pass (nothing could be deducted): break to avoid an infinite loop, since
+            // findLatestPaidChargeFromUnOrderedSet would keep returning the same charge with the same zero result.
+            if (!amountDeductedTowardsCharge.isGreaterThanZero()) {
+                break;
+            }
+
+            final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(loanTransaction, paidCharge,
+                    amountDeductedTowardsCharge.getAmount().multiply(new BigDecimal(-1)), null, taxRoundingMode);
+            loanTransaction.getLoanChargesPaid().add(loanChargePaidBy);
+
+            amountRemaining = amountRemaining.minus(amountDeductedTowardsCharge);
         }
 
     }
@@ -898,8 +1026,9 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                         installemntCharge = loanCharge;
                         chargePerInstallment = paidLoanChargePerInstallment;
                     }
-                } else if (latestPaidCharge == null || (loanCharge.isPaidOrPartiallyPaid(currency)
-                        && DateUtils.isAfter(loanCharge.getDueLocalDate(), latestPaidCharge.getDueLocalDate()))) {
+                } else if (latestPaidCharge == null || DateUtils.isAfter(loanCharge.getDueLocalDate(), latestPaidCharge.getDueLocalDate())
+                        || (DateUtils.isEqual(loanCharge.getDueLocalDate(), latestPaidCharge.getDueLocalDate())
+                                && isHigherChargeId(loanCharge, latestPaidCharge))) {
                     latestPaidCharge = loanCharge;
                 }
             }
@@ -910,6 +1039,24 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         }
 
         return latestPaidCharge;
+    }
+
+    // Deterministic tiebreak for two paid charges that share a due date. The PAY path
+    // (findEarliestUnpaidChargeFromUnOrderedSet) settles same-due-date charges in ascending charge id (the lower id was
+    // created and paid first). Undo reverses payment order - unwinding the charge paid most recently first - so on a
+    // due-date tie it must pick the higher charge id. Without this, the winner depended on the unordered set's
+    // iteration
+    // order, so an undo could unmark a different same-due-date charge than the one PAY marked.
+    private static boolean isHigherChargeId(final LoanCharge candidate, final LoanCharge current) {
+        final Long candidateId = candidate.getId();
+        final Long currentId = current.getId();
+        if (candidateId == null) {
+            return false;
+        }
+        if (currentId == null) {
+            return true;
+        }
+        return candidateId > currentId;
     }
 
     protected void addChargeOnlyRepaymentInstallmentIfRequired(Set<LoanCharge> charges,

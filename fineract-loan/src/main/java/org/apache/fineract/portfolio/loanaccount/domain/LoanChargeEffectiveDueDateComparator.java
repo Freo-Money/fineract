@@ -21,7 +21,11 @@ package org.apache.fineract.portfolio.loanaccount.domain;
 import java.util.Comparator;
 
 /**
- * Sort loan charges by effective due date
+ * Sort loan charges by effective due date, then by charge id as a stable tiebreak.
+ *
+ * Null effective due dates go to the end. The charge-id tiebreak makes the order total and deterministic for charges
+ * that share an effective due date, so that money attribution (which charge a repayment/charge payment reduces) always
+ * resolves to the same charge across transactions and reprocessing instead of depending on iteration order.
  *
  * Null values go to the end
  */
@@ -36,10 +40,28 @@ public final class LoanChargeEffectiveDueDateComparator implements Comparator<Lo
         if (o1.getEffectiveDueDate() == null && o2.getEffectiveDueDate() != null) {
             return 1;
         } else if (o1.getEffectiveDueDate() == null) {
-            return 0;
+            // Both null: fall through to the charge-id tiebreak so the order stays total and deterministic.
+            return compareByChargeId(o1, o2);
         } else if (o2.getEffectiveDueDate() == null) {
             return -1;
         }
-        return o1.getEffectiveDueDate().compareTo(o2.getEffectiveDueDate());
+        final int dueDateComparison = o1.getEffectiveDueDate().compareTo(o2.getEffectiveDueDate());
+        if (dueDateComparison != 0) {
+            return dueDateComparison;
+        }
+        return compareByChargeId(o1, o2);
+    }
+
+    private static int compareByChargeId(final LoanCharge o1, final LoanCharge o2) {
+        final Long id1 = o1.getId();
+        final Long id2 = o2.getId();
+        if (id1 == null && id2 == null) {
+            return 0;
+        } else if (id1 == null) {
+            return 1;
+        } else if (id2 == null) {
+            return -1;
+        }
+        return id1.compareTo(id2);
     }
 }
