@@ -945,6 +945,10 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
         this.loanTransactionToRepaymentScheduleMappings.retainAll(retainMappings);
     }
 
+    public void clearLoanTransactionToRepaymentScheduleMappings() {
+        this.loanTransactionToRepaymentScheduleMappings.clear();
+    }
+
     public void addLoanTransactionToRepaymentScheduleMappings(final Collection<LoanTransactionToRepaymentScheduleMapping> updatedMappings) {
         for (LoanTransactionToRepaymentScheduleMapping updatedMapping : updatedMappings) {
             updateMappingDetail(null, updatedMapping, false);

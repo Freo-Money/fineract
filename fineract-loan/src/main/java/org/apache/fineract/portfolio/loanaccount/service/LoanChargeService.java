@@ -173,7 +173,7 @@ public class LoanChargeService {
                     .orElseThrow(() -> new IllegalArgumentException("Active loan charge not found for id " + allocation.getChargeId()));
 
             final LoanChargePaidBy loanChargePaidBy = new LoanChargePaidBy(paymentTransaction, charge, allocation.getAmount(),
-                    allocation.getInstallmentNumber());
+                    allocation.getInstallmentNumber(), resolveTaxRoundingMode(loan));
             paymentTransaction.getLoanChargesPaid().add(loanChargePaidBy);
             loanCharges.add(charge);
 
