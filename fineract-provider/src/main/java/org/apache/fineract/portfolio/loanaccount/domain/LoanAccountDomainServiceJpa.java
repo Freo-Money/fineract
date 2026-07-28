@@ -814,8 +814,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         List<LoanTransaction> transactionsToJournal = new ArrayList<>();
 
         final ScheduleGeneratorDTO scheduleGeneratorDTO = null;
-        Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.mergeForeclosureChargesFromLoanProduct(loan,
-                foreclosureChargePercentageMap);
+        Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.filterForeclosureCharges(foreclosureChargePercentageMap);
         final boolean updateCharges = true;
         final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
                 mergedChargePercentages, updateCharges);

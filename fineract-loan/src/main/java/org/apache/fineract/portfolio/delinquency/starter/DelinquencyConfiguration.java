@@ -94,7 +94,8 @@ public class DelinquencyConfiguration {
     @Bean
     @ConditionalOnMissingBean(LoanDelinquencyDomainService.class)
     public LoanDelinquencyDomainService loanDelinquencyDomainService(DelinquencyEffectivePauseHelper delinquencyEffectivePauseHelper,
-            LoanTransactionReadService loanTransactionReadService) {
-        return new LoanDelinquencyDomainServiceImpl(delinquencyEffectivePauseHelper, loanTransactionReadService);
+            LoanTransactionReadService loanTransactionReadService, ConfigurationDomainService configurationDomainService) {
+        return new LoanDelinquencyDomainServiceImpl(delinquencyEffectivePauseHelper, loanTransactionReadService,
+                configurationDomainService);
     }
 }

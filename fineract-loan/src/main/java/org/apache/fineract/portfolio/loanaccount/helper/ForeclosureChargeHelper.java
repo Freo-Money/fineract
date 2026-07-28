@@ -27,7 +27,6 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,12 +35,10 @@ import org.apache.fineract.infrastructure.core.domain.ExternalId;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
-import org.apache.fineract.portfolio.charge.data.ChargeData;
 import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.charge.domain.ChargeCalculationType;
 import org.apache.fineract.portfolio.charge.domain.ChargeRepositoryWrapper;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
-import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
@@ -64,16 +61,13 @@ public class ForeclosureChargeHelper {
     private static final Logger LOG = LoggerFactory.getLogger(ForeclosureChargeHelper.class);
     private static final Gson GSON = new Gson();
 
-    private final ChargeReadPlatformService chargeReadPlatformService;
     private final ChargeRepositoryWrapper chargeRepositoryWrapper;
     private final LoanChargeService loanChargeService;
     private final ConfigurationDomainService configurationDomainService;
     private final LoanProductRoundingModeService loanProductRoundingModeService;
 
-    public ForeclosureChargeHelper(ChargeReadPlatformService chargeReadPlatformService, ChargeRepositoryWrapper chargeRepositoryWrapper,
-            @Lazy LoanChargeService loanChargeService, ConfigurationDomainService configurationDomainService,
-            LoanProductRoundingModeService loanProductRoundingModeService) {
-        this.chargeReadPlatformService = chargeReadPlatformService;
+    public ForeclosureChargeHelper(ChargeRepositoryWrapper chargeRepositoryWrapper, @Lazy LoanChargeService loanChargeService,
+            ConfigurationDomainService configurationDomainService, LoanProductRoundingModeService loanProductRoundingModeService) {
         this.chargeRepositoryWrapper = chargeRepositoryWrapper;
         this.loanChargeService = loanChargeService;
         this.configurationDomainService = configurationDomainService;
@@ -131,33 +125,28 @@ public class ForeclosureChargeHelper {
     }
 
     /**
-     * Merges foreclosure charges from the loan product with the provided charge percentages. Charges from the request
-     * override the default charge definition values. Charges in the loan product but not in the request are added with
-     * their default charge definition values.
+     * Returns the foreclosure charges to apply from the request. A charge is applied only when it is explicitly present
+     * in the request map and its charge definition is a FORECLOSURE-time charge; the charge does not need to be mapped
+     * to the loan product. When the request map is null or empty, no foreclosure fee is applied.
      */
-    public Map<Long, BigDecimal> mergeForeclosureChargesFromLoanProduct(Loan loan, Map<Long, BigDecimal> chargePercentages) {
-        Long loanProductId = loan.getLoanProduct().getId();
-        List<ChargeData> loanProductForeclosureCharges = chargeReadPlatformService.retrieveLoanProductCharges(loanProductId,
-                ChargeTimeType.FORECLOSURE);
+    public Map<Long, BigDecimal> filterForeclosureCharges(Map<Long, BigDecimal> chargePercentages) {
+        Map<Long, BigDecimal> foreclosureCharges = new HashMap<>();
+        if (chargePercentages == null || chargePercentages.isEmpty()) {
+            return foreclosureCharges;
+        }
 
-        Set<Long> requestChargeIds = chargePercentages != null ? new HashSet<>(chargePercentages.keySet()) : new HashSet<>();
-        Map<Long, BigDecimal> merged = new HashMap<>();
-
-        for (ChargeData chargeData : loanProductForeclosureCharges) {
-            Long chargeId = chargeData.getId();
-            if (chargePercentages != null && requestChargeIds.contains(chargeId)) {
-                merged.put(chargeId, chargePercentages.get(chargeId));
-            } else {
-                try {
-                    Charge chargeDefinition = chargeRepositoryWrapper.findOneWithNotFoundDetection(chargeId);
-                    merged.put(chargeId, chargeDefinition.getAmount());
-                } catch (Exception e) {
-                    // Skip charges that cannot be loaded
+        for (Map.Entry<Long, BigDecimal> entry : chargePercentages.entrySet()) {
+            try {
+                Charge charge = chargeRepositoryWrapper.findOneWithNotFoundDetection(entry.getKey());
+                if (ChargeTimeType.fromInt(charge.getChargeTimeType()).equals(ChargeTimeType.FORECLOSURE)) {
+                    foreclosureCharges.put(entry.getKey(), entry.getValue());
                 }
+            } catch (Exception e) {
+                // Skip charges that cannot be loaded
             }
         }
 
-        return merged;
+        return foreclosureCharges;
     }
 
     public Money sumActiveForeclosureChargeAmounts(final Loan loan) {

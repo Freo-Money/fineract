@@ -26,12 +26,14 @@ import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.portfolio.delinquency.helper.DelinquencyEffectivePauseHelper;
 import org.apache.fineract.portfolio.delinquency.validator.LoanDelinquencyActionData;
 import org.apache.fineract.portfolio.loanaccount.data.CollectionData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanDelinquencyData;
+import org.apache.fineract.portfolio.loanaccount.domain.ArrearsBasedOn;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
@@ -45,6 +47,7 @@ public class LoanDelinquencyDomainServiceImpl implements LoanDelinquencyDomainSe
 
     private final DelinquencyEffectivePauseHelper delinquencyEffectivePauseHelper;
     private final LoanTransactionReadService loanTransactionReadService;
+    private final ConfigurationDomainService configurationDomainService;
 
     @Override
     @Transactional(readOnly = true)
@@ -74,6 +77,11 @@ public class LoanDelinquencyDomainServiceImpl implements LoanDelinquencyDomainSe
         BigDecimal delinquentFee = BigDecimal.ZERO;
         BigDecimal delinquentPenalty = BigDecimal.ZERO;
 
+        // The overdue-since date must honour the global "arrears-based-on" configuration, the same way the arrears
+        // ageing job does: with PRINCIPAL_ONLY / PRINCIPAL_AND_INTEREST_ONLY an installment whose only outstanding is
+        // fee/penalty (or interest) does not put the loan into arrears, so it must not set the overdue-since date.
+        final ArrearsBasedOn arrearsBasedOn = ArrearsBasedOn.fromInt(configurationDomainService.getArrearsBasedOnValue());
+
         // Get the oldest overdue installment if exists one
         for (LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
             if (!installment.isObligationsMet()) {
@@ -85,7 +93,7 @@ public class LoanDelinquencyDomainServiceImpl implements LoanDelinquencyDomainSe
                     delinquentInterest = delinquentInterest.add(installment.getInterestOutstanding(loanCurrency).getAmount());
                     delinquentFee = delinquentFee.add(installment.getFeeChargesOutstanding(loanCurrency).getAmount());
                     delinquentPenalty = delinquentPenalty.add(installment.getPenaltyChargesOutstanding(loanCurrency).getAmount());
-                    if (!oldestOverdueInstallment) {
+                    if (!oldestOverdueInstallment && qualifiesForArrears(arrearsBasedOn, installment, loanCurrency)) {
                         log.debug("Oldest installment {} {}", installment.getInstallmentNumber(), installment.getDueDate());
                         final CollectionData overDueInstallmentDelinquentData = calculateDelinquencyDataForOverdueInstallment(loan,
                                 installment, chargebackTransactions);
@@ -223,6 +231,21 @@ public class LoanDelinquencyDomainServiceImpl implements LoanDelinquencyDomainSe
         Long pausedDays = delinquencyEffectivePauseHelper.getPausedDaysBeforeDate(effectiveDelinquencyList, businessDate);
         Long calculatedDelinquentDays = delinquentDays - pausedDays;
         collectionData.setDelinquentDays(calculatedDelinquentDays > 0 ? calculatedDelinquentDays : 0L);
+    }
+
+    // Mirrors LoanArrearsAgingServiceImpl#shouldConsiderLoanOverdue: whether an overdue installment puts the loan into
+    // arrears according to the global "arrears-based-on" configuration.
+    private boolean qualifiesForArrears(final ArrearsBasedOn arrearsBasedOn, final LoanRepaymentScheduleInstallment installment,
+            final MonetaryCurrency currency) {
+        if (arrearsBasedOn.isPrincipalOnly()) {
+            return installment.getPrincipalOutstanding(currency).isGreaterThanZero();
+        } else if (arrearsBasedOn.isPrincipalAndInterestOnly()) {
+            return installment.getPrincipalOutstanding(currency).isGreaterThanZero()
+                    || installment.getInterestOutstanding(currency).isGreaterThanZero();
+        }
+        // TOTAL_OUTSTANDING (default): any outstanding amount counts; the caller already established the installment is
+        // not fully paid off.
+        return true;
     }
 
     private CollectionData getInstallmentOverdueCollectionData(final Loan loan, final LoanRepaymentScheduleInstallment installment,

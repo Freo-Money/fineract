@@ -2735,13 +2735,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         this.context.authenticatedUser();
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
         loanForeclosureValidator.validateForForeclosureTemplate(loan, transactionDate);
+        loanForeclosureValidator.validateForeclosureChargePercentages(loan, chargePercentages);
         final MonetaryCurrency currency = loan.getCurrency();
         final ApplicationCurrency applicationCurrency = this.applicationCurrencyRepository.findOneWithNotFoundDetection(currency);
 
         final CurrencyData currencyData = applicationCurrency.toData();
 
-        Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.mergeForeclosureChargesFromLoanProduct(loan,
-                chargePercentages);
+        Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.filterForeclosureCharges(chargePercentages);
         boolean updateCharges = false;
         Money foreclosureFees = foreclosureChargeHelper.calculateForeclosureFee(loan, mergedChargePercentages, currency);
         final LoanRepaymentScheduleInstallment loanRepaymentScheduleInstallment = loanBalanceService.fetchLoanForeclosureDetail(loan,
