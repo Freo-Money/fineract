@@ -2770,17 +2770,28 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         Money interestOutstanding = loanRepaymentScheduleInstallment.getInterestOutstanding(currency);
         BigDecimal adjustedInterestAmount = loanRepaymentScheduleInstallment.getAdjustedInterestAmount();
 
-        final Money outStandingAmount = principalOutstanding.plus(interestOutstanding).plus(feeChargesOutstanding)
-                .plus(penaltyChargesOutstanding).plus(Money.of(currency, adjustedInterestAmount));
+        Money outStandingAmount = principalOutstanding.plus(interestOutstanding).plus(feeChargesOutstanding).plus(penaltyChargesOutstanding)
+                .plus(Money.of(currency, adjustedInterestAmount));
+
+        BigDecimal excessPaymentPortion = null;
+        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            final BigDecimal totalExcess = loan.getTotalExcessPaymentAmount();
+            if (totalExcess != null && totalExcess.compareTo(BigDecimal.ZERO) > 0) {
+                final Money excessMoney = Money.of(currency, totalExcess);
+                final Money applicableExcess = excessMoney.isGreaterThan(outStandingAmount) ? outStandingAmount : excessMoney;
+                excessPaymentPortion = applicableExcess.getAmount();
+                outStandingAmount = outStandingAmount.minus(applicableExcess);
+            }
+        }
 
         return LoanTransactionData.builder().type(transactionType).currency(currencyData).date(transactionDate)
                 .amount(outStandingAmount.getAmount()).netDisbursalAmount(loan.getNetDisbursalAmount())
                 .principalPortion(principalOutstanding.getAmount()).interestPortion(interestOutstanding.getAmount())
                 .feeChargesPortion(feeChargesOutstanding.getAmount()).penaltyChargesPortion(penaltyChargesOutstanding.getAmount())
                 .unrecognizedIncomePortion(unrecognizedIncomePortion).adjustedInterestPortion(adjustedInterestAmount)
-                .paymentTypeOptions(paymentTypeOptions).externalId(ExternalId.empty()).outstandingLoanBalance(outstandingLoanBalance)
-                .manuallyReversed(isManuallyReversed).loanId(loanId).externalLoanId(loan.getExternalId())
-                .foreclosureChargePercentageMap(mergedChargePercentages).build();
+                .excessPaymentPortion(excessPaymentPortion).paymentTypeOptions(paymentTypeOptions).externalId(ExternalId.empty())
+                .outstandingLoanBalance(outstandingLoanBalance).manuallyReversed(isManuallyReversed).loanId(loanId)
+                .externalLoanId(loan.getExternalId()).foreclosureChargePercentageMap(mergedChargePercentages).build();
     }
 
     private static final class CurrencyMapper implements RowMapper<CurrencyData> {

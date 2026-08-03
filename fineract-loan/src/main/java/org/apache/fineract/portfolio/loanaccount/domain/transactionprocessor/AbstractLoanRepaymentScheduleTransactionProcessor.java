@@ -776,17 +776,17 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                     }
                 }
 
-            installmentIndex++;
+                installmentIndex++;
+            }
+            if (loanTransaction.isChargePayment()) {
+                // Charge payments are processed one charge at a time; accumulate the portions into the installment
+                // mapping so that multiple charges hitting the same installment are summed instead of overwritten.
+                loanTransaction.addLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+            } else {
+                loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+            }
+            return transactionAmountUnprocessed;
         }
-        if (loanTransaction.isChargePayment()) {
-            // Charge payments are processed one charge at a time; accumulate the portions into the installment
-            // mapping so that multiple charges hitting the same installment are summed instead of overwritten.
-            loanTransaction.addLoanTransactionToRepaymentScheduleMappings(transactionMappings);
-        } else {
-            loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
-        }
-        return transactionAmountUnprocessed;
-    }
 
         // EXCESS PAYMENT PARKING FLOW
         List<LoanTransactionToRepaymentScheduleMapping> transactionMappings = new ArrayList<>();
