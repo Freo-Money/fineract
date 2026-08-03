@@ -2821,19 +2821,19 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         LoanTransaction foreclosureTransaction = this.loanAccountDomainService.foreCloseLoan(loan, transactionDate, noteText, externalId,
                 foreclosureChargePercentageMap, changes, expectedForeclosureAmount);
 
-        if (StringUtils.isNotBlank(noteText)) {
+        if (StringUtils.isNotBlank(noteText) && foreclosureTransaction != null) {
             changes.put(LoanApiConstants.noteParameterName, noteText);
             final Note note = Note.loanTransactionNote(loan, foreclosureTransaction, noteText);
             this.noteRepository.save(note);
         }
 
         final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
-        return commandProcessingResultBuilder //
-                .withLoanId(loanId) //
-                .withEntityId(foreclosureTransaction.getId()) //
-                .withEntityExternalId(foreclosureTransaction.getExternalId()) //
-                .with(changes) //
-                .build();
+        commandProcessingResultBuilder.withLoanId(loanId).with(changes);
+        if (foreclosureTransaction != null) {
+            commandProcessingResultBuilder.withEntityId(foreclosureTransaction.getId())
+                    .withEntityExternalId(foreclosureTransaction.getExternalId());
+        }
+        return commandProcessingResultBuilder.build();
     }
 
     @Override
