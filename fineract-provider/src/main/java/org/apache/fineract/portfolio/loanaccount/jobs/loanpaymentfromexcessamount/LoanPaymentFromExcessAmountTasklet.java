@@ -74,7 +74,11 @@ public class LoanPaymentFromExcessAmountTasklet implements Tasklet {
 
                 for (LoanRepaymentScheduleInstallment dueInstallment : sortedInstallments) {
 
-                    if (totalExcessAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                    totalExcessAmount = loan.getTotalExcessPaymentAmount();
+                    if (totalExcessAmount == null || totalExcessAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                        break;
+                    }
+                    if (!loan.getStatus().isActive()) {
                         break;
                     }
                     if (!dueInstallment.isObligationsMet() && dueInstallment.getTotalOutstanding(loan.getCurrency()).isGreaterThanZero()
@@ -97,9 +101,6 @@ public class LoanPaymentFromExcessAmountTasklet implements Tasklet {
                             exceptions.add(e);
                             continue;
                         }
-
-                        totalExcessAmount = totalExcessAmount.subtract(paymentAmount);
-                        loan.setTotalExcessPaymentAmount(totalExcessAmount);
                     }
                 }
             } catch (Exception e) {
