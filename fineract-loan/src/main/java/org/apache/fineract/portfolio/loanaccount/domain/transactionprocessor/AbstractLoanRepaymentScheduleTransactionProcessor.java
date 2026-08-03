@@ -122,13 +122,19 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
 
         for (final LoanRepaymentScheduleInstallment currentInstallment : installments) {
             currentInstallment.resetDerivedComponents();
-            currentInstallment.updateObligationsMet(currency, disbursementDate);
         }
 
         // re-process loan charges over repayment periods (picking up on waived
         // loan charges)
         final LoanRepaymentScheduleProcessingWrapper wrapper = new LoanRepaymentScheduleProcessingWrapper();
         wrapper.reprocess(currency, disbursementDate, installments, charges);
+
+        // Must run after the wrapper fills charge portions, else the zero-amount post-maturity bucket is marked fully
+        // paid, and since processTransaction skips fully-paid installments, charge payments targeting it fall through
+        // to overpayment.
+        for (final LoanRepaymentScheduleInstallment currentInstallment : installments) {
+            currentInstallment.updateObligationsMet(currency, disbursementDate);
+        }
 
         final ChangedTransactionDetail changedTransactionDetail = new ChangedTransactionDetail();
         final List<LoanTransaction> transactionsToBeProcessed = new ArrayList<>();
