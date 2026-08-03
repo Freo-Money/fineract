@@ -823,10 +823,11 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         List<LoanTransaction> transactionsToJournal = new ArrayList<>();
 
         final ScheduleGeneratorDTO scheduleGeneratorDTO = null;
+
         Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.mergeForeclosureChargesFromLoanProduct(loan,
                 foreclosureChargePercentageMap);
         final boolean updateCharges = true;
-        final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
+        LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
                 mergedChargePercentages, updateCharges);
         Money foreclosureFee = foreclosureChargeHelper.sumActiveForeclosureChargeAmounts(loan);
         loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions, mergedChargePercentages);
@@ -840,6 +841,18 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         loanBalanceService.applyForeclosureRoundingToLoan(loan, foreCloseDetail);
 
         Money payPrincipal = foreCloseDetail.getPrincipal(currency);
+
+        // Apply excess to reduce the foreclosure payment amount.
+        // The excess transaction is NOT processed here (to avoid premature loan state transition);
+        // it will be processed during reprocessing in handleForeClosureTransactions.
+        applyExcessToForeclosureDetail(loan, foreClosureDate, foreCloseDetail, currency, newTransactions, transactionsToJournal);
+
+        // Persist excess transactions before reprocessing so they are in the loan exactly once
+        if (!newTransactions.isEmpty()) {
+            persistLoanTransactions(loan, newTransactions, null, transactionsToJournal);
+            newTransactions.clear();
+        }
+
         LoanTransaction payment = foreclosureChargeHelper.createForeclosurePaymentTransaction(loan, foreCloseDetail, foreClosureDate,
                 externalId);
 
@@ -862,6 +875,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_FORECLOSURE);
         handleForeClosureTransactions(loan, payment, scheduleGeneratorDTO);
+
         LoanTransaction savedPayment = null;
         if (!newTransactions.isEmpty()) {
             savedPayment = persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal, payment);
@@ -880,7 +894,17 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal);
             newTransactions.clear();
         }
+        // determineAndTransition internally calls updateLoanSummaryDerivedFields, which
+        // recognizes remaining excess as overpaid for foreclosed loans and transitions accordingly
         loanLifecycleStateMachine.determineAndTransition(loan, foreClosureDate);
+
+        // After all summary updates are done, clear excess and move it to overpaid
+        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            final BigDecimal remainingExcess = loan.getTotalExcessPaymentAmount();
+            if (remainingExcess != null && remainingExcess.compareTo(BigDecimal.ZERO) > 0) {
+                loan.setTotalExcessPaymentAmount(null);
+            }
+        }
         changes.put("transactions", transactionIds);
         changes.put("eventAmount", payPrincipal.getAmount().negate());
 
@@ -893,8 +917,76 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
         postJournalEntriesForTransactions(transactionsToJournal);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
-        businessEventNotifierService.notifyPostBusinessEvent(new LoanForeClosurePostBusinessEvent(payment));
+        if (payment != null) {
+            businessEventNotifierService.notifyPostBusinessEvent(new LoanForeClosurePostBusinessEvent(payment));
+        }
         return payment;
+    }
+
+    private void applyExcessToForeclosureDetail(final Loan loan, final LocalDate foreClosureDate,
+            final LoanRepaymentScheduleInstallment foreCloseDetail, final MonetaryCurrency currency,
+            final List<LoanTransaction> newTransactions, final List<LoanTransaction> transactionsToJournal) {
+        if (!loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            return;
+        }
+        final BigDecimal totalExcess = loan.getTotalExcessPaymentAmount();
+        if (totalExcess == null || totalExcess.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+
+        final Money foreclosureTotal = foreCloseDetail.getPrincipal(currency).plus(foreCloseDetail.getInterestCharged(currency))
+                .plus(foreCloseDetail.getFeeChargesCharged(currency)).plus(foreCloseDetail.getPenaltyChargesCharged(currency));
+        final Money excessMoney = Money.of(currency, totalExcess);
+        final Money excessToApply = excessMoney.isGreaterThan(foreclosureTotal) ? foreclosureTotal : excessMoney;
+
+        if (!excessToApply.isGreaterThanZero()) {
+            return;
+        }
+
+        // Create REPAYMENT_FROM_EXCESS_AMOUNT transaction (actual processing deferred to reprocessing).
+        final LoanTransaction excessRepayment = LoanTransaction.repaymentType(LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT,
+                loan.getOffice(), excessToApply, null, foreClosureDate, externalIdFactory.create(), null);
+        excessRepayment.updateLoan(loan);
+        newTransactions.add(excessRepayment);
+        transactionsToJournal.add(excessRepayment);
+
+        // Reduce foreCloseDetail so the foreclosure payment covers only the remainder.
+        // Allocation order: principal, interest, fees, penalties.
+        // The actual installment-level allocation is handled by the transaction processor during reprocessing.
+        Money remaining = excessToApply;
+
+        Money principalReduction = remaining.isGreaterThan(foreCloseDetail.getPrincipal(currency)) ? foreCloseDetail.getPrincipal(currency)
+                : remaining;
+        foreCloseDetail.setPrincipal(foreCloseDetail.getPrincipal(currency).minus(principalReduction).getAmount());
+        remaining = remaining.minus(principalReduction);
+
+        if (remaining.isGreaterThanZero()) {
+            Money interestReduction = remaining.isGreaterThan(foreCloseDetail.getInterestCharged(currency))
+                    ? foreCloseDetail.getInterestCharged(currency)
+                    : remaining;
+            foreCloseDetail.setInterestCharged(foreCloseDetail.getInterestCharged(currency).minus(interestReduction).getAmount());
+            remaining = remaining.minus(interestReduction);
+        }
+
+        if (remaining.isGreaterThanZero()) {
+            Money feeReduction = remaining.isGreaterThan(foreCloseDetail.getFeeChargesCharged(currency))
+                    ? foreCloseDetail.getFeeChargesCharged(currency)
+                    : remaining;
+            foreCloseDetail.setFeeChargesCharged(foreCloseDetail.getFeeChargesCharged(currency).minus(feeReduction).getAmount());
+            remaining = remaining.minus(feeReduction);
+        }
+
+        if (remaining.isGreaterThanZero()) {
+            Money penaltyReduction = remaining.isGreaterThan(foreCloseDetail.getPenaltyChargesCharged(currency))
+                    ? foreCloseDetail.getPenaltyChargesCharged(currency)
+                    : remaining;
+            foreCloseDetail.setPenaltyCharges(foreCloseDetail.getPenaltyChargesCharged(currency).minus(penaltyReduction).getAmount());
+        }
+
+        // Update excess on loan — remainder stays as excess here;
+        // calculateTotalOverpayment will recognize it as overpaid during foreclosure summary update
+        final BigDecimal remainingExcess = totalExcess.subtract(excessToApply.getAmount());
+        loan.setTotalExcessPaymentAmount(MathUtil.zeroToNull(remainingExcess));
     }
 
     private LoanTransaction persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
@@ -1346,7 +1438,14 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private void handleForeClosureTransactions(final Loan loan, final LoanTransaction repaymentTransaction,
             final ScheduleGeneratorDTO scheduleGeneratorDTO) {
         loan.setLoanSubStatus(LoanSubStatus.FORECLOSED);
-        loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, repaymentTransaction, null, scheduleGeneratorDTO);
+        if (repaymentTransaction != null) {
+            loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, repaymentTransaction, null,
+                    scheduleGeneratorDTO);
+        } else {
+            // Excess covered the entire foreclosure amount - no foreclosure payment needed.
+            // Still reprocess to ensure consistent state.
+            reprocessLoanTransactionsService.reprocessTransactions(loan);
+        }
     }
 
     @Override

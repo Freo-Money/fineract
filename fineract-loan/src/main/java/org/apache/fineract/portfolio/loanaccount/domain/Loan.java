@@ -1371,7 +1371,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
             return;
         }
         this.totalExcessPaymentAmount = MathUtil
-                .zeroToNull(MathUtil.subtract(this.totalExcessPaymentAmount, MathUtil.toBigDecimal(amount)));
+                .zeroToNull(MathUtil.subtractToZero(this.totalExcessPaymentAmount, MathUtil.toBigDecimal(amount)));
     }
 
     public BigDecimal getTotalExcessPaymentAmount() {
