@@ -371,11 +371,6 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
             return;
         }
 
-        // Skip NPA loans: accruals for non-performing assets are handled separately
-        if (loan.isNpa()) {
-            return;
-        }
-
         final LoanInterestRecalculationDetails recalculationDetails = loan.getLoanInterestRecalculationDetails();
         if (recalculationDetails != null && recalculationDetails.isCompoundingToBePostedAsTransaction()) {
             return;
