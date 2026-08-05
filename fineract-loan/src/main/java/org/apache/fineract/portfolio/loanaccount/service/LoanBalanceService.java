@@ -102,14 +102,34 @@ public class LoanBalanceService {
             }
         }
 
-        // If excess payment parking is enabled, parked excess should not contribute to
-        // totalOverpaid. Exclude the currently parked excess amount from the computed
-        // difference so that only genuine overpayments remain.
+        // If excess payment parking is enabled, parked excess should not contribute to totalOverpai while loan is
+        // active
+        // However, once the loan is fully paid off (every installment's obligations met), the parked excess is overpaid
         Money overpayment = totalPaidInRepayments.minus(cumulativeTotalPaidOnInstallments);
         if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
-            overpayment = overpayment.minus(Money.of(currency, MathUtil.nullToZero(loan.getTotalExcessPaymentAmount())));
+            if (isFullyPaidOff(installments)) {
+                // Charge payments reduce installment balances but are not included in totalPaidInRepayments.
+                // Add them back so the overpayment is not understated.
+                overpayment = overpayment.plus(chargePaymentAppliedToInstallments(loan, currency));
+            } else {
+                overpayment = overpayment.minus(Money.of(currency, MathUtil.nullToZero(loan.getTotalExcessPaymentAmount())));
+            }
         }
         return overpayment;
+    }
+
+    private boolean isFullyPaidOff(final List<LoanRepaymentScheduleInstallment> installments) {
+        return !installments.isEmpty() && installments.stream().noneMatch(LoanRepaymentScheduleInstallment::isNotFullyPaidOff);
+    }
+
+    private Money chargePaymentAppliedToInstallments(final Loan loan, final MonetaryCurrency currency) {
+        Money total = Money.zero(currency);
+        for (final LoanTransaction loanTransaction : loan.getLoanTransactions()) {
+            if (loanTransaction.isNotReversed() && loanTransaction.isChargePayment()) {
+                total = total.plus(loanTransaction.getFeeChargesPortion(currency)).plus(loanTransaction.getPenaltyChargesPortion(currency));
+            }
+        }
+        return total;
     }
 
     private boolean hasActualOverpaymentPortion(final Loan loan, final MonetaryCurrency currency) {
@@ -154,6 +174,12 @@ public class LoanBalanceService {
         loan.getSummary().updateSummary(loan.getCurrency(), principal, loan.getRepaymentScheduleInstallments(), loan.getLoanCharges(),
                 capitalizedIncome, capitalizedIncomeAdjustment);
         updateLoanOutstandingBalances(loan);
+
+        // Once the loan is fully paid off, any parked excess has been surfaced as overpayment
+        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking() && isFullyPaidOff(loan.getRepaymentScheduleInstallments())
+                && loan.getTotalExcessPaymentAmount().compareTo(BigDecimal.ZERO) > 0) {
+            loan.setTotalExcessPaymentAmount(null);
+        }
     }
 
     private Money calculateTotalRecoveredPayments(Loan loan) {
