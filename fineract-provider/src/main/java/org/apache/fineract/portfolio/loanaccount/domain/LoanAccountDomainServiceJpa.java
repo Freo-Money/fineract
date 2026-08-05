@@ -785,6 +785,11 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         loanAccrualsProcessingService.processAccrualsOnInterestRecalculation(loan, loan.isInterestBearingAndInterestRecalculationEnabled(),
                 true);
 
+        // A refund un-allocates installments and can reopen a closed loan, so the delinquency classification has to be
+        // re-derived here as it is for a repayment. Without this the loan carries whatever tag it held at closure until
+        // the next COB.
+        setLoanDelinquencyTag(loan, transactionDate);
+
         journalEntryPoster.postJournalEntriesForLoanTransaction(newRefundTransaction, false, false);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanRefundPostBusinessEvent(newRefundTransaction));

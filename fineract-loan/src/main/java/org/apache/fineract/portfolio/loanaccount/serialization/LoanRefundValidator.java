@@ -22,9 +22,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
+import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanStateTransitionException;
@@ -32,7 +35,10 @@ import org.apache.fineract.portfolio.loanaccount.exception.InvalidLoanTransactio
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public final class LoanRefundValidator {
+
+    private final ClosedLoanRefundPolicy closedLoanRefundPolicy;
 
     public void validateTransferRefund(final Loan loan, final LoanTransaction loanTransaction) {
         if (loan.getStatus().isOverpaid()) {
@@ -76,13 +82,41 @@ public final class LoanRefundValidator {
     }
 
     public void validateRefundEligibility(final Loan loan, final LoanTransaction loanTransaction) {
-        if (loan.getStatus().isOverpaid() || loan.getStatus().isClosed()) {
+        if (loan.getStatus().isOverpaid() || (loan.getStatus().isClosed() && !closedLoanRefundPolicy.isRefundAllowedOnClosedLoan(loan))) {
             final String errorMessage = "This refund option is only for active loans ";
-            throw new InvalidLoanStateTransitionException("transaction", "is.exceeding.overpaid.amount", errorMessage,
-                    loan.getTotalOverpaid(), loanTransaction.getAmount(loan.getCurrency()).getAmount());
+            throw new InvalidLoanStateTransitionException("transaction", "is.not.an.active.loan", errorMessage, loan.getTotalOverpaid(),
+                    loanTransaction.getAmount(loan.getCurrency()).getAmount());
         } else if (loan.getTotalPaidInRepayments().isZero()) {
             final String errorMessage = "Cannot refund when no payment has been made";
             throw new InvalidLoanStateTransitionException("transaction", "no.payment.yet.made.for.loan", errorMessage);
+        }
+    }
+
+    /**
+     * Asserts that the amount the caller asked to refund was fully applied to the repayment schedule.
+     * <p>
+     * <b>This is not a cap on the refund amount.</b> Any amount up to the available paid-in-advance figure may be
+     * refunded, and partial refunds are ordinary - that ceiling is enforced separately, before the transaction is
+     * built. What is compared here is <i>requested</i> against <i>applied</i>, so a partial refund passes as long as
+     * all of what was asked for landed somewhere on the schedule.
+     * <p>
+     * The check exists because the transaction processor walks installments until the refund is exhausted and silently
+     * drops whatever it could not place. Since the refund is separately netted out of the loan's total paid in
+     * repayments, an unabsorbed residual would surface later as a negative overpayment rather than as an error here.
+     */
+    public void validateRefundWasFullyApplied(final Loan loan, final LoanTransaction loanTransaction) {
+        final MonetaryCurrency currency = loan.getCurrency();
+        final Money allocated = loanTransaction.getPrincipalPortion(currency) //
+                .plus(loanTransaction.getInterestPortion(currency)) //
+                .plus(loanTransaction.getFeeChargesPortion(currency)) //
+                .plus(loanTransaction.getPenaltyChargesPortion(currency)) //
+                .plus(loanTransaction.getOverPaymentPortion(currency));
+        final Money requested = loanTransaction.getAmount(currency);
+        if (!allocated.isEqualTo(requested)) {
+            final String errorMessage = "Only " + allocated.getAmount().toPlainString() + " of the requested refund amount "
+                    + requested.getAmount().toPlainString() + " could be applied to the repayment schedule.";
+            throw new InvalidLoanStateTransitionException("transaction", "refund.amount.not.fully.allocated", errorMessage,
+                    requested.getAmount(), allocated.getAmount());
         }
     }
 

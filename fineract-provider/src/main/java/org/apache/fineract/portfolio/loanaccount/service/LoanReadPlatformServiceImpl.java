@@ -2610,16 +2610,23 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
     @Override
     public PaidInAdvanceData retrieveTotalPaidInAdvance(Long loanId) {
+        return retrieveTotalPaidInAdvance(loanId, DateUtils.getBusinessLocalDate());
+    }
+
+    @Override
+    public PaidInAdvanceData retrieveTotalPaidInAdvance(Long loanId, LocalDate asOfDate) {
         try {
             final String sql = "  select (SUM(COALESCE(mr.principal_completed_derived, 0))"
                     + " + SUM(COALESCE(mr.interest_completed_derived, 0)) " + " + SUM(COALESCE(mr.fee_charges_completed_derived, 0)) "
                     + " + SUM(COALESCE(mr.penalty_charges_completed_derived, 0))) as total_in_advance_derived "
                     + " from m_loan ml INNER JOIN m_loan_repayment_schedule mr on mr.loan_id = ml.id "
-                    + " where ml.id=? and  mr.duedate >= " + sqlGenerator.currentBusinessDate() + " group by ml.id having "
-                    + " (SUM(COALESCE(mr.principal_completed_derived, 0))  " + " + SUM(COALESCE(mr.interest_completed_derived, 0)) "
-                    + " + SUM(COALESCE(mr.fee_charges_completed_derived, 0)) "
+                    // Strictly after: an installment falling due ON the assessment date was settled on time, not in
+                    // advance, so its money is already earned and must not be refundable. This matches
+                    // LoanRepaymentScheduleInstallment#isInAdvance, which tests transactionDate < dueDate.
+                    + " where ml.id=? and  mr.duedate > ? group by ml.id having " + " (SUM(COALESCE(mr.principal_completed_derived, 0))  "
+                    + " + SUM(COALESCE(mr.interest_completed_derived, 0)) " + " + SUM(COALESCE(mr.fee_charges_completed_derived, 0)) "
                     + "+  SUM(COALESCE(mr.penalty_charges_completed_derived, 0))) > 0";
-            BigDecimal bigDecimal = this.jdbcTemplate.queryForObject(sql, BigDecimal.class, loanId); // NOSONAR
+            BigDecimal bigDecimal = this.jdbcTemplate.queryForObject(sql, BigDecimal.class, loanId, asOfDate); // NOSONAR
             return new PaidInAdvanceData(bigDecimal);
         } catch (DataAccessException e) {
             return new PaidInAdvanceData(new BigDecimal(0));

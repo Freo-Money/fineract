@@ -523,14 +523,17 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
         final Long fromLoanAccountId = command.longValueOfParameterNamed(fromAccountIdParamName);
         final Loan fromLoanAccount = this.loanAccountAssembler.assembleFrom(fromLoanAccountId);
 
-        BigDecimal overpaid = this.loanReadPlatformService.retrieveTotalPaidInAdvance(fromLoanAccountId).getPaidInAdvance();
+        // Assessed as of the transfer date, matching refundByCash: a backdated transfer refund must be judged against
+        // the installments that were still in the future then, not against wall-clock time.
+        final BigDecimal paidInAdvance = this.loanReadPlatformService.retrieveTotalPaidInAdvance(fromLoanAccountId, transactionDate)
+                .getPaidInAdvance();
+        final BigDecimal available = paidInAdvance == null ? BigDecimal.ZERO : paidInAdvance;
         final boolean backdatedTxnsAllowedTill = false;
 
-        if (overpaid == null || overpaid.compareTo(BigDecimal.ZERO) == 0 || transactionAmount.floatValue() > overpaid.floatValue()) {
-            if (overpaid == null) {
-                overpaid = BigDecimal.ZERO;
-            }
-            throw new InvalidPaidInAdvanceAmountException(overpaid.toPlainString());
+        // Any amount up to the available advance may be transferred out. Compared with BigDecimal rather than float,
+        // whose ~7 significant digits stop resolving paise above ~17 lakh - see checkIfLoanIsPaidInAdvance.
+        if (available.compareTo(BigDecimal.ZERO) <= 0 || transactionAmount.compareTo(available) > 0) {
+            throw new InvalidPaidInAdvanceAmountException(transactionAmount.toPlainString(), available.toPlainString());
         }
 
         ExternalId externalId = externalIdFactory.create();

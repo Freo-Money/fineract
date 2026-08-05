@@ -2663,7 +2663,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         // checkRefundDateIsAfterAtLeastOneRepayment(loanId, transactionDate);
 
         final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");
-        checkIfLoanIsPaidInAdvance(loanId, transactionAmount);
+        // Ahead of the paid-in-advance cap, which is evaluated as of the transaction date: a future date makes the
+        // available amount zero, so without this the operator is told the amount is invalid rather than the date.
+        if (DateUtils.isDateInTheFuture(transactionDate)) {
+            throw new InvalidLoanStateTransitionException("transaction", "cannot.be.a.future.date",
+                    "The transaction date cannot be in the future.", transactionDate);
+        }
+        checkIfLoanIsPaidInAdvance(loanId, transactionAmount, transactionDate);
 
         final Map<String, Object> changes = new LinkedHashMap<>();
         changes.put("transactionDate", command.stringValueOfParameterNamed("transactionDate"));
@@ -2694,14 +2700,24 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
 
     }
 
-    private void checkIfLoanIsPaidInAdvance(final Long loanId, final BigDecimal transactionAmount) {
-        BigDecimal overpaid = this.loanReadPlatformService.retrieveTotalPaidInAdvance(loanId).getPaidInAdvance();
+    /**
+     * Caps the refund at the amount paid in advance. Any amount up to and including that figure is permitted - partial
+     * refunds are the norm, not the exception.
+     * <p>
+     * Assessed as of {@code transactionDate} rather than the business date: a refund backdated to the original payment
+     * must be judged against the installments that were still in the future <i>then</i>, otherwise the same operation
+     * would succeed or fail purely on when it happens to be run.
+     */
+    private void checkIfLoanIsPaidInAdvance(final Long loanId, final BigDecimal transactionAmount, final LocalDate transactionDate) {
+        final BigDecimal paidInAdvance = this.loanReadPlatformService.retrieveTotalPaidInAdvance(loanId, transactionDate)
+                .getPaidInAdvance();
+        final BigDecimal available = paidInAdvance == null ? BigDecimal.ZERO : paidInAdvance;
 
-        if (overpaid == null || overpaid.compareTo(BigDecimal.ZERO) == 0 || transactionAmount.floatValue() > overpaid.floatValue()) {
-            if (overpaid == null) {
-                overpaid = BigDecimal.ZERO;
-            }
-            throw new InvalidPaidInAdvanceAmountException(overpaid.toPlainString());
+        // Compared with BigDecimal rather than float. A float mantissa carries roughly seven significant digits, so
+        // above ~17 lakh it can no longer resolve paise: a refund of exactly the available amount could be rejected,
+        // and one slightly above it accepted, because both operands collapse to the same float.
+        if (available.compareTo(BigDecimal.ZERO) <= 0 || transactionAmount.compareTo(available) > 0) {
+            throw new InvalidPaidInAdvanceAmountException(transactionAmount.toPlainString(), available.toPlainString());
         }
     }
 

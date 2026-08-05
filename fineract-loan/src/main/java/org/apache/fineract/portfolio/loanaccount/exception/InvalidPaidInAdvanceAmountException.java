@@ -32,4 +32,16 @@ public class InvalidPaidInAdvanceAmountException extends AbstractPlatformDomainR
                 new Object[] { refundAmountString });
     }
 
+    /**
+     * Reports the requested amount alongside the available one. Any amount up to the available figure may be refunded,
+     * so an operator needs both numbers to correct the request - the single-argument form reports only the available
+     * amount, which reads as though the refund had to match it exactly.
+     */
+    public InvalidPaidInAdvanceAmountException(final String requestedAmountString, final String availableAmountString) {
+        super("error.msg.loan.refund.amount.invalid",
+                "The refund amount `" + requestedAmountString + "` exceeds the amount paid in advance `" + availableAmountString
+                        + "`. Any amount up to the available amount may be refunded.",
+                new Object[] { requestedAmountString, availableAmountString });
+    }
+
 }

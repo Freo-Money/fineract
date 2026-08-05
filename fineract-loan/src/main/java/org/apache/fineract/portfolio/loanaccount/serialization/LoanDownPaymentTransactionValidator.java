@@ -40,6 +40,7 @@ import org.springframework.stereotype.Component;
 public final class LoanDownPaymentTransactionValidator {
 
     private final LoanBalanceService loanBalanceService;
+    private final ClosedLoanRefundPolicy closedLoanRefundPolicy;
 
     public void validateRepaymentDateIsOnNonWorkingDay(final LocalDate repaymentDate, final WorkingDays workingDays,
             final boolean allowTransactionsOnNonWorkingDay) {
@@ -179,7 +180,7 @@ public final class LoanDownPaymentTransactionValidator {
                 }
             }
             case LOAN_REFUND -> {
-                if (!loan.isOpen()) {
+                if (!loan.isOpen() && !closedLoanRefundPolicy.isRefundAllowedOnClosedLoan(loan)) {
                     final String defaultUserMessage = "Loan Refund is not allowed. Loan Account is not active.";
                     final ApiParameterError error = ApiParameterError.generalError("error.msg.loan.refund.account.is.not.active",
                             defaultUserMessage);

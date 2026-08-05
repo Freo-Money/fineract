@@ -157,6 +157,13 @@ public interface ConfigurationDomainService {
 
     boolean isSkipNpaLoansForOverduePenaltyEnabled();
 
+    /**
+     * When enabled, a refund may be accepted on a loan that closed on obligations met (status 600) and still carries
+     * amounts paid in advance, reopening it to active. Disabled by default; the transaction adjustment flow is used
+     * otherwise.
+     */
+    boolean isRefundOnClosedLoansEnabled();
+
     String getAssetOwnerTransferOustandingInterestStrategy();
 
     Integer getArrearsBasedOnValue();
