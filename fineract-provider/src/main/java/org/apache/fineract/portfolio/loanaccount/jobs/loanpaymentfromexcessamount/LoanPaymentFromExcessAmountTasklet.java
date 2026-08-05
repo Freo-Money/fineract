@@ -21,11 +21,11 @@ package org.apache.fineract.portfolio.loanaccount.jobs.loanpaymentfromexcessamou
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
@@ -45,7 +45,7 @@ public class LoanPaymentFromExcessAmountTasklet implements Tasklet {
 
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
-        LocalDate businessDate = LocalDate.now(ZoneId.systemDefault());
+        LocalDate businessDate = DateUtils.getBusinessLocalDate();
         var loans = loanRepositoryWrapper.getLoansWithExcessAmount(businessDate);
         List<Throwable> exceptions = new ArrayList<>();
 
