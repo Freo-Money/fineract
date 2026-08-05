@@ -730,7 +730,9 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         }
         final boolean systemGenerated = isSystemGeneratedTransaction(loanTransaction);
         final Loan loan = loanTransaction.getLoan();
-        final boolean enableParking = loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking();
+        // Parking is for repayments, whitelisting charge payments
+        final boolean enableParking = loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking() && loanTransaction.isRepayment()
+                && !loanTransaction.isChargePayment();
 
         if (systemGenerated) {
             loanTransaction.setExcessPayment(Money.zero(currency));
@@ -802,9 +804,16 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             // BEFORE DUE DATE
             if (transactionDate.isBefore(currentInstallment.getDueDate())) {
 
-                loanTransaction.updateTransactionMetaData("{\"transactionSubType\":\"EXCESS_SETTLEMENT\"}");
-                loanTransaction.setExcessPayment(transactionAmountUnprocessed);
-                updateTotalExcessPayment(loanTransaction, transactionAmountUnprocessed);
+                // Settle any already-levied charges (penalties/fees whose charge due date is on or before the
+                // transaction date) on this installment before parking.
+                transactionAmountUnprocessed = settleAccruedDueChargesBeforeParking(currentInstallment, loanTransaction,
+                        transactionAmountUnprocessed, transactionMappings, charges);
+
+                if (transactionAmountUnprocessed.isGreaterThanZero()) {
+                    loanTransaction.updateTransactionMetaData("{\"transactionSubType\":\"EXCESS_SETTLEMENT\"}");
+                    loanTransaction.setExcessPayment(transactionAmountUnprocessed);
+                    updateTotalExcessPayment(loanTransaction, transactionAmountUnprocessed);
+                }
 
                 loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
 
@@ -853,6 +862,84 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
     private boolean isSystemGeneratedTransaction(final LoanTransaction tx) {
 
         return tx != null && tx.getTypeOf() == LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT;
+    }
+
+    /**
+     * Before parking the remainder of a repayment against a not-yet-due installment, settle any charges on that
+     * installment that have already been levied (charge due date on or before the transaction date). Such charges -
+     * typically accrued/overdue penalties - are current dues even though the installment's principal and interest are
+     * not yet payable, so they must be collected rather than diverted to the excess pool. Principal and interest are
+     * intentionally left untouched so parking still defers them. Returns the transaction amount still unprocessed after
+     * the due charges have been paid.
+     */
+    private Money settleAccruedDueChargesBeforeParking(final LoanRepaymentScheduleInstallment installment,
+            final LoanTransaction loanTransaction, Money amountRemaining,
+            final List<LoanTransactionToRepaymentScheduleMapping> transactionMappings, final Set<LoanCharge> charges) {
+        if (charges == null || charges.isEmpty() || amountRemaining == null || !amountRemaining.isGreaterThanZero()) {
+            return amountRemaining;
+        }
+        final MonetaryCurrency currency = amountRemaining.getCurrency();
+        final LocalDate transactionDate = loanTransaction.getTransactionDate();
+        final Integer installmentNumber = installment.getInstallmentNumber();
+
+        Money duePenaltyOutstanding = Money.zero(currency);
+        Money dueFeeOutstanding = Money.zero(currency);
+        for (final LoanCharge charge : charges) {
+            if (!charge.isActive() || charge.isPaid() || charge.isWaived()) {
+                continue;
+            }
+            final LocalDate chargeDueDate = charge.getDueLocalDate();
+            if (chargeDueDate == null || chargeDueDate.isAfter(transactionDate)) {
+                continue;
+            }
+            final Money outstanding = charge.getAmountOutstanding(currency);
+            if (!outstanding.isGreaterThanZero()) {
+                continue;
+            }
+            if (charge.isPenaltyCharge()) {
+                duePenaltyOutstanding = duePenaltyOutstanding.plus(outstanding);
+            } else {
+                dueFeeOutstanding = dueFeeOutstanding.plus(outstanding);
+            }
+        }
+
+        // Never pay more than what is actually outstanding on this installment.
+        final Money installmentPenalty = installment.getPenaltyChargesOutstanding(currency);
+        final Money installmentFee = installment.getFeeChargesOutstanding(currency);
+        final Money payablePenalty = duePenaltyOutstanding.isGreaterThan(installmentPenalty) ? installmentPenalty : duePenaltyOutstanding;
+        final Money payableFee = dueFeeOutstanding.isGreaterThan(installmentFee) ? installmentFee : dueFeeOutstanding;
+        if (!payablePenalty.isGreaterThanZero() && !payableFee.isGreaterThanZero()) {
+            return amountRemaining;
+        }
+
+        final Money zero = Money.zero(currency);
+        Money penaltyPaid = zero;
+        Money feePaid = zero;
+
+        // Penalties first, then fees.
+        if (payablePenalty.isGreaterThanZero() && amountRemaining.isGreaterThanZero()) {
+            final Money cap = amountRemaining.isGreaterThan(payablePenalty) ? payablePenalty : amountRemaining;
+            penaltyPaid = installment.payPenaltyChargesComponent(transactionDate, cap);
+            amountRemaining = amountRemaining.minus(penaltyPaid);
+            if (penaltyPaid.isGreaterThanZero()) {
+                updateChargesPaidAmountBy(loanTransaction, penaltyPaid, extractPenaltyCharges(charges), installmentNumber);
+            }
+        }
+        if (payableFee.isGreaterThanZero() && amountRemaining.isGreaterThanZero()) {
+            final Money cap = amountRemaining.isGreaterThan(payableFee) ? payableFee : amountRemaining;
+            feePaid = installment.payFeeChargesComponent(transactionDate, cap);
+            amountRemaining = amountRemaining.minus(feePaid);
+            if (feePaid.isGreaterThanZero()) {
+                updateChargesPaidAmountBy(loanTransaction, feePaid, extractFeeCharges(charges), installmentNumber);
+            }
+        }
+
+        if (penaltyPaid.plus(feePaid).isGreaterThanZero()) {
+            loanTransaction.updateComponents(zero, zero, feePaid, penaltyPaid);
+            transactionMappings.add(
+                    LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, installment, zero, zero, feePaid, penaltyPaid));
+        }
+        return amountRemaining;
     }
 
     protected Set<LoanCharge> extractFeeCharges(final Set<LoanCharge> loanCharges) {
