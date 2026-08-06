@@ -2638,6 +2638,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         // created) and their journal entries are posted, so the general ledger stays consistent. Unchanged transactions
         // produce no new transaction and no journal churn.
         this.reprocessLoanTransactionsService.reprocessTransactions(loan);
+
+        final LocalDate obligationsMetOnDate = loan.getRepaymentScheduleInstallments().stream()
+                .map(LoanRepaymentScheduleInstallment::getObligationsMetOnDate).filter(date -> date != null).max(LocalDate::compareTo)
+                .orElseGet(DateUtils::getBusinessLocalDate);
+        loanLifecycleStateMachine.determineAndTransition(loan, obligationsMetOnDate);
+
         this.loanRepository.saveAndFlush(loan);
 
         return new CommandProcessingResultBuilder() //
