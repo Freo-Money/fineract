@@ -133,6 +133,14 @@ public interface LoanReadPlatformService {
 
     PaidInAdvanceData retrieveTotalPaidInAdvance(Long loanId);
 
+    /**
+     * Amount paid against installments that were still in the future as of {@code asOfDate}.
+     * <p>
+     * Callers validating a transaction should pass that transaction's date rather than relying on the business-date
+     * overload, so that a backdated refund is assessed as of its own effective date instead of wall-clock time.
+     */
+    PaidInAdvanceData retrieveTotalPaidInAdvance(Long loanId, LocalDate asOfDate);
+
     LoanTransactionData retrieveRefundByCashTemplate(Long loanId);
 
     LoanTransactionData retrieveCreditBalanceRefundTemplate(Long loanId);

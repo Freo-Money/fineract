@@ -575,6 +575,11 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     }
 
     @Override
+    public boolean isRefundOnClosedLoansEnabled() {
+        return getGlobalConfigurationPropertyData(GlobalConfigurationConstants.ALLOW_REFUND_ON_CLOSED_LOANS).isEnabled();
+    }
+
+    @Override
     public String getAssetOwnerTransferOustandingInterestStrategy() {
         return getGlobalConfigurationPropertyData(
                 GlobalConfigurationConstants.ASSET_OWNER_TRANSFER_OUTSTANDING_INTEREST_CALCULATION_STRATEGY).getStringValue();

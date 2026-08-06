@@ -195,6 +195,14 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
             buyDownFeeBalance.setUnrecognizedAmount(buyDownFeeBalance.getUnrecognizedAmount().add(transactionToAdjust.getAmount()));
         }
 
+        // Reversal only. Restating a refund to a different amount would have to un-allocate against a schedule that the
+        // original refund already reopened, and the replay order that produces is not well defined. Reversing and
+        // posting a fresh refund reaches the same place through two steps that each behave predictably.
+        if (transactionToAdjust.isRefundForActiveLoan() && newTransactionDetail.isNotZero()) {
+            throw new InvalidLoanTransactionTypeException("transaction", "refund.cannot.be.adjusted",
+                    "Refund transaction cannot be adjusted. Reverse it with a zero transaction amount, then post a new refund for the corrected amount.");
+        }
+
         LocalDate recalculateFrom = null;
 
         if (loan.isInterestBearingAndInterestRecalculationEnabled()) {
@@ -304,9 +312,9 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
 
         if (!transactionForAdjustment.isAccrualRelated() && transactionForAdjustment.isNotRepaymentLikeType()
                 && transactionForAdjustment.isNotWaiver() && transactionForAdjustment.isNotCreditBalanceRefund()
-                && !transactionForAdjustment.isDeferredIncome() && !transactionForAdjustment.isCapitalizedIncomeAdjustment()
-                && !transactionForAdjustment.isBuyDownFeeAdjustment()) {
-            final String errorMessage = "Only (non-reversed) transactions of type repayment, waiver, accrual, credit balance refund, capitalized income, capitalized income adjustment, buy down fee or buy down fee adjustment can be adjusted.";
+                && !transactionForAdjustment.isRefundForActiveLoan() && !transactionForAdjustment.isDeferredIncome()
+                && !transactionForAdjustment.isCapitalizedIncomeAdjustment() && !transactionForAdjustment.isBuyDownFeeAdjustment()) {
+            final String errorMessage = "Only (non-reversed) transactions of type repayment, waiver, accrual, credit balance refund, refund, capitalized income, capitalized income adjustment, buy down fee or buy down fee adjustment can be adjusted.";
             throw new InvalidLoanTransactionTypeException("transaction",
                     "adjustment.is.only.allowed.to.repayment.or.waiver.or.creditbalancerefund.or.capitalizedIncome.or.capitalizedIncomeAdjustment.or.buyDownFee.or.buyDownFeeAdjustment.transactions",
                     errorMessage);
@@ -379,7 +387,11 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
                     scheduleGeneratorDTO);
         }
 
-        if (transactionForAdjustment.getTypeOf().equals(LoanTransactionType.CAPITALIZED_INCOME)) {
+        // A refund is not repayment-like, so the branch above does not reprocess it. Replaying the surviving
+        // transactions is what re-applies the payments the refund had un-allocated, restoring the installments it
+        // reopened; the caller then recomputes the loan status from the resulting balances.
+        if (transactionForAdjustment.getTypeOf().equals(LoanTransactionType.CAPITALIZED_INCOME)
+                || transactionForAdjustment.getTypeOf().equals(LoanTransactionType.REFUND_FOR_ACTIVE_LOAN)) {
             reprocessLoanTransactionsService.reprocessTransactions(loan);
         }
     }

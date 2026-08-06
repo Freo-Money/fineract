@@ -2596,8 +2596,27 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         }
     }
 
+    /**
+     * Journal entries for a refund on an active loan (<code>REFUND_FOR_ACTIVE_LOAN</code>, type 18 - the transaction
+     * raised by <code>refundByCash</code> and <code>refundByTransfer</code>).
+     * <p>
+     * This is the exact contra of {@link #createJournalEntriesForLoanRepayments}, and is deliberately written to mirror
+     * it leg for leg: the repayment <i>credited</i> the receivables, so the refund <i>debits</i> them. Debiting income
+     * instead - which is what this method used to do for interest, fees and penalties - leaves the receivable carrying
+     * a permanent phantom credit and income permanently understated by the refunded amount. The two errors offset each
+     * other, so the trial balance still foots and nothing fails a balance check.
+     * <p>
+     * <b>The charge legs debit the gross amount and must not touch tax.</b> On a taxed charge the accrual splits the
+     * credit side only - {@link #createJournalEntriesForAccruals} posts {@code Dr FEES_RECEIVABLE} for the net amount
+     * <i>and again</i> for the tax, against {@code Cr INCOME_FROM_FEES} and {@code Cr} the tax liability. The
+     * receivable therefore carries the charge gross of tax, and the tax is recognised once, at accrual. Anything that
+     * hands the charge back has to move that same gross figure and leave the liability alone.
+     * <p>
+     * This is why the charge legs no longer route through <code>createDebitJournalEntryForLoanCharges</code>: that
+     * helper nets the tax out of the charge account and credits the tax accounts regardless of direction, which is
+     * wrong on both counts here.
+     */
     private void createJournalEntriesForRefundForActiveLoan(LoanDTO loanDTO, LoanTransactionDTO loanTransactionDTO, Office office) {
-        // TODO Auto-generated method stub
         // loan properties
         final Long loanProductId = loanDTO.getLoanProductId();
         final Long loanId = loanDTO.getLoanId();
@@ -2623,39 +2642,20 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
 
         if (MathUtil.isGreaterThanZero(interestAmount)) {
             totalDebitAmount = totalDebitAmount.add(interestAmount);
-            this.helper.createDebitJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.INTEREST_ON_LOANS.getValue(),
+            this.helper.createDebitJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.INTEREST_RECEIVABLE.getValue(),
                     loanProductId, paymentTypeId, loanId, transactionId, transactionDate, interestAmount);
         }
 
         if (MathUtil.isGreaterThanZero(feesAmount)) {
             totalDebitAmount = totalDebitAmount.add(feesAmount);
-
-            List<ChargePaymentDTO> chargePaymentDTOs = new ArrayList<>();
-
-            for (ChargePaymentDTO chargePaymentDTO : loanTransactionDTO.getFeePayments()) {
-                chargePaymentDTOs.add(new ChargePaymentDTO(chargePaymentDTO.getChargeId(),
-                        chargePaymentDTO.getAmount().floatValue() < 0 ? chargePaymentDTO.getAmount().multiply(new BigDecimal(-1))
-                                : chargePaymentDTO.getAmount(),
-                        chargePaymentDTO.getLoanChargeId()));
-            }
-            this.helper.createDebitJournalEntryForLoanCharges(office, currencyCode, AccrualAccountsForLoan.INCOME_FROM_FEES.getValue(),
-                    loanProductId, loanId, transactionId, transactionDate, feesAmount, chargePaymentDTOs,
-                    loanTransactionDTO.getTaxPayments());
+            this.helper.createDebitJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.FEES_RECEIVABLE.getValue(),
+                    loanProductId, paymentTypeId, loanId, transactionId, transactionDate, feesAmount);
         }
 
         if (MathUtil.isGreaterThanZero(penaltiesAmount)) {
             totalDebitAmount = totalDebitAmount.add(penaltiesAmount);
-            List<ChargePaymentDTO> chargePaymentDTOs = new ArrayList<>();
-
-            for (ChargePaymentDTO chargePaymentDTO : loanTransactionDTO.getPenaltyPayments()) {
-                chargePaymentDTOs.add(new ChargePaymentDTO(chargePaymentDTO.getChargeId(),
-                        chargePaymentDTO.getAmount().floatValue() < 0 ? chargePaymentDTO.getAmount().multiply(new BigDecimal(-1))
-                                : chargePaymentDTO.getAmount(),
-                        chargePaymentDTO.getLoanChargeId()));
-            }
-            this.helper.createDebitJournalEntryForLoanCharges(office, currencyCode, AccrualAccountsForLoan.INCOME_FROM_PENALTIES.getValue(),
-                    loanProductId, loanId, transactionId, transactionDate, penaltiesAmount, chargePaymentDTOs,
-                    loanTransactionDTO.getTaxPayments());
+            this.helper.createDebitJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.PENALTIES_RECEIVABLE.getValue(),
+                    loanProductId, paymentTypeId, loanId, transactionId, transactionDate, penaltiesAmount);
         }
 
         if (MathUtil.isGreaterThanZero(overPaymentAmount)) {

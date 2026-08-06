@@ -85,6 +85,8 @@ public class LoanRefundService {
                 new TransactionCtx(loan.getCurrency(), loan.getRepaymentScheduleInstallments(), loan.getActiveCharges(),
                         new MoneyHolder(loan.getTotalOverpaidAsMoney()), null));
 
+        loanRefundValidator.validateRefundWasFullyApplied(loan, loanTransaction);
+
         loanLifecycleStateMachine.determineAndTransition(loan, loanTransaction.getTransactionDate());
     }
 }

@@ -36,6 +36,7 @@ import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
 import org.apache.fineract.infrastructure.core.exception.InvalidJsonException;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.portfolio.account.AccountDetailConstants;
 import org.apache.fineract.portfolio.account.api.AccountTransfersApiConstants;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -95,6 +96,35 @@ public class AccountTransfersDataValidator {
                 .notBlank().notExceedingLengthOf(200);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
+    /**
+     * Validation for {@code refundByTransfer}, which is {@link #validate(JsonCommand)} plus a future-date rule.
+     * <p>
+     * Kept separate from {@link #validate(JsonCommand)} on purpose: that method is shared with ordinary account
+     * transfers, and forbidding a future date there would change behaviour for every savings and loan transfer rather
+     * than for refunds alone.
+     * <p>
+     * The rule has to live in validation rather than in the service body because the refund's paid-in-advance cap is
+     * assessed <i>as of the transaction date</i> - a future date collapses the available amount to zero, so whichever
+     * check runs first decides what the operator is told. Validating up front means they are told the date is wrong
+     * rather than the amount.
+     */
+    public void validateRefundByTransfer(final JsonCommand command) {
+        validate(command);
+
+        final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed(AccountTransfersApiConstants.transferDateParamName,
+                command.parsedJson());
+        if (DateUtils.isDateInTheFuture(transactionDate)) {
+            // Reported the way every other rule in this validator is - against the transfer resource, attributed to
+            // the offending parameter - rather than as a loan-domain exception. The refund-by-cash path raises its own
+            // loan-flavoured code for the same condition; the codes differ because the resources differ.
+            final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+            new DataValidatorBuilder(dataValidationErrors).resource(AccountTransfersApiConstants.ACCOUNT_TRANSFER_RESOURCE_NAME).reset()
+                    .parameter(AccountTransfersApiConstants.transferDateParamName).value(transactionDate)
+                    .failWithCodeNoParameterAddedToErrorCode("cannot.be.a.future.date");
+            throwExceptionIfValidationWarningsExist(dataValidationErrors);
+        }
     }
 
     private void throwExceptionIfValidationWarningsExist(final List<ApiParameterError> dataValidationErrors) {
