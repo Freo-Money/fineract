@@ -84,6 +84,22 @@ class ClosedLoanRefundPolicyTest {
         assertThat(policy.isRefundAllowedOnClosedLoan(loanWith(LoanStatus.ACTIVE))).isFalse();
     }
 
+    /**
+     * A loan closed by the explicit {@code close} command with nothing outstanding also lands on
+     * {@code CLOSED_OBLIGATIONS_MET} ({@code DefaultLoanLifecycleStateMachine} resolves it through
+     * {@code closeObligationsMetTransition}), so this policy admits it just as it admits one closed by a final
+     * repayment.
+     * <p>
+     * That is intended rather than incidental: the status means the obligations were met however that came about, and
+     * whether any money is actually refundable is decided downstream by the paid-in-advance check, not here.
+     */
+    @Test
+    void allowsLoanClosedByTheExplicitCloseCommandBecauseItIsAlsoObligationsMet() {
+        when(configurationDomainService.isRefundOnClosedLoansEnabled()).thenReturn(true);
+
+        assertThat(policy.isRefundAllowedOnClosedLoan(loanWith(LoanStatus.CLOSED_OBLIGATIONS_MET))).isTrue();
+    }
+
     @Test
     void rejectsChargedOffLoan() {
         when(configurationDomainService.isRefundOnClosedLoansEnabled()).thenReturn(true);

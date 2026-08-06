@@ -315,81 +315,14 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
             return;
         }
-        postFullAccrualOnClosure(loan, addJournal);
+        // check and process accruals for loan WITHOUT interest recalculation details and compounding posted as income
+        final boolean chargeOnDueDate = isChargeOnDueDate();
+        addAccruals(loan, loan.getLastLoanRepaymentScheduleInstallment().getDueDate(), false, true, addJournal, chargeOnDueDate);
         if (isProgressiveAccrual(loan)) {
             return;
         }
         // check and process accruals for loan WITH interest recalculation details and compounding posted as income
         processIncomeAndAccrualTransactionOnLoanClosure(loan);
-    }
-
-    /**
-     * Recognises everything still unaccrued when a loan closes, as a single accrual dated on the closure date.
-     * <p>
-     * Without this a loan that closes between accrual runs leaves income permanently unrecognised: the repayment
-     * credits the receivable for interest that was never debited to it, and once the loan is closed no further accrual
-     * can be posted - {@code addAccruals} refuses a non-final accrual on a loan that is not open.
-     * <p>
-     * Interest only. Fees and penalties are deliberately excluded: a fee or penalty portion on an accrual transaction
-     * must be attributed to specific charges through {@link LoanChargePaidBy}, and by the time this runs the closing
-     * payment has already settled those charges, so there is no outstanding amount left to attribute against. Posting
-     * the portion without that attribution makes the accrual processor reject the transaction, which rolls back the
-     * closing payment itself. Charge accrual therefore stays with the charge-accrual path, which runs while the charge
-     * is still outstanding.
-     * <p>
-     * The amount is taken per installment as interest charged, capped at interest actually collected, less whatever has
-     * already been accrued. The cap stops a partially-settled closure from recognising income that was never received;
-     * subtracting what is already accrued makes this additive to whatever periodic accrual has posted, so a closure
-     * that lands mid-period tops up the remainder rather than double-counting it.
-     */
-    private void postFullAccrualOnClosure(final Loan loan, final boolean addJournal) {
-        if (!loan.isPeriodicAccrualAccountingEnabledOnLoanProduct() || loan.isChargedOff() || loan.isContractTermination()
-                || !(loan.getStatus().isClosedObligationsMet() || loan.getStatus().isOverpaid())) {
-            return;
-        }
-        final MonetaryCurrency currency = loan.getCurrency();
-        final LocalDate accrualDate = getFinalAccrualTransactionDate(loan);
-        final Money zero = Money.zero(currency);
-        Money interestPortion = zero;
-
-        for (final LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
-            final Money interest = unaccruedAtClosure(installment.getInterestCharged(currency), installment.getInterestPaid(currency),
-                    installment.getInterestAccrued(currency));
-            if (!interest.isGreaterThanZero()) {
-                continue;
-            }
-            interestPortion = interestPortion.plus(interest);
-            // Add rather than assign, and carry the fee and penalty portions through untouched, so nothing already
-            // accrued is downgraded by this catch-up.
-            installment.updateAccrualPortion(MathUtil.plus(installment.getInterestAccrued(currency), interest),
-                    installment.getFeeAccrued(currency), installment.getPenaltyAccrued(currency));
-        }
-
-        if (!interestPortion.isGreaterThanZero()) {
-            return;
-        }
-
-        final LoanTransaction accrualTransaction = accrueTransaction(loan, loan.getOffice(), accrualDate, interestPortion.getAmount(),
-                interestPortion.getAmount(), zero.getAmount(), zero.getAmount(), externalIdFactory.create());
-
-        // Keep the high-water mark in step with what has been accrued, as the periodic path does. It matters when a
-        // closed loan is later reopened - by a refund, say - and periodic accrual resumes against this date.
-        loan.setAccruedTill(accrualDate);
-        loanRepositoryWrapper.save(loan);
-
-        loanTransactionRepository.saveAndFlush(accrualTransaction);
-        loan.addLoanTransaction(accrualTransaction);
-        if (addJournal) {
-            businessEventNotifierService.notifyPostBusinessEvent(new LoanAccrualTransactionCreatedBusinessEvent(accrualTransaction));
-            journalEntryPoster.postJournalEntriesForLoanTransaction(accrualTransaction, false, false);
-        }
-    }
-
-    /**
-     * What still has to accrue at closure: charged, capped at collected, less already accrued, floored at zero.
-     */
-    private Money unaccruedAtClosure(final Money charged, final Money paid, final Money accrued) {
-        return MathUtil.minusToZero(MathUtil.min(charged, paid, true), accrued);
     }
 
     /**

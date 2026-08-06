@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanAccrualAdjustmentTransactionBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanAccrualTransactionCreatedBusinessEvent;
@@ -45,11 +46,13 @@ import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.Mon
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.TransactionCtx;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.AdvancedPaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.ProgressiveTransactionCtx;
+import org.apache.fineract.portfolio.loanaccount.serialization.LoanRefundValidator;
 import org.apache.fineract.portfolio.loanproduct.calc.data.ProgressiveLoanInterestScheduleModel;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ReprocessLoanTransactionsServiceImpl implements ReprocessLoanTransactionsService {
 
     private final LoanAccountService loanAccountService;
@@ -58,6 +61,7 @@ public class ReprocessLoanTransactionsServiceImpl implements ReprocessLoanTransa
     private final LoanTransactionProcessingService loanTransactionProcessingService;
     private final InterestScheduleModelRepositoryWrapper interestScheduleModelRepositoryWrapper;
     private final LoanBalanceService loanBalanceService;
+    private final LoanRefundValidator loanRefundValidator;
     private final LoanTransactionRepository loanTransactionRepository;
     private final LoanTransactionService loanTransactionService;
     private final LoanJournalEntryPoster loanJournalEntryPoster;
@@ -213,6 +217,7 @@ public class ReprocessLoanTransactionsServiceImpl implements ReprocessLoanTransa
                 if (oldTransaction != null) {
                     loanAccountTransfersService.updateLoanTransaction(oldTransaction.getId(), newTransaction);
                 }
+                reportRefundResidual(newTransaction);
             }
 
             if (oldTransaction != null) {
@@ -221,6 +226,40 @@ public class ReprocessLoanTransactionsServiceImpl implements ReprocessLoanTransa
             }
         }
         replayedTransactionBusinessEventService.raiseTransactionReplayedEvents(changedTransactionDetail);
+    }
+
+    /**
+     * Closes the loop left open by {@code LoanRefundValidator#validateRefundWasFullyApplied}, which only guards the
+     * initial post.
+     * <p>
+     * A refund is re-processed on every replay - it is a monetary transaction, so it is in the reprocessing set - and
+     * its portions are re-derived from scratch against the current schedule. A refund that allocated cleanly when
+     * posted can therefore come up short afterwards, most often following a backdated adjustment. The unplaced
+     * remainder is not discarded: the refund is netted out of the loan's total paid in repayments regardless, so it
+     * resurfaces later as a negative overpayment, far from the operation that caused it.
+     * <p>
+     * Reported rather than thrown. The replay is normally triggered by something else entirely - a waiver, an
+     * adjustment - and failing that operation would punish it for a condition it did not create, while leaving the loan
+     * no healthier. Logging at ERROR makes the residual findable at the moment it appears instead of only when someone
+     * questions the overpayment.
+     */
+    private void reportRefundResidual(final LoanTransaction transaction) {
+        if (!transaction.isRefundForActiveLoan()) {
+            return;
+        }
+        final Loan loan = transaction.getLoan();
+        if (loan == null) {
+            return;
+        }
+        final Money remainder = loanRefundValidator.unallocatedRemainder(loan, transaction);
+        if (remainder.isZero()) {
+            return;
+        }
+        log.error(
+                "Refund residual after replay on loan {}: transaction {} dated {} requested {} but {} could not be allocated to the"
+                        + " schedule. The difference will surface as a negative overpayment.",
+                loan.getId(), transaction.getId(), transaction.getTransactionDate(), transaction.getAmount(loan.getCurrency()).getAmount(),
+                remainder.getAmount());
     }
 
     private ChangedTransactionDetail reprocessTransactionsAndFetchChangedTransactions(final Loan loan,

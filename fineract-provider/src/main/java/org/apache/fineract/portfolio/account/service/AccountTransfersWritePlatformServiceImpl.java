@@ -508,8 +508,10 @@ public class AccountTransfersWritePlatformServiceImpl implements AccountTransfer
     @Override
     @Transactional
     public CommandProcessingResult refundByTransfer(JsonCommand command) {
-        // TODO Auto-generated method stub
-        this.accountTransfersDataValidator.validate(command);
+        // Refund-specific validation: the shared validate() plus a future-date rule. It must run before the
+        // paid-in-advance cap below, which is assessed as of the transaction date and would otherwise report a future
+        // date as an invalid amount.
+        this.accountTransfersDataValidator.validateRefundByTransfer(command);
 
         final LocalDate transactionDate = command.localDateValueOfParameterNamed(transferDateParamName);
         final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed(transferAmountParamName);

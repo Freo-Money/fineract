@@ -2608,25 +2608,44 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                 loanId);
     }
 
+    /**
+     * Unchanged from before this feature: an installment due on the business date still counts as paid in advance.
+     * <p>
+     * Deliberately left alone. This overload feeds the loan template, so tightening the boundary here would change the
+     * {@code paidInAdvance} figure every tenant sees on every loan fetch, whether or not
+     * {@code allow-refund-on-closed-loans} is enabled. The refund paths use
+     * {@link #retrieveTotalPaidInAdvance(Long, LocalDate)} instead, which applies the strict boundary they need.
+     */
     @Override
     public PaidInAdvanceData retrieveTotalPaidInAdvance(Long loanId) {
-        return retrieveTotalPaidInAdvance(loanId, DateUtils.getBusinessLocalDate());
+        return queryPaidInAdvance(" mr.duedate >= " + sqlGenerator.currentBusinessDate(), new Object[] { loanId });
     }
 
+    /**
+     * Amount paid against installments still in the future as of {@code asOfDate}, using a strict boundary.
+     * <p>
+     * An installment falling due <i>on</i> the assessment date was settled on time, so its money is earned rather than
+     * an advance and must not be refundable. Matches {@code LoanRepaymentScheduleInstallment#isInAdvance}, which tests
+     * {@code transactionDate < dueDate}.
+     */
     @Override
     public PaidInAdvanceData retrieveTotalPaidInAdvance(Long loanId, LocalDate asOfDate) {
+        return queryPaidInAdvance(" mr.duedate > ? ", new Object[] { loanId, asOfDate });
+    }
+
+    /**
+     * Shared body for both overloads. {@code dueDatePredicate} is always a compile-time literal - never caller input -
+     * so concatenating it is safe; the loan id and any date travel as bind parameters in {@code arguments}.
+     */
+    private PaidInAdvanceData queryPaidInAdvance(final String dueDatePredicate, final Object[] arguments) {
         try {
-            final String sql = "  select (SUM(COALESCE(mr.principal_completed_derived, 0))"
+            final String totals = " (SUM(COALESCE(mr.principal_completed_derived, 0))"
                     + " + SUM(COALESCE(mr.interest_completed_derived, 0)) " + " + SUM(COALESCE(mr.fee_charges_completed_derived, 0)) "
-                    + " + SUM(COALESCE(mr.penalty_charges_completed_derived, 0))) as total_in_advance_derived "
-                    + " from m_loan ml INNER JOIN m_loan_repayment_schedule mr on mr.loan_id = ml.id "
-                    // Strictly after: an installment falling due ON the assessment date was settled on time, not in
-                    // advance, so its money is already earned and must not be refundable. This matches
-                    // LoanRepaymentScheduleInstallment#isInAdvance, which tests transactionDate < dueDate.
-                    + " where ml.id=? and  mr.duedate > ? group by ml.id having " + " (SUM(COALESCE(mr.principal_completed_derived, 0))  "
-                    + " + SUM(COALESCE(mr.interest_completed_derived, 0)) " + " + SUM(COALESCE(mr.fee_charges_completed_derived, 0)) "
-                    + "+  SUM(COALESCE(mr.penalty_charges_completed_derived, 0))) > 0";
-            BigDecimal bigDecimal = this.jdbcTemplate.queryForObject(sql, BigDecimal.class, loanId, asOfDate); // NOSONAR
+                    + " + SUM(COALESCE(mr.penalty_charges_completed_derived, 0))) ";
+            final String sql = "  select " + totals + " as total_in_advance_derived "
+                    + " from m_loan ml INNER JOIN m_loan_repayment_schedule mr on mr.loan_id = ml.id " + " where ml.id=? and "
+                    + dueDatePredicate + " group by ml.id having " + totals + " > 0";
+            BigDecimal bigDecimal = this.jdbcTemplate.queryForObject(sql, BigDecimal.class, arguments); // NOSONAR
             return new PaidInAdvanceData(bigDecimal);
         } catch (DataAccessException e) {
             return new PaidInAdvanceData(new BigDecimal(0));
@@ -2639,8 +2658,12 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
 
         final Collection<PaymentTypeData> paymentOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        // The date-aware overload, so the template offers exactly what the refund will accept. The cap in
+        // checkIfLoanIsPaidInAdvance uses the strict boundary; showing the looser figure here would let an operator
+        // request an amount that is then rejected.
         return retrieveRefundTemplate(loanId, LoanTransactionType.REFUND_FOR_ACTIVE_LOAN, paymentOptions, loan.getCurrency(),
-                retrieveTotalPaidInAdvance(loan.getId()).getPaidInAdvance(), loan.getNetDisbursalAmount(), loan.getExternalId());
+                retrieveTotalPaidInAdvance(loan.getId(), DateUtils.getBusinessLocalDate()).getPaidInAdvance(), loan.getNetDisbursalAmount(),
+                loan.getExternalId());
     }
 
     @Override

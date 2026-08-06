@@ -105,19 +105,34 @@ public final class LoanRefundValidator {
      * repayments, an unabsorbed residual would surface later as a negative overpayment rather than as an error here.
      */
     public void validateRefundWasFullyApplied(final Loan loan, final LoanTransaction loanTransaction) {
+        final Money remainder = unallocatedRemainder(loan, loanTransaction);
+        if (!remainder.isZero()) {
+            final Money requested = loanTransaction.getAmount(loan.getCurrency());
+            final Money allocated = requested.minus(remainder);
+            final String errorMessage = "Only " + allocated.getAmount().toPlainString() + " of the requested refund amount "
+                    + requested.getAmount().toPlainString() + " could be applied to the repayment schedule.";
+            throw new InvalidLoanStateTransitionException("transaction", "refund.amount.not.fully.allocated", errorMessage,
+                    requested.getAmount(), allocated.getAmount());
+        }
+    }
+
+    /**
+     * How much of the refund the processor could not place on the schedule - zero when it allocated cleanly.
+     * <p>
+     * Exposed because the transaction replay needs the same arithmetic without the exception. A replay re-derives every
+     * refund's portions against the schedule as it now stands, so a refund that allocated cleanly when posted can come
+     * up short later, typically after a backdated adjustment. Throwing there would roll back whatever triggered the
+     * replay - usually an unrelated and legitimate operation - so that caller reports the remainder instead. See
+     * {@code ReprocessLoanTransactionsServiceImpl#reportRefundResidual}.
+     */
+    public Money unallocatedRemainder(final Loan loan, final LoanTransaction loanTransaction) {
         final MonetaryCurrency currency = loan.getCurrency();
         final Money allocated = loanTransaction.getPrincipalPortion(currency) //
                 .plus(loanTransaction.getInterestPortion(currency)) //
                 .plus(loanTransaction.getFeeChargesPortion(currency)) //
                 .plus(loanTransaction.getPenaltyChargesPortion(currency)) //
                 .plus(loanTransaction.getOverPaymentPortion(currency));
-        final Money requested = loanTransaction.getAmount(currency);
-        if (!allocated.isEqualTo(requested)) {
-            final String errorMessage = "Only " + allocated.getAmount().toPlainString() + " of the requested refund amount "
-                    + requested.getAmount().toPlainString() + " could be applied to the repayment schedule.";
-            throw new InvalidLoanStateTransitionException("transaction", "refund.amount.not.fully.allocated", errorMessage,
-                    requested.getAmount(), allocated.getAmount());
-        }
+        return loanTransaction.getAmount(currency).minus(allocated);
     }
 
     public void validateRefundTransactionType(final LoanTransaction loanTransaction) {

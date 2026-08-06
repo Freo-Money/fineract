@@ -204,6 +204,7 @@ import org.apache.fineract.portfolio.loanaccount.serialization.LoanApplicationVa
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanOfficerValidator;
+import org.apache.fineract.portfolio.loanaccount.serialization.LoanRefundValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanUpdateCommandFromApiJsonDeserializer;
 import org.apache.fineract.portfolio.loanaccount.service.adjustment.LoanAdjustmentParameter;
@@ -252,6 +253,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final CalendarRepository calendarRepository;
     private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
     private final LoanApplicationValidator loanApplicationValidator;
+    private final LoanRefundValidator loanRefundValidator;
     private final AccountAssociationsRepository accountAssociationRepository;
     private final AccountTransferDetailRepository accountTransferDetailRepository;
     private final BusinessEventNotifierService businessEventNotifierService;
@@ -2665,10 +2667,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final BigDecimal transactionAmount = command.bigDecimalValueOfParameterNamed("transactionAmount");
         // Ahead of the paid-in-advance cap, which is evaluated as of the transaction date: a future date makes the
         // available amount zero, so without this the operator is told the amount is invalid rather than the date.
-        if (DateUtils.isDateInTheFuture(transactionDate)) {
-            throw new InvalidLoanStateTransitionException("transaction", "cannot.be.a.future.date",
-                    "The transaction date cannot be in the future.", transactionDate);
-        }
+        // LoanRefundService applies the same rule later as a backstop; this call is what makes it reachable.
+        loanRefundValidator.validateTransactionDateNotInFuture(transactionDate);
         checkIfLoanIsPaidInAdvance(loanId, transactionAmount, transactionDate);
 
         final Map<String, Object> changes = new LinkedHashMap<>();
