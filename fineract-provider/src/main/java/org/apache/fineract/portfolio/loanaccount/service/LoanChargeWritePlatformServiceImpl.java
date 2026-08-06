@@ -809,6 +809,8 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
 
         Loan loan = loanAssembler.assembleFrom(loanId);
         deactivateOverdueLoanChargesFrom(loan, fromDueDate);
+        // Inactivation alone does not clear installment penalty portions / summary; reprocess from active charges.
+        reprocessLoanTransactionsService.reprocessTransactions(loan);
 
         loanRepositoryWrapper.saveAndFlush(loan);
 
@@ -857,6 +859,9 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         // Remove penalties dated after the target date (excess applied beyond it, e.g. by COB or by recurring periods
         // up to today) so the loan reflects exactly the penalties due up to the target date...
         deactivateOverdueLoanChargesFrom(loan, asOfDate.plusDays(1));
+        // setActive(false) does not rebuild installment penalty buckets or loan summary; reprocess so schedule/summary
+        // match active charges before the repayment (or other pre-event caller) continues.
+        reprocessLoanTransactionsService.reprocessTransactions(loan);
         loanRepositoryWrapper.saveAndFlush(loan);
         // ...then apply any penalties that are due up to the target date but not yet applied. NPA loans are not skipped
         // in the transaction context.
