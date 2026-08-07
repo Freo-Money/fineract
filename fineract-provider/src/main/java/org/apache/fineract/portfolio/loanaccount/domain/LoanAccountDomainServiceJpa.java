@@ -892,8 +892,17 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             List<LoanTransaction> transactionsToJournal, LoanTransaction transactionToReturn) {
         LoanTransaction savedReference = null;
         for (LoanTransaction transaction : transactions) {
+            // The foreclosure payment may already be attached to the loan (handleRepaymentOrRecoveryOrWaiverTransaction
+            // attaches non-zero payments); attaching it a second time double-counts it in getTotalPaidInRepayments and
+            // inflates total_overpaid by the full transaction amount. The other transactions passed through here (e.g.
+            // foreclosure accruals) are never pre-attached, so the contains() check keeps both cases correct. Checked
+            // before saving so the result does not depend on whether saveAndFlush persists (same instance back) or
+            // merges (potentially a different one).
+            final boolean alreadyAttached = loan.getLoanTransactions().contains(transaction);
             LoanTransaction savedTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(transaction);
-            loan.addLoanTransaction(savedTransaction);
+            if (!alreadyAttached) {
+                loan.addLoanTransaction(savedTransaction);
+            }
             if (transactionsToJournal != null) {
                 transactionsToJournal.add(savedTransaction);
             }

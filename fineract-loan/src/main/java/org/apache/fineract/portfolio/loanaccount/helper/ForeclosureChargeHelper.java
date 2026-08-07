@@ -152,7 +152,10 @@ public class ForeclosureChargeHelper {
                     Charge chargeDefinition = chargeRepositoryWrapper.findOneWithNotFoundDetection(chargeId);
                     merged.put(chargeId, chargeDefinition.getAmount());
                 } catch (Exception e) {
-                    // Skip charges that cannot be loaded
+                    // Skip charges that cannot be loaded. The ids come from a query already filtered to active,
+                    // non-deleted charges, so a failure here is a real fault (concurrent delete, DB error) - and a
+                    // skipped charge silently drops it from both the quote and the foreclosure. Logged, never silent.
+                    LOG.warn("Skipping foreclosure charge {} for loan product merge - charge could not be loaded", chargeId, e);
                 }
             }
         }
@@ -197,7 +200,9 @@ public class ForeclosureChargeHelper {
                 chargeAmount = chargeAmount.setScale(effectiveDigits, effectiveRoundingMode);
                 totalFees = totalFees.plus(Money.of(currency, chargeAmount));
             } catch (Exception e) {
-                // Skip invalid charges
+                // Skip invalid charges. Logged because this quote is compared against the charges the actual
+                // foreclosure applies - a charge dropped here silently makes the quote lower than the amount collected.
+                LOG.warn("Skipping foreclosure charge {} on loan {} while quoting", entry.getKey(), loan.getId(), e);
             }
         }
 
@@ -400,6 +405,11 @@ public class ForeclosureChargeHelper {
                 return;
             }
         }
+        // NOTE: these buckets are transient. handleForeClosureTransactions always takes the full-reprocess path for a
+        // foreclosure (processLatest is gated on !loan.isForeclosure()), and that reprocess rebuilds the installments:
+        // the schedule-processing wrapper re-derives fee/penalty CHARGED from the active charges, and replaying the
+        // transactions re-derives the PAID portions. So the values written here are recomputed before they are
+        // persisted - do not rely on them for what the schedule ends up recording.
         lastInstallment.setFeeChargesCharged(foreclosureAmount.getAmount());
         lastInstallment.setFeeChargesPaid(markAsPaid ? foreclosureAmount.getAmount() : Money.zero(currency).getAmount());
         lastInstallment.setFeeChargesWaived(Money.zero(currency).getAmount());
