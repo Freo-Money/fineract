@@ -30,9 +30,11 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.apache.fineract.accounting.closure.domain.GLClosure;
 import org.apache.fineract.accounting.closure.domain.GLClosureRepository;
 import org.apache.fineract.cob.service.LoanAccountLockService;
@@ -69,6 +71,10 @@ import org.junit.jupiter.api.Test;
 class LoanReprocessValidatorTest {
 
     private static final LocalDate DISBURSED_ON = LocalDate.of(2026, 6, 5);
+    /** Mirrors LoanTransaction#isAccrualRelated. */
+    private static final Set<LoanTransactionType> ACCRUAL_TYPES = EnumSet.of(LoanTransactionType.ACCRUAL,
+            LoanTransactionType.ACCRUAL_ADJUSTMENT, LoanTransactionType.ACCRUAL_ACTIVITY, LoanTransactionType.ACCRUAL_SUSPENSE,
+            LoanTransactionType.ACCRUAL_SUSPENSE_REVERSE);
     private static final Long OFFICE_ID = 1L;
 
     private final GLClosureRepository glClosureRepository = mock(GLClosureRepository.class);
@@ -466,6 +472,40 @@ class LoanReprocessValidatorTest {
         assertThatCode(() -> validator.validate(loan, dateChange())).doesNotThrowAnyException();
     }
 
+    /**
+     * The backward-move case above cannot fail on the chronology rule - the new date is before the accrual either way.
+     * This is the case that matters: upfront accrual posts ON the old disbursement date, and periodic accrual posts at
+     * the COB date, so counting accruals as blocking activity makes a forward correction impossible on every
+     * accrual-accounting loan.
+     */
+    @Test
+    void anAccrualDoesNotBlockAForwardMove() {
+        final Loan loan = activeLoan();
+        final LoanTransaction disbursement = transaction(LoanTransactionType.DISBURSEMENT, DISBURSED_ON, 1L);
+        final LoanTransaction upfrontAccrual = transaction(LoanTransactionType.ACCRUAL, DISBURSED_ON, 6L);
+        final LoanTransaction cobAccrual = transaction(LoanTransactionType.ACCRUAL, DISBURSED_ON.plusDays(1), 7L);
+        when(loan.getLoanTransactions()).thenReturn(List.of(disbursement, upfrontAccrual, cobAccrual));
+
+        assertThatCode(
+                () -> validator.validate(loan, LoanReprocessRequest.builder().actualDisbursementDate(DISBURSED_ON.plusDays(3)).build()))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void aRepaymentStillBlocksAForwardMovePastIt() {
+        // The accrual carve-out must not widen into "nothing blocks a forward move".
+        final Loan loan = activeLoan();
+        final LocalDate repaymentDate = DISBURSED_ON.plusDays(2);
+        final LoanTransaction disbursement = transaction(LoanTransactionType.DISBURSEMENT, DISBURSED_ON, 1L);
+        final LoanTransaction accrual = transaction(LoanTransactionType.ACCRUAL, DISBURSED_ON, 6L);
+        final LoanTransaction repayment = transaction(LoanTransactionType.REPAYMENT, repaymentDate, 8L);
+        when(loan.getLoanTransactions()).thenReturn(List.of(disbursement, accrual, repayment));
+
+        assertParameterError(
+                () -> validator.validate(loan, LoanReprocessRequest.builder().actualDisbursementDate(DISBURSED_ON.plusDays(3)).build()),
+                LoanReprocessApiConstants.ERROR_DISBURSEMENT_AFTER_TRANSACTION, LoanReprocessApiConstants.actualDisbursementDateParamName);
+    }
+
     // ----- the first instalment bound -----
 
     /**
@@ -558,6 +598,7 @@ class LoanReprocessValidatorTest {
         lenient().when(loan.isContractTermination()).thenReturn(false);
         lenient().when(loan.isTopup()).thenReturn(false);
         lenient().when(loan.isProgressiveSchedule()).thenReturn(false);
+        lenient().when(loan.isCumulativeSchedule()).thenReturn(true);
         lenient().when(loan.isInterestBearingAndInterestRecalculationEnabled()).thenReturn(false);
         lenient().when(loan.getLoanProduct()).thenReturn(product);
         lenient().when(loan.getDisbursementDate()).thenReturn(DISBURSED_ON);
@@ -586,6 +627,9 @@ class LoanReprocessValidatorTest {
         lenient().when(transaction.isNotReversed()).thenReturn(true);
         lenient().when(transaction.getTypeOf()).thenReturn(type);
         lenient().when(transaction.isDisbursement()).thenReturn(LoanTransactionType.DISBURSEMENT.equals(type));
+        // Derived from the type, mirroring the real LoanTransaction#isAccrualRelated, so the accrual carve-out in
+        // validateChronology is exercised rather than silently defaulting to false on the mock.
+        lenient().when(transaction.isAccrualRelated()).thenReturn(ACCRUAL_TYPES.contains(type));
         lenient().when(transaction.hasChargebackLoanTransactionRelations()).thenReturn(false);
         lenient().when(transaction.getTransactionDate()).thenReturn(date);
         return transaction;

@@ -130,19 +130,23 @@ class LoanScheduleRegenerationServiceTest {
     }
 
     /**
-     * Progressive loans replay through {@code updateModel} inside {@code reprocessTransactions}. Regenerating them here
-     * as well would replay the transactions twice.
+     * Progressive loans have their own replay path and are not regenerated here. They are excluded by
+     * {@link LoanScheduleRegenerationService#isRegenerable} and the exclusion is enforced, rather than the service
+     * returning as though the regeneration had happened: a silent skip would let a bulk repair report a clean run over
+     * exactly the loans it failed to touch.
      */
     @Test
-    void progressiveLoanIsReplayedWithoutBeingRegenerated() {
+    void progressiveLoanIsRejectedRatherThanSilentlySkipped() {
         final Loan loan = cumulativeLoan();
-        when(loan.getLoanProductRelatedDetail().getLoanScheduleType()).thenReturn(LoanScheduleType.PROGRESSIVE);
+        when(loan.isCumulativeSchedule()).thenReturn(false);
 
-        service.regenerateAndReplay(loan);
+        assertThat(LoanScheduleRegenerationService.isRegenerable(loan)).isFalse();
+        assertThatThrownBy(() -> service.regenerateAndReplay(loan)).isInstanceOf(GeneralPlatformDomainRuleException.class)
+                .hasMessageContaining("whose schedule can be regenerated");
 
         verify(loanScheduleService, never()).regenerateRepaymentSchedule(any(), any());
         verify(loanScheduleService, never()).regenerateRepaymentScheduleWithInterestRecalculation(any(), any());
-        verify(reprocessLoanTransactionsService).reprocessTransactions(loan);
+        verify(reprocessLoanTransactionsService, never()).reprocessTransactions(loan);
     }
 
     // ----- the overdue penalty snapshot -----
@@ -267,6 +271,7 @@ class LoanScheduleRegenerationServiceTest {
         lenient().when(detail.getLoanScheduleType()).thenReturn(LoanScheduleType.CUMULATIVE);
 
         final Loan loan = mock(Loan.class);
+        lenient().when(loan.isCumulativeSchedule()).thenReturn(true);
         lenient().when(loan.getId()).thenReturn(1L);
         lenient().when(loan.getStatus()).thenReturn(LoanStatus.ACTIVE);
         lenient().when(loan.isChargedOff()).thenReturn(false);

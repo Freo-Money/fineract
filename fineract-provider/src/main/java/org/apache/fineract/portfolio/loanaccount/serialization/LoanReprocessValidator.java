@@ -391,6 +391,12 @@ public class LoanReprocessValidator {
         final Optional<LocalDate> earliestActivity = loan.getLoanTransactions().stream() //
                 .filter(LoanTransaction::isNotReversed) //
                 .filter(transaction -> !isPartOfDisbursementEvent(transaction)) //
+                // Accruals are derived, not user activity: step 4 reverses and re-posts them from the corrected
+                // schedule. Counting them blocks every forward correction on an accrual product - upfront accrual
+                // posts ON the old disbursement date, and periodic accrual posts at the COB date - while blaming a
+                // transaction the caller cannot remove. Same reasoning as validateNoRepaymentOnTheDisbursementDate,
+                // which is deliberately narrowed to REPAYMENT.
+                .filter(transaction -> !transaction.isAccrualRelated()) //
                 .map(LoanTransaction::getTransactionDate) //
                 .min(Comparator.naturalOrder());
         if (earliestActivity.isPresent() && !DateUtils.isBefore(newDate, earliestActivity.get())) {

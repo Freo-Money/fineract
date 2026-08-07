@@ -32,7 +32,6 @@ import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanLifecycleStateMachine;
-import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
 import org.springframework.stereotype.Service;
 
 /**
@@ -67,9 +66,14 @@ public class LoanScheduleRegenerationService {
      * <p>
      * Restricted to plainly active loans. A closed, overpaid, written-off, charged-off, foreclosed or
      * contract-terminated loan carries settlement state that regeneration would invalidate without unwinding.
+     * <p>
+     * Also restricted to cumulative schedules. Progressive loans have their own replay path and are not regenerated
+     * here; without this check the predicate would report them regenerable while {@link #regenerateAndReplay} did
+     * nothing, so a bulk repair would report a clean run over exactly the loans it failed to touch.
      */
     public static boolean isRegenerable(final Loan loan) {
-        return loan.getStatus().isActive() && !loan.isChargedOff() && !loan.isForeclosure() && !loan.isContractTermination();
+        return loan.getStatus().isActive() && !loan.isChargedOff() && !loan.isForeclosure() && !loan.isContractTermination()
+                && loan.isCumulativeSchedule();
     }
 
     /**
@@ -81,20 +85,23 @@ public class LoanScheduleRegenerationService {
      * and flush the loan and its new accrual transactions as a side effect of reusing the COB accrual path.
      */
     public void regenerateAndReplay(final Loan loan) {
+        // Backstop, not the primary gate: callers are expected to check isRegenerable up front so the caller can
+        // raise its own domain error. Enforced here because the previous silent skip meant an ineligible loan came
+        // back from this method looking successfully regenerated.
+        if (!isRegenerable(loan)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.regeneration.loan.is.not.regenerable",
+                    "Loan " + loan.getId() + " is not in a state whose schedule can be regenerated.", loan.getId());
+        }
         regenerateAndReplaySchedule(loan);
         settleDerivedState(loan);
     }
 
     /**
-     * Progressive loans have their own replay path and are not regenerated - {@code updateModel} handles them inside
-     * {@code reprocessTransactions}. Cumulative loans go through {@code recalculateSchedule}, which regenerates and
-     * then replays in one call; calling {@code reprocessTransactions} afterwards would replay twice.
+     * Cumulative loans go through {@code recalculateSchedule}, which regenerates and then replays in one call; calling
+     * {@code reprocessTransactions} afterwards would replay twice. Non-cumulative schedules never reach here -
+     * {@link #isRegenerable} excludes them and {@link #regenerateAndReplay} enforces it.
      */
     private void regenerateAndReplaySchedule(final Loan loan) {
-        if (!LoanScheduleType.CUMULATIVE.equals(loan.getLoanProductRelatedDetail().getLoanScheduleType())) {
-            this.reprocessLoanTransactionsService.reprocessTransactions(loan);
-            return;
-        }
         final ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, null);
 
         // This is LoanScheduleService#recalculateSchedule expanded, so that overdue penalties can be restored between
