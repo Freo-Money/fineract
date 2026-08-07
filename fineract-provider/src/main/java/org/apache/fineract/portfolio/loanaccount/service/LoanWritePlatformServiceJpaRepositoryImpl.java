@@ -2819,6 +2819,26 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         LoanTransaction foreclosureTransaction = this.loanAccountDomainService.foreCloseLoan(loan, transactionDate, noteText, externalId,
                 foreclosureChargePercentageMap, changes);
 
+        // Reconcile the quoted payoff against what the foreclosure actually collected. The quote and the execution
+        // compute the payoff independently, so any drift between them (rounding, charge config, penalty timing) would
+        // otherwise move the wrong amount silently. Config-gated and parameter-optional: the check runs only when the
+        // validate-foreclosure-expected-amount configuration is enabled AND the caller sent expectedAmount. Throwing
+        // here rolls back the whole foreclosure - the transaction, its journal entries and the schedule rebuild.
+        final BigDecimal expectedAmount = command.bigDecimalValueOfParameterNamed("expectedAmount");
+        if (expectedAmount != null) {
+            changes.put("expectedAmount", command.stringValueOfParameterNamed("expectedAmount"));
+        }
+        if (expectedAmount != null && this.configurationDomainService.isForeclosureExpectedAmountValidationEnabled()) {
+            final BigDecimal collectedAmount = foreclosureTransaction != null ? foreclosureTransaction.getAmount() : BigDecimal.ZERO;
+            if (expectedAmount.compareTo(collectedAmount) != 0) {
+                throw new LoanForeclosureException("loan.foreclosure.expected.amount.mismatch",
+                        "The expected foreclosure amount " + expectedAmount.toPlainString()
+                                + " does not match the amount the foreclosure would collect " + collectedAmount.toPlainString()
+                                + ". Refresh the foreclosure quote and retry.",
+                        expectedAmount, collectedAmount);
+            }
+        }
+
         if (StringUtils.isNotBlank(noteText)) {
             changes.put(LoanApiConstants.noteParameterName, noteText);
             final Note note = Note.loanTransactionNote(loan, foreclosureTransaction, noteText);

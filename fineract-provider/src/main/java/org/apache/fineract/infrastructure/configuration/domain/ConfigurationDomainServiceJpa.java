@@ -575,6 +575,11 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     }
 
     @Override
+    public boolean isForeclosureExpectedAmountValidationEnabled() {
+        return getGlobalConfigurationPropertyData(GlobalConfigurationConstants.VALIDATE_FORECLOSURE_EXPECTED_AMOUNT).isEnabled();
+    }
+
+    @Override
     public boolean isRefundOnClosedLoansEnabled() {
         return getGlobalConfigurationPropertyData(GlobalConfigurationConstants.ALLOW_REFUND_ON_CLOSED_LOANS).isEnabled();
     }

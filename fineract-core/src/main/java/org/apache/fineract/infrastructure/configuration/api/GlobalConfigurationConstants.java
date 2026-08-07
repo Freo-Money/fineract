@@ -84,6 +84,7 @@ public final class GlobalConfigurationConstants {
     public static final String FINERACT_MIGRATION_CUTOFF_DATE = "fineract-migration-cutoff-date";
     public static final String FINERACT_MIGRATION_LAST_IMPORTED_LOAN_ID = "fineract-migration-last-imported-loan-id";
     public static final String TAX_ROUNDING_MODE = "tax-rounding-mode";
+    public static final String VALIDATE_FORECLOSURE_EXPECTED_AMOUNT = "validate-foreclosure-expected-amount";
     public static final String ALLOW_REFUND_ON_CLOSED_LOANS = "allow-refund-on-closed-loans";
 
     private GlobalConfigurationConstants() {}

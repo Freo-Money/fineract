@@ -158,6 +158,13 @@ public interface ConfigurationDomainService {
     boolean isSkipNpaLoansForOverduePenaltyEnabled();
 
     /**
+     * When enabled, a foreclosure request may carry an {@code expectedAmount} (the quoted payoff); the foreclosure
+     * fails if the amount actually collected differs, turning any quote/collection drift into a loud error instead of
+     * silently moving the wrong amount. Disabled by default; the parameter is ignored when disabled.
+     */
+    boolean isForeclosureExpectedAmountValidationEnabled();
+
+    /**
      * When enabled, a refund may be accepted on a loan that closed on obligations met (status 600) and still carries
      * amounts paid in advance, reopening it to active. Disabled by default; the transaction adjustment flow is used
      * otherwise.

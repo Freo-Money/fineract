@@ -882,6 +882,16 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             // through-business-date event is enabled - a full reprocess on every transaction when nothing was
             // deactivated is pure overhead.
             reprocessLoanTransactionsService.reprocessTransactions(loan);
+            // Deactivating a penalty erases the borrower's debt but not the income already recognised for it: on
+            // periodic-accrual products the charge's ACCRUAL transaction (Dr receivable / Cr income) stays on the GL,
+            // overstating penalty income and leaving a receivable no payment will ever clear. The ineligible and
+            // post-payoff passes remove charges dated on/before the target date, whose accruals fall OUTSIDE the
+            // on/after-date reversal window inside deactivateOverdueLoanChargesFrom - so reconcile the accruals here.
+            // Must run AFTER the transaction reprocess above: it compares accrued against the rebuilt (shrunk)
+            // installment charge buckets and reverses the excess, posting the reversal journal entries. Same call the
+            // foreclosure path already makes unconditionally; this closes the gap on the repayment / charge-payment
+            // path, where reprocessExistingAccruals is otherwise gated on interest recalculation being enabled.
+            loanAccrualsProcessingService.reprocessExistingAccruals(loan, true);
         }
         loanRepositoryWrapper.saveAndFlush(loan);
         // ...then apply any penalties that are due up to the target date but not yet applied. NPA loans are not skipped

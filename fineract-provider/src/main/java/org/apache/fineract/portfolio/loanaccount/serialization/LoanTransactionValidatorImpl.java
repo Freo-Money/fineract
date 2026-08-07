@@ -634,7 +634,7 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
         }
 
         final Set<String> foreclosureParameters = new HashSet<>(Arrays.asList("transactionDate", "note", "locale", "dateFormat",
-                "externalId", LoanApiConstants.foreclosureChargePercentageMapParamName));
+                "externalId", "expectedAmount", LoanApiConstants.foreclosureChargePercentageMapParamName));
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, foreclosureParameters);
@@ -645,6 +645,13 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
         final JsonElement element = this.fromApiJsonHelper.parse(json);
         final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed("transactionDate", element);
         baseDataValidator.reset().parameter("transactionDate").value(transactionDate).notNull();
+
+        // The quoted payoff the caller expects to be collected. Compared against the actual foreclosure payment when
+        // the validate-foreclosure-expected-amount configuration is enabled; ignored otherwise. Zero is legitimate:
+        // a foreclosure with nothing outstanding quotes 0, and a client that always echoes the quote must be able to
+        // send it (it then compares 0 == 0 and passes).
+        final BigDecimal expectedAmount = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed("expectedAmount", element);
+        baseDataValidator.reset().parameter("expectedAmount").value(expectedAmount).ignoreIfNull().zeroOrPositiveAmount();
 
         final String note = this.fromApiJsonHelper.extractStringNamed("note", element);
         baseDataValidator.reset().parameter("note").value(note).notExceedingLengthOf(1000);

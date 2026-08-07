@@ -99,10 +99,17 @@ public class LoanBalanceService {
         // loan can transition to OVERPAID instead of silently swallowing it.
         if (!overpayment.isZero() && loan.isForeclosure() && loan.getSummary() != null
                 && loan.getSummary().getTotalOutstanding(currency).isZero() && !hasActualOverpaymentPortion(loan, currency)) {
-            LOG.warn(
-                    "Suppressing computed overpayment {} on foreclosed loan {}: schedule is settled and no transaction "
-                            + "carries an overpayment portion, so the difference points at a transaction/schedule mismatch",
-                    overpayment.getAmount(), loan.getId());
+            // Alert-grade, not noise: this state means the transaction ledger and the repayment schedule disagree
+            // with no allocation trail - a bookkeeping defect (the double-attached foreclosure payment was one such
+            // source), never genuine customer money. It should NEVER fire in a healthy system, so wire log-based
+            // alerting to the stable FORECLOSURE_OVERPAYMENT_SUPPRESSED marker and investigate every occurrence.
+            // Both ledger totals are logged so the mismatch is diagnosable without replaying the loan.
+            LOG.error(
+                    "FORECLOSURE_OVERPAYMENT_SUPPRESSED loan {}: computed overpayment {} zeroed (transactions net {} vs schedule absorbed"
+                            + " {}). Schedule is settled and no transaction carries an overpayment portion, so the difference is a"
+                            + " transaction/schedule mismatch, not customer money. Investigate this loan's transaction bookkeeping.",
+                    loan.getId(), overpayment.getAmount(), totalPaidInRepayments.getAmount(),
+                    cumulativeTotalPaidOnInstallments.getAmount());
             return Money.zero(currency);
         }
         return overpayment;
@@ -135,6 +142,17 @@ public class LoanBalanceService {
     }
 
     public void refreshSummaryAndBalancesForDisbursedLoan(final Loan loan) {
+        // Summary FIRST, then total_overpaid. calculateTotalOverpayment's foreclosure suppression asks the summary
+        // whether the schedule is settled, so the summary must reflect the installments as they are now - with the
+        // previous ordering that question was answered with the prior refresh's snapshot, and the first refresh after
+        // any schedule change decided suppression on stale data. Safe to reorder: updateSummary derives everything
+        // from the installments, charges and capitalized income passed to it and never reads total_overpaid.
+        final Money principal = loan.getLoanRepaymentScheduleDetail().getPrincipal();
+        final Money capitalizedIncome = capitalizedIncomeBalanceService.calculateCapitalizedIncome(loan);
+        final Money capitalizedIncomeAdjustment = capitalizedIncomeBalanceService.calculateCapitalizedIncomeAdjustment(loan);
+        loan.getSummary().updateSummary(loan.getCurrency(), principal, loan.getRepaymentScheduleInstallments(), loan.getLoanCharges(),
+                capitalizedIncome, capitalizedIncomeAdjustment);
+
         final Money overpaidBy = calculateTotalOverpayment(loan);
         loan.setTotalOverpaid(null);
         if (!overpaidBy.isLessThanZero()) {
@@ -144,11 +162,6 @@ public class LoanBalanceService {
         final Money recoveredAmount = calculateTotalRecoveredPayments(loan);
         loan.setTotalRecovered(recoveredAmount.getAmountDefaultedToNullIfZero());
 
-        final Money principal = loan.getLoanRepaymentScheduleDetail().getPrincipal();
-        final Money capitalizedIncome = capitalizedIncomeBalanceService.calculateCapitalizedIncome(loan);
-        final Money capitalizedIncomeAdjustment = capitalizedIncomeBalanceService.calculateCapitalizedIncomeAdjustment(loan);
-        loan.getSummary().updateSummary(loan.getCurrency(), principal, loan.getRepaymentScheduleInstallments(), loan.getLoanCharges(),
-                capitalizedIncome, capitalizedIncomeAdjustment);
         updateLoanOutstandingBalances(loan);
     }
 
