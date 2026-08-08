@@ -1088,6 +1088,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder reprocessLoan(final Long loanId) {
+        this.actionName = "REPROCESSLOAN";
+        this.entityName = "LOAN";
+        this.entityId = loanId;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "?command=reprocessLoan";
+        return this;
+    }
+
     public CommandWrapperBuilder updateDisbusementDate(final Long loanId, final Long disbursementId) {
         this.actionName = "UPDATE";
         this.entityName = "DISBURSEMENTDETAIL";

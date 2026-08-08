@@ -118,6 +118,12 @@ public class ExternalEventConfigurationHelper {
         loanApplyOverdueChargeBusinessEvent.put("enabled", false);
         defaults.add(loanApplyOverdueChargeBusinessEvent);
 
+        // Registered enabled by migration 1058; was missing from this list since that migration landed.
+        Map<String, Object> loanApplyOverduePenaltiesThroughBusinessDateBusinessEvent = new HashMap<>();
+        loanApplyOverduePenaltiesThroughBusinessDateBusinessEvent.put("type", "LoanApplyOverduePenaltiesThroughBusinessDateBusinessEvent");
+        loanApplyOverduePenaltiesThroughBusinessDateBusinessEvent.put("enabled", true);
+        defaults.add(loanApplyOverduePenaltiesThroughBusinessDateBusinessEvent);
+
         Map<String, Object> loanApprovedBusinessEvent = new HashMap<>();
         loanApprovedBusinessEvent.put("type", "LoanApprovedBusinessEvent");
         loanApprovedBusinessEvent.put("enabled", false);
@@ -252,6 +258,13 @@ public class ExternalEventConfigurationHelper {
         loanRepaymentOverdueBusinessEvent.put("type", "LoanRepaymentOverdueBusinessEvent");
         loanRepaymentOverdueBusinessEvent.put("enabled", false);
         defaults.add(loanRepaymentOverdueBusinessEvent);
+
+        // Registered enabled by migration 1064: a reprocess restates the schedule and re-posts disbursement
+        // journal entries, so consumers holding loan state must hear about it.
+        Map<String, Object> loanReprocessedBusinessEvent = new HashMap<>();
+        loanReprocessedBusinessEvent.put("type", "LoanReprocessedBusinessEvent");
+        loanReprocessedBusinessEvent.put("enabled", true);
+        defaults.add(loanReprocessedBusinessEvent);
 
         Map<String, Object> loanRescheduledDueCalendarChangeBusinessEvent = new HashMap<>();
         loanRescheduledDueCalendarChangeBusinessEvent.put("type", "LoanRescheduledDueCalendarChangeBusinessEvent");

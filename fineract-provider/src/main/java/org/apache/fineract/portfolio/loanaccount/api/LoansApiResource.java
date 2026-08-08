@@ -167,6 +167,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanSchedul
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleCalculationPlatformService;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.repository.LoanCapitalizedIncomeBalanceRepository;
+import org.apache.fineract.portfolio.loanaccount.reprocess.LoanReprocessApiConstants;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanTermVariationsRepository;
 import org.apache.fineract.portfolio.loanaccount.service.GLIMAccountInfoReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeReadPlatformService;
@@ -1358,6 +1359,8 @@ public class LoansApiResource {
             commandRequest = builder.recalculateLoanSummary(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, "reprocessTransactions")) {
             commandRequest = builder.reprocessLoanTransactions(resolvedLoanId).build();
+        } else if (CommandParameterUtil.is(commandParam, LoanReprocessApiConstants.COMMAND_REPROCESS_LOAN)) {
+            commandRequest = builder.reprocessLoan(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, "assigndelinquency")) {
             commandRequest = builder.assignDelinquency(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, LoanApiConstants.CONTRACT_TERMINATION_COMMAND)) {

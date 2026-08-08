@@ -259,4 +259,6 @@
     <include file="parts/1060_add_reprocess_loan_transactions_permission.xml" relativeToChangelogFile="true" />
     <include file="parts/1061_add_skip_npa_loans_for_overdue_penalty_configuration.xml" relativeToChangelogFile="true" />
     <include file="parts/1062_add_allow_refund_on_closed_loans_configuration.xml" relativeToChangelogFile="true" />
+    <include file="parts/1063_add_reprocess_loan_permission.xml" relativeToChangelogFile="true" />
+    <include file="parts/1064_add_loan_reprocessed_external_event.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>
