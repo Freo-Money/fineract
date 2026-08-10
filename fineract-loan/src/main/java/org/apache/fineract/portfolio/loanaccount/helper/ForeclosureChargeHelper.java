@@ -152,7 +152,10 @@ public class ForeclosureChargeHelper {
                     Charge chargeDefinition = chargeRepositoryWrapper.findOneWithNotFoundDetection(chargeId);
                     merged.put(chargeId, chargeDefinition.getAmount());
                 } catch (Exception e) {
-                    // Skip charges that cannot be loaded
+                    // Skip charges that cannot be loaded. The ids come from a query already filtered to active,
+                    // non-deleted charges, so a failure here is a real fault (concurrent delete, DB error) - and a
+                    // skipped charge silently drops it from both the quote and the foreclosure. Logged, never silent.
+                    LOG.warn("Skipping foreclosure charge {} for loan product merge - charge could not be loaded", chargeId, e);
                 }
             }
         }
@@ -197,7 +200,9 @@ public class ForeclosureChargeHelper {
                 chargeAmount = chargeAmount.setScale(effectiveDigits, effectiveRoundingMode);
                 totalFees = totalFees.plus(Money.of(currency, chargeAmount));
             } catch (Exception e) {
-                // Skip invalid charges
+                // Skip invalid charges. Logged because this quote is compared against the charges the actual
+                // foreclosure applies - a charge dropped here silently makes the quote lower than the amount collected.
+                LOG.warn("Skipping foreclosure charge {} on loan {} while quoting", entry.getKey(), loan.getId(), e);
             }
         }
 
@@ -206,18 +211,42 @@ public class ForeclosureChargeHelper {
 
     private BigDecimal calculatePercentageBasedCharge(Loan loan, Charge chargeDefinition, ChargeCalculationType calculationType,
             BigDecimal percentage) {
-        LoanCharge tempLoanCharge = new LoanCharge();
-        tempLoanCharge.setLoan(loan);
-        tempLoanCharge.setCharge(chargeDefinition);
-        tempLoanCharge.setChargeCalculation(calculationType.getValue());
-        tempLoanCharge.setPercentage(percentage);
-        final BigDecimal baseAmount = loanChargeService.calculateAmountPercentageAppliedTo(loan, tempLoanCharge);
+        return calculatePercentageBasedCharge(loan, chargeDefinition, calculationType, percentage, null);
+    }
+
+    /**
+     * {@code principalOutstandingOverride}, when non-null, replaces the live summary principal as the base for
+     * percent-of-principal-outstanding charges. The foreclosure execution passes the principal snapshotted BEFORE the
+     * pre-foreclosure reconcile ran: the reconcile's reprocess can reallocate freed penalty payments and shift
+     * principal outstanding by an amount that depends on the allocation strategy - unknowable to the read-only quote.
+     * Computing the charge on the pre-reconcile principal on BOTH sides makes the quoted and collected fee equal by
+     * construction. Other calculation bases (flat, percent of approved/disbursed principal, principal+interest) do not
+     * change with the reconcile and never use the override.
+     */
+    private BigDecimal calculatePercentageBasedCharge(Loan loan, Charge chargeDefinition, ChargeCalculationType calculationType,
+            BigDecimal percentage, Money principalOutstandingOverride) {
+        BigDecimal baseAmount;
+        if (calculationType == ChargeCalculationType.PERCENT_OF_PRINCIPAL_OUTSTANDING && principalOutstandingOverride != null) {
+            baseAmount = principalOutstandingOverride.getAmount();
+        } else {
+            LoanCharge tempLoanCharge = new LoanCharge();
+            tempLoanCharge.setLoan(loan);
+            tempLoanCharge.setCharge(chargeDefinition);
+            tempLoanCharge.setChargeCalculation(calculationType.getValue());
+            tempLoanCharge.setPercentage(percentage);
+            baseAmount = loanChargeService.calculateAmountPercentageAppliedTo(loan, tempLoanCharge);
+        }
         final MathContext mc = loanProductRoundingModeService.resolveMathContext(loan.getLoanProduct().getId());
         return LoanCharge.percentageOf(baseAmount, percentage, mc);
     }
 
     public List<LoanCharge> createAndAddForeclosureChargesToLoan(Loan loan, Map<Long, BigDecimal> mergedChargePercentages,
             LocalDate foreclosureDate) {
+        return createAndAddForeclosureChargesToLoan(loan, mergedChargePercentages, foreclosureDate, null);
+    }
+
+    public List<LoanCharge> createAndAddForeclosureChargesToLoan(Loan loan, Map<Long, BigDecimal> mergedChargePercentages,
+            LocalDate foreclosureDate, Money principalOutstandingOverride) {
         List<LoanCharge> foreclosureCharges = new ArrayList<>();
         if (mergedChargePercentages == null || mergedChargePercentages.isEmpty()) {
             return foreclosureCharges;
@@ -237,7 +266,8 @@ public class ForeclosureChargeHelper {
                 Charge chargeDefinition = chargeRepositoryWrapper.findOneWithNotFoundDetection(chargeId);
                 ChargeCalculationType calculationType = ChargeCalculationType.fromInt(chargeDefinition.getChargeCalculation());
                 BigDecimal uncappedChargeAmount = calculationType.isPercentageBased()
-                        ? calculatePercentageBasedCharge(loan, chargeDefinition, calculationType, amountOrPercentage)
+                        ? calculatePercentageBasedCharge(loan, chargeDefinition, calculationType, amountOrPercentage,
+                                principalOutstandingOverride)
                         : amountOrPercentage;
                 final int effectiveDigits = LoanChargeRoundingUtils.resolveDigitsAfterDecimal(chargeDefinition,
                         currency.getDigitsAfterDecimal(), uncappedChargeAmount);
@@ -315,9 +345,16 @@ public class ForeclosureChargeHelper {
     }
 
     public void updateForeclosureCharges(Loan loan, Map<Long, BigDecimal> mergedChargePercentages, LocalDate closureDate) {
+        updateForeclosureCharges(loan, mergedChargePercentages, closureDate, null);
+    }
+
+    public void updateForeclosureCharges(Loan loan, Map<Long, BigDecimal> mergedChargePercentages, LocalDate closureDate,
+            Money principalOutstandingOverride) {
         MonetaryCurrency currency = loan.getCurrency();
-        Money totalPrincipalOutstanding = Money.of(currency, loan.getSummary().getTotalPrincipalOutstanding());
-        List<LoanCharge> foreclosureCharges = createAndAddForeclosureChargesToLoan(loan, mergedChargePercentages, closureDate);
+        Money totalPrincipalOutstanding = principalOutstandingOverride != null ? principalOutstandingOverride
+                : Money.of(currency, loan.getSummary().getTotalPrincipalOutstanding());
+        List<LoanCharge> foreclosureCharges = createAndAddForeclosureChargesToLoan(loan, mergedChargePercentages, closureDate,
+                principalOutstandingOverride);
         if (foreclosureCharges.isEmpty()) {
             return;
         }
@@ -400,6 +437,11 @@ public class ForeclosureChargeHelper {
                 return;
             }
         }
+        // NOTE: these buckets are transient. handleForeClosureTransactions always takes the full-reprocess path for a
+        // foreclosure (processLatest is gated on !loan.isForeclosure()), and that reprocess rebuilds the installments:
+        // the schedule-processing wrapper re-derives fee/penalty CHARGED from the active charges, and replaying the
+        // transactions re-derives the PAID portions. So the values written here are recomputed before they are
+        // persisted - do not rely on them for what the schedule ends up recording.
         lastInstallment.setFeeChargesCharged(foreclosureAmount.getAmount());
         lastInstallment.setFeeChargesPaid(markAsPaid ? foreclosureAmount.getAmount() : Money.zero(currency).getAmount());
         lastInstallment.setFeeChargesWaived(Money.zero(currency).getAmount());

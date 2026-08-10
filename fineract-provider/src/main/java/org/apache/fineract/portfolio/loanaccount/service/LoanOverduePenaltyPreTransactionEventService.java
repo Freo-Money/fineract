@@ -31,7 +31,6 @@ import org.apache.fineract.infrastructure.event.business.domain.loan.transaction
 import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanTransactionMakeRepaymentPostBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanTransactionMakeRepaymentPreBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.service.BusinessEventNotifierService;
-import org.apache.fineract.infrastructure.event.business.service.ExternalBusinessEventConfigurationService;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 
@@ -46,7 +45,6 @@ public class LoanOverduePenaltyPreTransactionEventService {
 
     private final BusinessEventNotifierService businessEventNotifierService;
     private final LoanChargeWritePlatformService loanChargeWritePlatformService;
-    private final ExternalBusinessEventConfigurationService externalBusinessEventConfigurationService;
 
     @PostConstruct
     public void addListeners() {
@@ -66,11 +64,7 @@ public class LoanOverduePenaltyPreTransactionEventService {
      * the penalties due as of the transaction date. Honors grace / wait period and does not skip NPA loans.
      */
     private void reconcileOverduePenaltiesUpToDate(final Loan loan, final LocalDate asOfDate) {
-        if (loan == null || loan.getId() == null || !loan.isOpen() || loan.isChargedOff()) {
-            return;
-        }
-        if (!externalBusinessEventConfigurationService
-                .isExternalEventConfiguredForPosting(new LoanApplyOverduePenaltiesThroughBusinessDateBusinessEvent(loan))) {
+        if (loan == null || loan.getId() == null || !loanChargeWritePlatformService.willReconcileOverduePenalties(loan)) {
             return;
         }
         log.debug("Reconciling overdue penalties up to {} before loan transaction, loanId={}", asOfDate, loan.getId());
@@ -87,15 +81,15 @@ public class LoanOverduePenaltyPreTransactionEventService {
             return;
         }
         final Loan loan = transaction.getLoan();
-        if (loan == null || loan.getId() == null || !loan.isOpen() || loan.isChargedOff()) {
+        if (loan == null || loan.getId() == null) {
             return;
         }
         // Same-day transactions already use the current outstanding; only backdated ones need recomputation.
+        // Checked before the gate so the common same-day case skips the external-event-config lookup entirely.
         if (!DateUtils.isBeforeBusinessDate(transaction.getTransactionDate())) {
             return;
         }
-        if (!externalBusinessEventConfigurationService
-                .isExternalEventConfiguredForPosting(new LoanApplyOverduePenaltiesThroughBusinessDateBusinessEvent(loan))) {
+        if (!loanChargeWritePlatformService.willReconcileOverduePenalties(loan)) {
             return;
         }
         loanChargeWritePlatformService.recalculateOverduePenaltiesAfterBackdatedTransaction(loan.getId(), transaction.getTransactionDate());

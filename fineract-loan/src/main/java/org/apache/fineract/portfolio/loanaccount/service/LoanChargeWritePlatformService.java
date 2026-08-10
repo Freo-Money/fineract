@@ -24,6 +24,7 @@ import java.util.Collection;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.data.OverdueLoanScheduleData;
 
 public interface LoanChargeWritePlatformService {
@@ -77,6 +78,25 @@ public interface LoanChargeWritePlatformService {
      * payment / foreclosure transaction (with the transaction date) and to compute the template amount.
      */
     void reconcileOverduePenaltiesAsOf(Long loanId, LocalDate asOfDate);
+
+    /**
+     * Whether the pre-transaction reconcile ({@link #reconcileOverduePenaltiesAsOf(Long, LocalDate)}) will run for this
+     * loan: it must be open, not charged off, and the through-business-date penalty event must be enabled in
+     * external-event configuration. Single source of truth for the gate - used by the pre-transaction event listeners
+     * that trigger the reconcile and by templates that project its effect, so quote and execution cannot disagree on
+     * whether the reconcile happens.
+     */
+    boolean willReconcileOverduePenalties(Loan loan);
+
+    /**
+     * Whether {@link #reconcileOverduePenaltiesAsOf(Long, LocalDate)} would deactivate this overdue-installment penalty
+     * as of {@code asOfDate}: the penalty's triggering installment is not yet past its wait-period trigger (e.g. COB
+     * posted early), or the penalty is dated after the installment's payoff once its principal+interest+fees are fully
+     * settled. Single source of truth for the reversal rules - the reconcile's deactivation pass selects charges with
+     * this predicate and templates use it to project what the reconcile will reverse, so the two cannot drift. Callers
+     * still gate on {@link #willReconcileOverduePenalties(Loan)}.
+     */
+    boolean isOverduePenaltyReversibleOnReconcile(Loan loan, LoanCharge loanCharge, LocalDate asOfDate);
 
     /**
      * After a backdated repayment-like transaction on a cumulative-schedule loan, recomputes the overdue penalties for

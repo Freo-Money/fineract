@@ -94,6 +94,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleDelinquencyDat
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.MoneyHolder;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.TransactionCtx;
+import org.apache.fineract.portfolio.loanaccount.exception.LoanForeclosureException;
 import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest;
@@ -802,7 +803,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
     @Override
     public LoanTransaction foreCloseLoan(Loan loan, final LocalDate foreClosureDate, final String noteText, final ExternalId externalId,
-            Map<Long, BigDecimal> foreclosureChargePercentageMap, Map<String, Object> changes) {
+            Map<Long, BigDecimal> foreclosureChargePercentageMap, Map<String, Object> changes, final BigDecimal expectedForeclosureAmount) {
 
         if (loan.isChargedOff() && DateUtils.isBefore(foreClosureDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
@@ -811,6 +812,14 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                     loan.getId());
         }
         loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, foreClosureDate, null);
+        // Status validation must precede the zero-payoff early exit below - foreclosing a closed/overpaid loan has a
+        // zero payoff, and without this check it would silently "succeed" instead of failing validation.
+        loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_FORECLOSURE);
+        // Snapshot the principal the foreclosure charges are quoted on BEFORE the pre-foreclosure reconcile runs: its
+        // reprocess can reallocate freed penalty payments and shift principal outstanding by an allocation-dependent
+        // amount the read-only template cannot predict. Percentage foreclosure charges are computed on this snapshot
+        // (see ForeclosureChargeHelper) so the quoted and collected fee are equal by construction.
+        final Money principalBeforeReconcile = Money.of(loan.getCurrency(), loan.getSummary().getTotalPrincipalOutstanding());
         businessEventNotifierService.notifyPreBusinessEvent(new LoanForeClosurePreBusinessEvent(loan, foreClosureDate));
         loanBalanceService.updateLoanSummaryDerivedFields(loan);
         MonetaryCurrency currency = loan.getCurrency();
@@ -823,7 +832,35 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                 foreclosureChargePercentageMap);
         final boolean updateCharges = true;
         final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
-                mergedChargePercentages, updateCharges);
+                mergedChargePercentages, updateCharges, principalBeforeReconcile);
+
+        final Money totalPayoff = foreCloseDetail.getPrincipal(currency).plus(foreCloseDetail.getInterestCharged(currency))
+                .plus(foreCloseDetail.getFeeChargesCharged(currency)).plus(foreCloseDetail.getPenaltyChargesCharged(currency));
+        if (!totalPayoff.isGreaterThanZero()) {
+            // Nothing left to collect - typically the pre-foreclosure reconcile just reversed every remaining due
+            // (stale overdue penalties) and the freed payments settled the loan. No zero-amount foreclosure
+            // transaction is created; the loan is already paid off by its existing payments, so close it on its last
+            // payment date instead of foreclosing it.
+            validateExpectedForeclosureAmount(expectedForeclosureAmount, BigDecimal.ZERO);
+            final LocalDate lastPaymentDate = loan.getLoanTransactions().stream()
+                    .filter(transaction -> transaction.isNotReversed() && transaction.isRepaymentLikeType())
+                    .map(LoanTransaction::getTransactionDate).max(LocalDate::compareTo).orElse(foreClosureDate);
+            loanLifecycleStateMachine.determineAndTransition(loan, lastPaymentDate);
+            loan = loanAccountService.saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+            businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
+            return null;
+        }
+        if (!loanBalanceService.projectForeclosureRoundedPayoff(loan, totalPayoff).isGreaterThanZero()) {
+            // A genuine positive payoff that the product's foreclosure rounding would collapse to zero: the loan is
+            // NOT settled, so it must not take the close-without-foreclosing exit, and a zero-amount payment cannot
+            // be created. Fail cleanly (rolling back the charges created above) instead of NPEing mid-flow after the
+            // schedule has been mutated.
+            throw new LoanForeclosureException("loan.foreclosure.payoff.rounds.to.zero",
+                    "The foreclosure payoff " + totalPayoff.getAmount().toPlainString()
+                            + " rounds to zero under the product's foreclosure rounding, so no foreclosure payment can be created.",
+                    totalPayoff.getAmount());
+        }
+
         Money foreclosureFee = foreclosureChargeHelper.sumActiveForeclosureChargeAmounts(loan);
         loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions, mergedChargePercentages);
         if (!newTransactions.isEmpty()) {
@@ -839,6 +876,12 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         LoanTransaction payment = foreclosureChargeHelper.createForeclosurePaymentTransaction(loan, foreCloseDetail, foreClosureDate,
                 externalId);
 
+        // Reconcile the quoted payoff against what the foreclosure will collect. The payment amount is fixed at
+        // creation (reprocessing later only redistributes portions), so failing here - before the payment is
+        // attached, journals are posted and post-business events fire - validates the same figure fail-fast
+        // instead of executing a full foreclosure only to roll it back.
+        validateExpectedForeclosureAmount(expectedForeclosureAmount, payment != null ? payment.getAmount() : BigDecimal.ZERO);
+
         if (payment != null && foreclosureFee.isGreaterThanZero()) {
             foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
         }
@@ -849,17 +892,16 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
         if (payment != null) {
             payment.updateLoan(loan);
-            newTransactions.add(payment);
         }
-        loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_FORECLOSURE);
         handleForeClosureTransactions(loan, payment, scheduleGeneratorDTO);
-        LoanTransaction savedPayment = null;
-        if (!newTransactions.isEmpty()) {
-            savedPayment = persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal, payment);
-            newTransactions.clear();
-        }
-        if (savedPayment != null) {
-            payment = savedPayment;
+        if (payment != null) {
+            // handleForeClosureTransactions already attached the non-zero payment to the loan
+            // (handleRepaymentOrRecoveryOrWaiverTransaction), so persist and journal it directly instead of routing
+            // it through persistLoanTransactions' attach loop - attaching it a second time double-counts it in
+            // getTotalPaidInRepayments and inflates total_overpaid by the full transaction amount.
+            payment = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(payment);
+            transactionsToJournal.add(payment);
+            transactionIds.add(payment.getId());
         }
 
         loanAccrualsProcessingService.reprocessExistingAccruals(loan, true);
@@ -888,9 +930,23 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         return payment;
     }
 
-    private LoanTransaction persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
-            List<LoanTransaction> transactionsToJournal, LoanTransaction transactionToReturn) {
-        LoanTransaction savedReference = null;
+    /**
+     * Fails the foreclosure when the caller-supplied expected amount does not match what the foreclosure will actually
+     * collect. No-op when the caller did not send an expected amount (the write service passes {@code null} unless the
+     * parameter was sent AND the validate-foreclosure-expected-amount configuration is enabled).
+     */
+    private void validateExpectedForeclosureAmount(final BigDecimal expectedForeclosureAmount, final BigDecimal collectedAmount) {
+        if (expectedForeclosureAmount != null && expectedForeclosureAmount.compareTo(collectedAmount) != 0) {
+            throw new LoanForeclosureException("loan.foreclosure.expected.amount.mismatch",
+                    "The expected foreclosure amount " + expectedForeclosureAmount.toPlainString()
+                            + " does not match the amount the foreclosure would collect " + collectedAmount.toPlainString()
+                            + ". Refresh the foreclosure quote and retry.",
+                    expectedForeclosureAmount, collectedAmount);
+        }
+    }
+
+    private void persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
+            List<LoanTransaction> transactionsToJournal) {
         for (LoanTransaction transaction : transactions) {
             LoanTransaction savedTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(transaction);
             loan.addLoanTransaction(savedTransaction);
@@ -900,16 +956,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             if (transactionIds != null) {
                 transactionIds.add(savedTransaction.getId());
             }
-            if (transactionToReturn == transaction) {
-                savedReference = savedTransaction;
-            }
         }
-        return savedReference;
-    }
-
-    private void persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
-            List<LoanTransaction> transactionsToJournal) {
-        persistLoanTransactions(loan, transactions, transactionIds, transactionsToJournal, null);
     }
 
     private void postJournalEntriesForTransactions(List<LoanTransaction> transactions) {

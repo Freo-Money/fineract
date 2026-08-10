@@ -24,10 +24,14 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.persistence.FlushModeHandler;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.common.domain.DaysInMonthType;
@@ -42,11 +46,21 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionComparato
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanproduct.domain.CreditAllocationTransactionType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
 public class LoanBalanceService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(LoanBalanceService.class);
+
+    // calculateTotalOverpayment runs on every summary refresh, so a loan whose mismatch is baked into data would
+    // re-fire the alert-grade suppression log on every touch and flood log-based alerting. Remember which loans
+    // (per tenant) have already been reported this JVM and log follow-ups at DEBUG. Only defective loans ever enter
+    // this set, so it stays tiny.
+    private static final Set<String> SUPPRESSION_ALERTED_LOANS = ConcurrentHashMap.newKeySet();
 
     private final CapitalizedIncomeBalanceService capitalizedIncomeBalanceService;
     private final FlushModeHandler flushModeHandler;
@@ -58,23 +72,11 @@ public class LoanBalanceService {
 
         final MonetaryCurrency currency = loan.getCurrency();
         Money cumulativeTotalPaidOnInstallments = Money.zero(currency);
-        Money cumulativeTotalWaivedOnInstallments = Money.zero(currency);
         List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
         for (final LoanRepaymentScheduleInstallment scheduledRepayment : installments) {
             cumulativeTotalPaidOnInstallments = cumulativeTotalPaidOnInstallments
                     .plus(scheduledRepayment.getPrincipalCompleted(currency).plus(scheduledRepayment.getInterestPaid(currency)))
                     .plus(scheduledRepayment.getFeeChargesPaid(currency)).plus(scheduledRepayment.getPenaltyChargesPaid(currency));
-
-            cumulativeTotalWaivedOnInstallments = cumulativeTotalWaivedOnInstallments.plus(scheduledRepayment.getInterestWaived(currency));
-        }
-
-        // A fully-settled foreclosure normally has no overpayment, so suppress any spurious computed difference.
-        // But when a same-day repayment (or any extra payment) genuinely overpays the loan, the transaction
-        // processor stamps a real overpayment portion on a transaction - in that case keep the overpayment so the
-        // loan can transition to OVERPAID instead of silently swallowing it.
-        if (loan.isForeclosure() && loan.getSummary() != null && loan.getSummary().getTotalOutstanding(currency).isZero()
-                && !hasActualOverpaymentPortion(loan, currency)) {
-            return Money.zero(currency);
         }
 
         for (final LoanTransaction loanTransaction : loan.getLoanTransactions()) {
@@ -99,7 +101,44 @@ public class LoanBalanceService {
 
         // if total paid in transactions doesn't match repayment schedule then there's
         // an overpayment.
-        return totalPaidInRepayments.minus(cumulativeTotalPaidOnInstallments);
+        final Money overpayment = totalPaidInRepayments.minus(cumulativeTotalPaidOnInstallments);
+
+        // A fully-settled foreclosure normally has no overpayment, so suppress any spurious computed difference.
+        // But when a same-day repayment (or any extra payment) genuinely overpays the loan, the transaction
+        // processor stamps a real overpayment portion on a transaction - in that case keep the overpayment so the
+        // loan can transition to OVERPAID instead of silently swallowing it.
+        if (!overpayment.isZero() && loan.isForeclosure() && loan.getSummary() != null
+                && loan.getSummary().getTotalOutstanding(currency).isZero() && !hasActualOverpaymentPortion(loan, currency)) {
+            // Alert-grade, not noise: this state means the transaction ledger and the repayment schedule disagree
+            // with no allocation trail - a bookkeeping defect (the double-attached foreclosure payment was one such
+            // source), never genuine customer money. It should NEVER fire in a healthy system, so wire log-based
+            // alerting to the stable FORECLOSURE_OVERPAYMENT_SUPPRESSED marker and investigate every occurrence.
+            // Both ledger totals are logged so the mismatch is diagnosable without replaying the loan.
+            if (isFirstSuppressionAlertForLoan(loan)) {
+                LOG.error("FORECLOSURE_OVERPAYMENT_SUPPRESSED loan {}: computed overpayment {} zeroed (transactions net {} vs schedule"
+                        + " absorbed {}). Schedule is settled and no transaction carries an overpayment portion, so the difference"
+                        + " is a transaction/schedule mismatch, not customer money. Investigate this loan's transaction" + " bookkeeping.",
+                        loan.getId(), overpayment.getAmount(), totalPaidInRepayments.getAmount(),
+                        cumulativeTotalPaidOnInstallments.getAmount());
+            } else {
+                LOG.debug(
+                        "FORECLOSURE_OVERPAYMENT_SUPPRESSED (repeat) loan {}: computed overpayment {} zeroed (transactions net {} vs"
+                                + " schedule absorbed {}).",
+                        loan.getId(), overpayment.getAmount(), totalPaidInRepayments.getAmount(),
+                        cumulativeTotalPaidOnInstallments.getAmount());
+            }
+            return Money.zero(currency);
+        }
+        return overpayment;
+    }
+
+    private boolean isFirstSuppressionAlertForLoan(final Loan loan) {
+        if (loan.getId() == null) {
+            return true;
+        }
+        final FineractPlatformTenant tenant = ThreadLocalContextUtil.getTenant();
+        final String key = (tenant != null ? tenant.getTenantIdentifier() : "") + ":" + loan.getId();
+        return SUPPRESSION_ALERTED_LOANS.add(key);
     }
 
     private boolean hasActualOverpaymentPortion(final Loan loan, final MonetaryCurrency currency) {
@@ -129,6 +168,17 @@ public class LoanBalanceService {
     }
 
     public void refreshSummaryAndBalancesForDisbursedLoan(final Loan loan) {
+        // Summary FIRST, then total_overpaid. calculateTotalOverpayment's foreclosure suppression asks the summary
+        // whether the schedule is settled, so the summary must reflect the installments as they are now - with the
+        // previous ordering that question was answered with the prior refresh's snapshot, and the first refresh after
+        // any schedule change decided suppression on stale data. Safe to reorder: updateSummary derives everything
+        // from the installments, charges and capitalized income passed to it and never reads total_overpaid.
+        final Money principal = loan.getLoanRepaymentScheduleDetail().getPrincipal();
+        final Money capitalizedIncome = capitalizedIncomeBalanceService.calculateCapitalizedIncome(loan);
+        final Money capitalizedIncomeAdjustment = capitalizedIncomeBalanceService.calculateCapitalizedIncomeAdjustment(loan);
+        loan.getSummary().updateSummary(loan.getCurrency(), principal, loan.getRepaymentScheduleInstallments(), loan.getLoanCharges(),
+                capitalizedIncome, capitalizedIncomeAdjustment);
+
         final Money overpaidBy = calculateTotalOverpayment(loan);
         loan.setTotalOverpaid(null);
         if (!overpaidBy.isLessThanZero()) {
@@ -138,11 +188,6 @@ public class LoanBalanceService {
         final Money recoveredAmount = calculateTotalRecoveredPayments(loan);
         loan.setTotalRecovered(recoveredAmount.getAmountDefaultedToNullIfZero());
 
-        final Money principal = loan.getLoanRepaymentScheduleDetail().getPrincipal();
-        final Money capitalizedIncome = capitalizedIncomeBalanceService.calculateCapitalizedIncome(loan);
-        final Money capitalizedIncomeAdjustment = capitalizedIncomeBalanceService.calculateCapitalizedIncomeAdjustment(loan);
-        loan.getSummary().updateSummary(loan.getCurrency(), principal, loan.getRepaymentScheduleInstallments(), loan.getLoanCharges(),
-                capitalizedIncome, capitalizedIncomeAdjustment);
         updateLoanOutstandingBalances(loan);
     }
 
@@ -237,8 +282,18 @@ public class LoanBalanceService {
 
     public LoanRepaymentScheduleInstallment fetchLoanForeclosureDetail(final Loan loan, final LocalDate closureDate,
             final Map<Long, BigDecimal> mergedChargePercentages, final boolean updateCharges) {
+        return fetchLoanForeclosureDetail(loan, closureDate, mergedChargePercentages, updateCharges, null);
+    }
+
+    /**
+     * {@code principalBeforeReconcile}, when non-null, is the principal outstanding snapshotted before the
+     * pre-foreclosure reconcile ran; percent-of-principal-outstanding foreclosure charges are computed on it so the
+     * created charge equals the one the read-only template quoted (see ForeclosureChargeHelper).
+     */
+    public LoanRepaymentScheduleInstallment fetchLoanForeclosureDetail(final Loan loan, final LocalDate closureDate,
+            final Map<Long, BigDecimal> mergedChargePercentages, final boolean updateCharges, final Money principalBeforeReconcile) {
         if (updateCharges) {
-            foreclosureChargeHelper.updateForeclosureCharges(loan, mergedChargePercentages, closureDate);
+            foreclosureChargeHelper.updateForeclosureCharges(loan, mergedChargePercentages, closureDate, principalBeforeReconcile);
             refreshSummaryAndBalancesForDisbursedLoan(loan);
         }
         final MonetaryCurrency currency = loan.getCurrency();
@@ -253,10 +308,39 @@ public class LoanBalanceService {
         return foreclosureDetail;
     }
 
-    public void applyForeclosureRounding(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail, final Money extraFees,
-            final boolean updateCharges) {
-        final MonetaryCurrency currency = loan.getCurrency();
+    /**
+     * Resolves the multiplesOf used for foreclosure rounding, or {@code null} when the loan's product does not round
+     * foreclosure amounts. Single source of the eligibility rule for the template quote (applyForeclosureRounding) and
+     * the actual foreclosure (applyForeclosureRoundingToLoan), so both round under identical conditions - products
+     * relying on adjustInterestForRounding must not get a rounded foreclosure amount but an unrounded quote.
+     */
+    private Integer resolveForeclosureRoundingMultiplesOf(final Loan loan) {
         final Integer installmentAmountInMultiplesOf = loan.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf();
+        if ((installmentAmountInMultiplesOf == null || installmentAmountInMultiplesOf < 0)
+                && !loan.getLoanProduct().isAdjustInterestForRounding()) {
+            return null;
+        }
+        return LoanRoundingUtils.resolveMultiplesOfOrDefault(loan.getCurrency(), installmentAmountInMultiplesOf);
+    }
+
+    /**
+     * The payoff amount foreclosure rounding would turn the given payoff into: unchanged when the product does not
+     * round foreclosure amounts, otherwise rounded (or ceiled, per precloseEmiRounding) to the resolved multiplesOf.
+     * Lets callers decide on the ROUNDED payoff (e.g. the zero-payoff early exit in foreCloseLoan) using exactly the
+     * eligibility and rounding the actual foreclosure applies.
+     */
+    public Money projectForeclosureRoundedPayoff(final Loan loan, final Money payoff) {
+        final Integer multiplesOf = resolveForeclosureRoundingMultiplesOf(loan);
+        if (multiplesOf == null) {
+            return payoff;
+        }
+        return loan.getLoanProduct().isPrecloseEmiRounding() ? Money.ceilToMultiplesOf(payoff, multiplesOf)
+                : Money.roundToMultiplesOf(payoff, multiplesOf);
+    }
+
+    public void applyForeclosureRounding(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail, final Money extraFees) {
+        final MonetaryCurrency currency = loan.getCurrency();
+        final Integer installmentAmountInMultiplesOf = resolveForeclosureRoundingMultiplesOf(loan);
         if (installmentAmountInMultiplesOf == null) {
             return;
         }
@@ -264,6 +348,13 @@ public class LoanBalanceService {
         final Money outstandingAmount = foreclosureDetail.getPrincipalOutstanding(currency)
                 .plus(foreclosureDetail.getInterestOutstanding(currency)).plus(foreclosureDetail.getFeeChargesOutstanding(currency))
                 .plus(foreclosureDetail.getPenaltyChargesOutstanding(currency)).plus(extraFees == null ? Money.zero(currency) : extraFees);
+
+        if (!outstandingAmount.isGreaterThanZero()) {
+            // Over-settled quote (freed reversals meet or exceed the payoff, extraFees can be negative): rounding a
+            // non-positive base would fabricate an adjustedInterest artifact; the quote is zero and the execution
+            // takes the zero-payoff exit.
+            return;
+        }
 
         final boolean precloseEmiRounding = loan.getLoanProduct().isPrecloseEmiRounding();
         final Money roundedOutstandingAmount = precloseEmiRounding
@@ -275,14 +366,11 @@ public class LoanBalanceService {
     }
 
     public void applyForeclosureRoundingToLoan(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail) {
-        final MonetaryCurrency currency = loan.getCurrency();
-        Integer installmentAmountInMultiplesOf = loan.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf();
-        if ((installmentAmountInMultiplesOf == null || installmentAmountInMultiplesOf < 0)
-                && !loan.getLoanProduct().isAdjustInterestForRounding()) {
+        final Integer installmentAmountInMultiplesOf = resolveForeclosureRoundingMultiplesOf(loan);
+        if (installmentAmountInMultiplesOf == null) {
             return;
         }
-        installmentAmountInMultiplesOf = LoanRoundingUtils.resolveMultiplesOfOrDefault(currency, installmentAmountInMultiplesOf);
-        applyForeclosureRoundingWithMultiples(loan, foreclosureDetail, currency, installmentAmountInMultiplesOf);
+        applyForeclosureRoundingWithMultiples(loan, foreclosureDetail, loan.getCurrency(), installmentAmountInMultiplesOf);
     }
 
     private void applyForeclosureRoundingWithMultiples(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail,
@@ -293,7 +381,13 @@ public class LoanBalanceService {
                 .orElse(null);
 
         final boolean precloseEmiRounding = loan.getLoanProduct().isPrecloseEmiRounding();
-        final Money totalOutstanding = loan.getSummary().getTotalOutstanding(currency);
+        // Round the foreclosure payoff itself - the same base the foreclosure template rounds. The summary
+        // outstanding cannot be used here: updateInstallmentsPostDate has just rebuilt the tail installment with
+        // paid amounts zeroed, and same-day repayments are only re-applied later in handleForeClosureTransactions,
+        // so the summary computes a different (often zero) adjustment than the one quoted to the customer.
+        final Money totalOutstanding = foreclosureDetail != null ? foreclosureDetail.getPrincipalOutstanding(currency)
+                .plus(foreclosureDetail.getInterestOutstanding(currency)).plus(foreclosureDetail.getFeeChargesOutstanding(currency))
+                .plus(foreclosureDetail.getPenaltyChargesOutstanding(currency)) : loan.getSummary().getTotalOutstanding(currency);
         final Money roundedTotalOutstanding = precloseEmiRounding ? Money.ceilToMultiplesOf(totalOutstanding, multiplesOf)
                 : Money.roundToMultiplesOf(totalOutstanding, multiplesOf);
         final BigDecimal adjustedInterestAmount = roundedTotalOutstanding.getAmount().subtract(totalOutstanding.getAmount());
@@ -316,12 +410,12 @@ public class LoanBalanceService {
             foreclosureDetail.setAdjustedInterestAmount(adjustedInterestAmount);
         }
 
+        // The adjustment is already carried by the earliest unpaid installment, so refreshing the summary from the
+        // installments is all that is needed. Deliberately NOT re-rounding the summary total here: the adjustment is
+        // derived from the (net) foreclosure payoff while the summary aggregates the rebuilt (gross) schedule, and
+        // when the two bases differ - same-day repayments not yet re-applied - force-rounding the summary would write
+        // a total inconsistent with the installments, which the overpayment suppression check then reads stale.
         refreshSummaryAndBalancesForDisbursedLoan(loan);
-
-        final Money finalTotalOutstanding = loan.getSummary().getTotalOutstanding(currency);
-        final Money finalRoundedTotalOutstanding = precloseEmiRounding ? Money.ceilToMultiplesOf(finalTotalOutstanding, multiplesOf)
-                : Money.roundToMultiplesOf(finalTotalOutstanding, multiplesOf);
-        loan.getSummary().updateTotalOutstanding(finalRoundedTotalOutstanding.getAmount());
     }
 
     public Money[] retrieveIncomeForOverlappingPeriod(final Loan loan, final LocalDate paymentDate) {
