@@ -2816,42 +2816,41 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         this.loanScheduleHistoryWritePlatformService.createAndSaveLoanScheduleArchive(loan.getRepaymentScheduleInstallments(), loan,
                 loanRescheduleRequest);
 
-        LoanTransaction foreclosureTransaction = this.loanAccountDomainService.foreCloseLoan(loan, transactionDate, noteText, externalId,
-                foreclosureChargePercentageMap, changes);
-
-        // Reconcile the quoted payoff against what the foreclosure actually collected. The quote and the execution
-        // compute the payoff independently, so any drift between them (rounding, charge config, penalty timing) would
+        // Reconcile the quoted payoff against what the foreclosure will collect. The quote and the execution compute
+        // the payoff independently, so any drift between them (rounding, charge config, penalty timing) would
         // otherwise move the wrong amount silently. Config-gated and parameter-optional: the check runs only when the
-        // validate-foreclosure-expected-amount configuration is enabled AND the caller sent expectedAmount. Throwing
-        // here rolls back the whole foreclosure - the transaction, its journal entries and the schedule rebuild.
+        // validate-foreclosure-expected-amount configuration is enabled AND the caller sent expectedAmount. The
+        // comparison itself happens inside foreCloseLoan, right after the payment transaction is created - before
+        // journals are posted and post-business events fire - so a mismatch fails fast with nothing to unwind.
         final BigDecimal expectedAmount = command.bigDecimalValueOfParameterNamed("expectedAmount");
+        BigDecimal expectedAmountToValidate = null;
         if (expectedAmount != null) {
             changes.put("expectedAmount", command.stringValueOfParameterNamed("expectedAmount"));
-        }
-        if (expectedAmount != null && this.configurationDomainService.isForeclosureExpectedAmountValidationEnabled()) {
-            final BigDecimal collectedAmount = foreclosureTransaction != null ? foreclosureTransaction.getAmount() : BigDecimal.ZERO;
-            if (expectedAmount.compareTo(collectedAmount) != 0) {
-                throw new LoanForeclosureException("loan.foreclosure.expected.amount.mismatch",
-                        "The expected foreclosure amount " + expectedAmount.toPlainString()
-                                + " does not match the amount the foreclosure would collect " + collectedAmount.toPlainString()
-                                + ". Refresh the foreclosure quote and retry.",
-                        expectedAmount, collectedAmount);
+            if (this.configurationDomainService.isForeclosureExpectedAmountValidationEnabled()) {
+                expectedAmountToValidate = expectedAmount;
             }
         }
 
+        LoanTransaction foreclosureTransaction = this.loanAccountDomainService.foreCloseLoan(loan, transactionDate, noteText, externalId,
+                foreclosureChargePercentageMap, changes, expectedAmountToValidate);
+
         if (StringUtils.isNotBlank(noteText)) {
             changes.put(LoanApiConstants.noteParameterName, noteText);
-            final Note note = Note.loanTransactionNote(loan, foreclosureTransaction, noteText);
+            // A null transaction means there was nothing to collect: the pre-foreclosure reconcile settled the loan
+            // and it was closed on its last payment date without a foreclosure transaction.
+            final Note note = foreclosureTransaction != null ? Note.loanTransactionNote(loan, foreclosureTransaction, noteText)
+                    : Note.loanNote(loan, noteText);
             this.noteRepository.save(note);
         }
 
-        final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
-        return commandProcessingResultBuilder //
+        final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder() //
                 .withLoanId(loanId) //
-                .withEntityId(foreclosureTransaction.getId()) //
-                .withEntityExternalId(foreclosureTransaction.getExternalId()) //
-                .with(changes) //
-                .build();
+                .with(changes);
+        if (foreclosureTransaction != null) {
+            commandProcessingResultBuilder.withEntityId(foreclosureTransaction.getId())
+                    .withEntityExternalId(foreclosureTransaction.getExternalId());
+        }
+        return commandProcessingResultBuilder.build();
     }
 
     @Override

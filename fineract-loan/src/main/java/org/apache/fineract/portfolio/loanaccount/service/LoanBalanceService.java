@@ -282,8 +282,18 @@ public class LoanBalanceService {
 
     public LoanRepaymentScheduleInstallment fetchLoanForeclosureDetail(final Loan loan, final LocalDate closureDate,
             final Map<Long, BigDecimal> mergedChargePercentages, final boolean updateCharges) {
+        return fetchLoanForeclosureDetail(loan, closureDate, mergedChargePercentages, updateCharges, null);
+    }
+
+    /**
+     * {@code principalBeforeReconcile}, when non-null, is the principal outstanding snapshotted before the
+     * pre-foreclosure reconcile ran; percent-of-principal-outstanding foreclosure charges are computed on it so the
+     * created charge equals the one the read-only template quoted (see ForeclosureChargeHelper).
+     */
+    public LoanRepaymentScheduleInstallment fetchLoanForeclosureDetail(final Loan loan, final LocalDate closureDate,
+            final Map<Long, BigDecimal> mergedChargePercentages, final boolean updateCharges, final Money principalBeforeReconcile) {
         if (updateCharges) {
-            foreclosureChargeHelper.updateForeclosureCharges(loan, mergedChargePercentages, closureDate);
+            foreclosureChargeHelper.updateForeclosureCharges(loan, mergedChargePercentages, closureDate, principalBeforeReconcile);
             refreshSummaryAndBalancesForDisbursedLoan(loan);
         }
         final MonetaryCurrency currency = loan.getCurrency();
@@ -298,21 +308,53 @@ public class LoanBalanceService {
         return foreclosureDetail;
     }
 
-    public void applyForeclosureRounding(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail, final Money extraFees) {
-        final MonetaryCurrency currency = loan.getCurrency();
-        // Same eligibility and multiplesOf resolution as applyForeclosureRoundingToLoan - the template and the actual
-        // foreclosure must round under identical conditions or products relying on adjustInterestForRounding get a
-        // rounded foreclosure amount but an unrounded quote.
-        Integer installmentAmountInMultiplesOf = loan.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf();
+    /**
+     * Resolves the multiplesOf used for foreclosure rounding, or {@code null} when the loan's product does not round
+     * foreclosure amounts. Single source of the eligibility rule for the template quote (applyForeclosureRounding) and
+     * the actual foreclosure (applyForeclosureRoundingToLoan), so both round under identical conditions - products
+     * relying on adjustInterestForRounding must not get a rounded foreclosure amount but an unrounded quote.
+     */
+    private Integer resolveForeclosureRoundingMultiplesOf(final Loan loan) {
+        final Integer installmentAmountInMultiplesOf = loan.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf();
         if ((installmentAmountInMultiplesOf == null || installmentAmountInMultiplesOf < 0)
                 && !loan.getLoanProduct().isAdjustInterestForRounding()) {
+            return null;
+        }
+        return LoanRoundingUtils.resolveMultiplesOfOrDefault(loan.getCurrency(), installmentAmountInMultiplesOf);
+    }
+
+    /**
+     * The payoff amount foreclosure rounding would turn the given payoff into: unchanged when the product does not
+     * round foreclosure amounts, otherwise rounded (or ceiled, per precloseEmiRounding) to the resolved multiplesOf.
+     * Lets callers decide on the ROUNDED payoff (e.g. the zero-payoff early exit in foreCloseLoan) using exactly the
+     * eligibility and rounding the actual foreclosure applies.
+     */
+    public Money projectForeclosureRoundedPayoff(final Loan loan, final Money payoff) {
+        final Integer multiplesOf = resolveForeclosureRoundingMultiplesOf(loan);
+        if (multiplesOf == null) {
+            return payoff;
+        }
+        return loan.getLoanProduct().isPrecloseEmiRounding() ? Money.ceilToMultiplesOf(payoff, multiplesOf)
+                : Money.roundToMultiplesOf(payoff, multiplesOf);
+    }
+
+    public void applyForeclosureRounding(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail, final Money extraFees) {
+        final MonetaryCurrency currency = loan.getCurrency();
+        final Integer installmentAmountInMultiplesOf = resolveForeclosureRoundingMultiplesOf(loan);
+        if (installmentAmountInMultiplesOf == null) {
             return;
         }
-        installmentAmountInMultiplesOf = LoanRoundingUtils.resolveMultiplesOfOrDefault(currency, installmentAmountInMultiplesOf);
 
         final Money outstandingAmount = foreclosureDetail.getPrincipalOutstanding(currency)
                 .plus(foreclosureDetail.getInterestOutstanding(currency)).plus(foreclosureDetail.getFeeChargesOutstanding(currency))
                 .plus(foreclosureDetail.getPenaltyChargesOutstanding(currency)).plus(extraFees == null ? Money.zero(currency) : extraFees);
+
+        if (!outstandingAmount.isGreaterThanZero()) {
+            // Over-settled quote (freed reversals meet or exceed the payoff, extraFees can be negative): rounding a
+            // non-positive base would fabricate an adjustedInterest artifact; the quote is zero and the execution
+            // takes the zero-payoff exit.
+            return;
+        }
 
         final boolean precloseEmiRounding = loan.getLoanProduct().isPrecloseEmiRounding();
         final Money roundedOutstandingAmount = precloseEmiRounding
@@ -324,14 +366,11 @@ public class LoanBalanceService {
     }
 
     public void applyForeclosureRoundingToLoan(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail) {
-        final MonetaryCurrency currency = loan.getCurrency();
-        Integer installmentAmountInMultiplesOf = loan.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf();
-        if ((installmentAmountInMultiplesOf == null || installmentAmountInMultiplesOf < 0)
-                && !loan.getLoanProduct().isAdjustInterestForRounding()) {
+        final Integer installmentAmountInMultiplesOf = resolveForeclosureRoundingMultiplesOf(loan);
+        if (installmentAmountInMultiplesOf == null) {
             return;
         }
-        installmentAmountInMultiplesOf = LoanRoundingUtils.resolveMultiplesOfOrDefault(currency, installmentAmountInMultiplesOf);
-        applyForeclosureRoundingWithMultiples(loan, foreclosureDetail, currency, installmentAmountInMultiplesOf);
+        applyForeclosureRoundingWithMultiples(loan, foreclosureDetail, loan.getCurrency(), installmentAmountInMultiplesOf);
     }
 
     private void applyForeclosureRoundingWithMultiples(final Loan loan, final LoanRepaymentScheduleInstallment foreclosureDetail,

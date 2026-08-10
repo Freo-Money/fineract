@@ -81,7 +81,7 @@ public interface LoanAccountDomainService {
             Boolean isHolidayValidationDone, boolean isLoanToLoanTransfer);
 
     LoanTransaction foreCloseLoan(Loan loan, LocalDate foreClourseDate, String noteText, ExternalId externalId,
-            Map<Long, BigDecimal> foreclosureChargePercentageMap, Map<String, Object> changes);
+            Map<Long, BigDecimal> foreclosureChargePercentageMap, Map<String, Object> changes, BigDecimal expectedForeclosureAmount);
 
     /**
      * Disables all standing instructions linked to a closed loan
