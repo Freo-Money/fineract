@@ -57,11 +57,13 @@ import org.apache.fineract.infrastructure.event.business.domain.loan.charge.Loan
 import org.apache.fineract.infrastructure.event.business.domain.loan.charge.LoanWaiveChargeBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.domain.loan.charge.LoanWaiveChargeUndoBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanAccrualTransactionCreatedBusinessEvent;
+import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanApplyOverduePenaltiesThroughBusinessDateBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanChargeAdjustmentPostBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanChargeAdjustmentPreBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanChargePaymentPreBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.domain.loan.transaction.LoanChargeRefundBusinessEvent;
 import org.apache.fineract.infrastructure.event.business.service.BusinessEventNotifierService;
+import org.apache.fineract.infrastructure.event.business.service.ExternalBusinessEventConfigurationService;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.organisation.monetary.exception.InvalidCurrencyException;
@@ -183,6 +185,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     private final LoanJournalEntryPoster loanJournalEntryPoster;
     private final OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver;
     private final LoanReadPlatformService loanReadPlatformService;
+    private final ExternalBusinessEventConfigurationService externalBusinessEventConfigurationService;
 
     private static boolean isPartOfThisInstallment(LoanCharge loanCharge, LoanRepaymentScheduleInstallment e) {
         return DateUtils.isAfter(loanCharge.getDueDate(), e.getFromDate()) && !DateUtils.isAfter(loanCharge.getDueDate(), e.getDueDate());
@@ -837,13 +840,17 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
      * accrued-penalty markers and reverses accrual transactions on/after that date. Shared by the
      * {@code deactivateOverdue} command and the backdated-transaction penalty recalculation.
      *
-     * @return whether any charge was deactivated or any accrual reversed - callers use this to skip the (expensive)
-     *         full transaction reprocess when nothing changed.
+     * @return whether any charge was deactivated - callers use this to skip the (expensive) full transaction reprocess
+     *         when no charge changed. Accrual-only reversals deliberately do not set it: an accrual reversal changes
+     *         nothing the reprocess rebuilds (installment buckets and summary derive from active charges and payment
+     *         portions, which accruals never touch), and each reversal already runs
+     *         loanAdjustmentService.adjustLoanTransaction (accrual reprocess, status transition, delinquency tag,
+     *         reversal journals, balance-changed event) on its own.
      */
     private boolean deactivateOverdueLoanChargesFrom(final Loan loan, final LocalDate fromDueDate) {
         List<LoanCharge> loanCharges = loanChargeRepository.findByLoanIdAndFromDueDate(loan.getId(), fromDueDate);
         // Only active overdue-installment penalties are eligible for deactivation; the query also returns fees and
-        // already-inactive charges (and the same charge may have been deactivated by the ineligible-installments pass),
+        // already-inactive charges (and the same charge may have been deactivated by the reversible-penalty pass),
         // which inactivateOverdueLoanCharge would reject.
         final List<LoanCharge> chargesToDeactivate = loanCharges.stream().filter(LoanCharge::isActive)
                 .filter(LoanCharge::isOverdueInstallmentCharge).toList();
@@ -857,7 +864,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                 tx -> tx.isNotReversed() && DateUtils.isAfterInclusive(tx.getTransactionDate(), fromDueDate) && tx.isAccrualRelated());
         accrualsToReverse.forEach(tx -> loanAdjustmentService.adjustLoanTransaction(loan, tx,
                 LoanAdjustmentParameter.builder().transactionDate(tx.getTransactionDate()).build(), null, new HashMap<>()));
-        return !chargesToDeactivate.isEmpty() || !accrualsToReverse.isEmpty();
+        return !chargesToDeactivate.isEmpty();
     }
 
     @Transactional
@@ -867,15 +874,15 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         if (!loan.isOpen() || loan.isChargedOff()) {
             return;
         }
-        // Remove penalties for installments not yet past their wait-period trigger (e.g. COB may have posted early).
-        final boolean ineligibleRemoved = deactivateOverduePenaltiesForIneligibleInstallments(loan, asOfDate);
-        // Reverse penalties applied after an installment's payoff date once its principal+interest+fees are fully paid
-        // (e.g. a matured loan whose principal was cleared but COB kept accruing penalties into the additional bucket).
-        final boolean postPayoffRemoved = deactivatePostPayoffOverduePenalties(loan);
+        // Remove penalties the reconcile deems reversible (see isOverduePenaltyReversibleOnReconcile): installments
+        // not yet past their wait-period trigger (e.g. COB may have posted early), and penalties applied after an
+        // installment's payoff date once its principal+interest+fees are fully paid (e.g. a matured loan whose
+        // principal was cleared but COB kept accruing penalties into the additional bucket).
+        final boolean reversibleRemoved = deactivateReversibleOverduePenalties(loan, asOfDate);
         // Remove penalties dated after the target date (excess applied beyond it, e.g. by COB or by recurring periods
         // up to today) so the loan reflects exactly the penalties due up to the target date...
-        final boolean beyondDateRemoved = deactivateOverdueLoanChargesFrom(loan, asOfDate.plusDays(1));
-        if (ineligibleRemoved || postPayoffRemoved || beyondDateRemoved) {
+        final boolean beyondDateChargesRemoved = deactivateOverdueLoanChargesFrom(loan, asOfDate.plusDays(1));
+        if (reversibleRemoved || beyondDateChargesRemoved) {
             // setActive(false) does not rebuild installment penalty buckets or loan summary; reprocess so
             // schedule/summary match active charges before the repayment (or other pre-event caller) continues.
             // Guarded because this runs before every repayment / charge payment / foreclosure once the
@@ -884,8 +891,8 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             reprocessLoanTransactionsService.reprocessTransactions(loan);
             // Deactivating a penalty erases the borrower's debt but not the income already recognised for it: on
             // periodic-accrual products the charge's ACCRUAL transaction (Dr receivable / Cr income) stays on the GL,
-            // overstating penalty income and leaving a receivable no payment will ever clear. The ineligible and
-            // post-payoff passes remove charges dated on/before the target date, whose accruals fall OUTSIDE the
+            // overstating penalty income and leaving a receivable no payment will ever clear. The reversible-penalty
+            // pass removes charges dated on/before the target date, whose accruals fall OUTSIDE the
             // on/after-date reversal window inside deactivateOverdueLoanChargesFrom - so reconcile the accruals here.
             // Must run AFTER the transaction reprocess above: it compares accrued against the rebuilt (shrunk)
             // installment charge buckets and reverses the excess, posting the reversal journal entries. Same call the
@@ -956,22 +963,16 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     }
 
     /**
-     * Deactivates active overdue-installment penalties whose triggering installment is not yet penalize-able as of
-     * {@code asOfDate}. Evaluated per charge via
-     * {@link LoanCharge#isOverdueInstallmentPenaltyTriggeredAsOf(LocalDate)}, not via the enumerated
-     * overdue-installment set (which excludes {@code obligationsMet} / {@code additional} installments). That exclusion
-     * would wrongly remove post-maturity penalties bucketed in the additional installment while their triggering
-     * installment is fully paid.
+     * Deactivates active overdue-installment penalties that
+     * {@link #isOverduePenaltyReversibleOnReconcile(Loan, LoanCharge, LocalDate)} deems reversible as of
+     * {@code asOfDate}.
      *
      * @return whether any charge was deactivated
      */
-    private boolean deactivateOverduePenaltiesForIneligibleInstallments(final Loan loan, final LocalDate asOfDate) {
+    private boolean deactivateReversibleOverduePenalties(final Loan loan, final LocalDate asOfDate) {
         boolean changed = false;
         for (final LoanCharge loanCharge : List.copyOf(loan.getCharges())) {
-            if (!loanCharge.isActive() || !loanCharge.hasLinkedOverdueInstallment()) {
-                continue;
-            }
-            if (!loanCharge.isOverdueInstallmentPenaltyTriggeredAsOf(asOfDate)) {
+            if (isOverduePenaltyReversibleOnReconcile(loan, loanCharge, asOfDate)) {
                 inactivateOverdueLoanCharge(loanCharge);
                 changed = true;
             }
@@ -979,41 +980,43 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         return changed;
     }
 
-    /**
-     * Reverses overdue-installment penalties dated after their triggering installment's payoff date, for installments
-     * whose principal+interest+fees are fully paid. Once an installment's non-penalty obligation is settled there is
-     * nothing left to penalize, so any penalty applied for a later date (e.g. by a COB run after the payoff) is
-     * deactivated. Penalties dated on/before the payoff (the genuinely-overdue window) are kept.
-     */
-    private boolean deactivatePostPayoffOverduePenalties(final Loan loan) {
-        final MonetaryCurrency currency = loan.getCurrency();
-        boolean changed = false;
-        for (final LoanCharge loanCharge : List.copyOf(loan.getCharges())) {
-            if (!loanCharge.isActive() || !loanCharge.hasLinkedOverdueInstallment()) {
-                continue;
-            }
-            final LoanRepaymentScheduleInstallment triggeringInstallment = loanCharge.getOverdueInstallmentCharge().getInstallment();
-            final Money nonPenaltyOutstanding = triggeringInstallment.getPrincipalOutstanding(currency)
-                    .plus(triggeringInstallment.getInterestOutstanding(currency))
-                    .plus(triggeringInstallment.getFeeChargesOutstanding(currency));
-            if (nonPenaltyOutstanding.isGreaterThanZero()) {
-                continue;
-            }
-            final LocalDate payoffDate = triggeringInstallment.getObligationsMetOnDate();
-            if (payoffDate == null) {
-                continue;
-            }
-            // Wait-period aware, consistent with how penalties are triggered/applied: reverse a penalty when the
-            // installment was paid off before it ever became penalize-able (paid within the penalty wait period), or
-            // when the penalty accrued for a date after the payoff (no outstanding obligation remained to penalize).
-            // Penalties dated inside the genuinely-overdue window (trigger date .. payoff date) are kept.
-            if (!loanCharge.isOverdueInstallmentPenaltyTriggeredAsOf(payoffDate)
-                    || DateUtils.isAfter(loanCharge.getDueLocalDate(), payoffDate)) {
-                inactivateOverdueLoanCharge(loanCharge);
-                changed = true;
-            }
+    @Override
+    public boolean willReconcileOverduePenalties(final Loan loan) {
+        return loan.isOpen() && !loan.isChargedOff() && externalBusinessEventConfigurationService
+                .isExternalEventConfiguredForPosting(new LoanApplyOverduePenaltiesThroughBusinessDateBusinessEvent(loan));
+    }
+
+    @Override
+    public boolean isOverduePenaltyReversibleOnReconcile(final Loan loan, final LoanCharge loanCharge, final LocalDate asOfDate) {
+        if (!loanCharge.isActive() || !loanCharge.hasLinkedOverdueInstallment()) {
+            return false;
         }
-        return changed;
+        // Wait-period rule: the triggering installment is not yet penalize-able as of asOfDate (e.g. COB posted
+        // early). Evaluated per charge via LoanCharge#isOverdueInstallmentPenaltyTriggeredAsOf, not via the enumerated
+        // overdue-installment set (which excludes obligationsMet / additional installments) - that exclusion would
+        // wrongly remove post-maturity penalties bucketed in the additional installment while their triggering
+        // installment is fully paid.
+        if (!loanCharge.isOverdueInstallmentPenaltyTriggeredAsOf(asOfDate)) {
+            return true;
+        }
+        // Post-payoff rule: once an installment's principal+interest+fees are settled there is nothing left to
+        // penalize, so a penalty is reversed when the installment was paid off before it ever became penalize-able
+        // (paid within the penalty wait period), or when the penalty accrued for a date after the payoff. Penalties
+        // dated inside the genuinely-overdue window (trigger date .. payoff date) are kept.
+        final MonetaryCurrency currency = loan.getCurrency();
+        final LoanRepaymentScheduleInstallment triggeringInstallment = loanCharge.getOverdueInstallmentCharge().getInstallment();
+        final Money nonPenaltyOutstanding = triggeringInstallment.getPrincipalOutstanding(currency)
+                .plus(triggeringInstallment.getInterestOutstanding(currency))
+                .plus(triggeringInstallment.getFeeChargesOutstanding(currency));
+        if (nonPenaltyOutstanding.isGreaterThanZero()) {
+            return false;
+        }
+        final LocalDate payoffDate = triggeringInstallment.getObligationsMetOnDate();
+        if (payoffDate == null) {
+            return false;
+        }
+        return !loanCharge.isOverdueInstallmentPenaltyTriggeredAsOf(payoffDate)
+                || DateUtils.isAfter(loanCharge.getDueLocalDate(), payoffDate);
     }
 
     @Transactional

@@ -332,7 +332,8 @@ public class LoanAccountConfiguration {
             LoanScheduleService loanScheduleService, ReprocessLoanTransactionsService reprocessLoanTransactionsService,
             LoanAccountService loanAccountService, LoanAdjustmentService loanAdjustmentService, LoanChargeService loanChargeService,
             LoanJournalEntryPoster loanJournalEntryPoster, OverdueChargeCutoffDateResolver overdueChargeCutoffDateResolver,
-            LoanReadPlatformService loanReadPlatformService) {
+            LoanReadPlatformService loanReadPlatformService,
+            ExternalBusinessEventConfigurationService externalBusinessEventConfigurationService) {
         return new LoanChargeWritePlatformServiceImpl(loanChargeApiJsonValidator, loanAssembler, chargeRepository,
                 businessEventNotifierService, loanTransactionRepository, accountTransfersWritePlatformService, loanRepositoryWrapper,
                 loanAccountDomainService, loanChargeRepository, loanWritePlatformService, loanUtilService, loanChargeReadPlatformService,
@@ -340,7 +341,8 @@ public class LoanAccountConfiguration {
                 loanRepaymentScheduleTransactionProcessorFactory, externalIdFactory, accountTransferDetailRepository, loanChargeAssembler,
                 paymentDetailWritePlatformService, noteRepository, loanAccrualsProcessingService, loanDownPaymentTransactionValidator,
                 loanChargeValidator, loanScheduleService, reprocessLoanTransactionsService, loanAccountService, loanAdjustmentService,
-                loanChargeService, loanJournalEntryPoster, overdueChargeCutoffDateResolver, loanReadPlatformService);
+                loanChargeService, loanJournalEntryPoster, overdueChargeCutoffDateResolver, loanReadPlatformService,
+                externalBusinessEventConfigurationService);
     }
 
     @Bean
@@ -619,10 +621,8 @@ public class LoanAccountConfiguration {
     @Bean
     @ConditionalOnMissingBean(LoanOverduePenaltyPreTransactionEventService.class)
     public LoanOverduePenaltyPreTransactionEventService loanOverduePenaltyPreTransactionEventService(
-            BusinessEventNotifierService businessEventNotifierService, LoanChargeWritePlatformService loanChargeWritePlatformService,
-            ExternalBusinessEventConfigurationService externalBusinessEventConfigurationService) {
-        return new LoanOverduePenaltyPreTransactionEventService(businessEventNotifierService, loanChargeWritePlatformService,
-                externalBusinessEventConfigurationService);
+            BusinessEventNotifierService businessEventNotifierService, LoanChargeWritePlatformService loanChargeWritePlatformService) {
+        return new LoanOverduePenaltyPreTransactionEventService(businessEventNotifierService, loanChargeWritePlatformService);
     }
 
     @Bean
