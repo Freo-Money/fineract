@@ -719,11 +719,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         // already
         // includes.
         final BigDecimal appliedOutstanding = overduePenaltyOutstandingTillDate(loan, asOfDate);
-        // Not-yet-applied penalties only materialize if the pre-transaction reconcile actually applies them, and it
-        // skips loans that are not open or are charged off - projecting them there would quote a penalty the
-        // transaction never charges. The applied-vs-base reconciliation above holds either way, so only this term is
-        // conditional.
-        final BigDecimal unapplied = loan.isOpen() && !loan.isChargedOff()
+        // Not-yet-applied penalties only materialize if the pre-transaction reconcile actually runs - projecting them
+        // for a loan it skips would quote a penalty the transaction never charges. The applied-vs-base reconciliation
+        // above holds either way, so only this term is conditional.
+        final BigDecimal unapplied = loanChargeWritePlatformService.willReconcileOverduePenalties(loan)
                 ? loanChargeWritePlatformService.calculateUnappliedOverduePenaltyAmountTillDate(loan, asOfDate)
                 : BigDecimal.ZERO;
         return appliedOutstanding.add(unapplied).subtract(overdueAppliedInBase);
@@ -2779,6 +2778,19 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         Map<Long, BigDecimal> mergedChargePercentages = foreclosureChargeHelper.mergeForeclosureChargesFromLoanProduct(loan,
                 chargePercentages);
         boolean updateCharges = false;
+        final boolean willReconcilePenalties = loanChargeWritePlatformService.willReconcileOverduePenalties(loan);
+        // The pre-foreclosure reconcile reverses overdue penalties that are no longer chargeable (post-payoff, not
+        // yet past their wait-period trigger, or dated beyond the foreclosure date), so the quote must exclude what
+        // it will reverse or it over-quotes: the reversed outstanding still in the base, and the money already PAID
+        // toward reversed penalties, which reprocessing frees and reallocates to principal/interest/fees.
+        final ReversedOverduePenaltyProjection reversedPenalties = willReconcilePenalties
+                ? reversedOverduePenaltyProjection(loan, transactionDate)
+                : ReversedOverduePenaltyProjection.NONE;
+        final Money reversedPenaltyPaidPortion = Money.of(currency, reversedPenalties.paidPortion());
+        // Percentage foreclosure charges are quoted on the CURRENT (pre-reconcile) principal - and the execution
+        // creates them on the same figure, snapshotted before its reconcile runs (see foreCloseLoan /
+        // ForeclosureChargeHelper) - so the quoted and collected fee are equal by construction, independent of where
+        // the reconcile's replay lands freed penalty payments.
         Money foreclosureFees = foreclosureChargeHelper.calculateForeclosureFee(loan, mergedChargePercentages, currency);
         final LoanRepaymentScheduleInstallment loanRepaymentScheduleInstallment = loanBalanceService.fetchLoanForeclosureDetail(loan,
                 transactionDate, mergedChargePercentages, updateCharges);
@@ -2787,29 +2799,59 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         final Collection<PaymentTypeData> paymentTypeOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         final BigDecimal outstandingLoanBalance = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency).getAmount();
         final Boolean isManuallyReversed = false;
-        // Foreclosure base already includes straddle penalty outstanding; reconcile using the same till-date applied
-        // total (per-charge, includes post-maturity additional-bucket penalties) so only the unapplied delta is added.
-        final BigDecimal foreclosurePenaltyAdjustment = overduePenaltyTemplateAdjustment(loan, transactionDate,
-                overduePenaltyOutstandingTillDate(loan, transactionDate));
+        // The foreclosure base already includes the outstanding of every APPLIED till-date penalty (per-charge,
+        // straddle slice included), so only the not-yet-applied projection is added. This is
+        // overduePenaltyTemplateAdjustment with the base's own applied total passed in - the applied terms cancel
+        // exactly, leaving just the gated unapplied projection.
+        final BigDecimal foreclosurePenaltyAdjustment = willReconcilePenalties
+                ? loanChargeWritePlatformService.calculateUnappliedOverduePenaltyAmountTillDate(loan, transactionDate)
+                : BigDecimal.ZERO;
         Money penaltyChargesOutstanding = loanRepaymentScheduleInstallment.getPenaltyChargesOutstanding(currency);
-        // The pre-foreclosure reconcile reverses overdue penalties that are no longer chargeable (post-payoff or
-        // not yet past their wait-period trigger), so the quote must exclude them or it over-quotes by exactly the
-        // amount the foreclosure will reverse.
-        final BigDecimal reversibleOverduePenalties = reversibleOverduePenaltyOutstanding(loan, transactionDate);
+        final BigDecimal reversibleOverduePenalties = reversedPenalties.outstandingInBase();
         final Money effectivePenaltyChargesOutstanding = Money.of(currency,
                 MathUtil.add(penaltyChargesOutstanding.getAmount(), foreclosurePenaltyAdjustment).subtract(reversibleOverduePenalties)
                         .max(BigDecimal.ZERO));
         // The pre-foreclosure event applies these pending penalties as real charges, so they are part of the payoff
         // the actual foreclosure rounds - include the delta in the rounding base or the quote drifts from the
-        // foreclosed amount by up to one rounding unit on loans with unapplied overdue penalties.
+        // foreclosed amount by up to one rounding unit on loans with unapplied overdue penalties. The freed paid
+        // portion likewise reduces the base the actual foreclosure rounds, so it is part of the same adjustment.
         final Money unappliedPenaltyDelta = effectivePenaltyChargesOutstanding.minus(penaltyChargesOutstanding);
-        loanBalanceService.applyForeclosureRounding(loan, loanRepaymentScheduleInstallment, foreclosureFees.plus(unappliedPenaltyDelta));
+        loanBalanceService.applyForeclosureRounding(loan, loanRepaymentScheduleInstallment,
+                foreclosureFees.plus(unappliedPenaltyDelta).minus(reversedPenaltyPaidPortion));
         Money feeChargesOutstanding = loanRepaymentScheduleInstallment.getFeeChargesOutstanding(currency);
-        feeChargesOutstanding = feeChargesOutstanding.plus(foreclosureFees);
         penaltyChargesOutstanding = effectivePenaltyChargesOutstanding;
         Money principalOutstanding = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency);
         Money interestOutstanding = loanRepaymentScheduleInstallment.getInterestOutstanding(currency);
         BigDecimal adjustedInterestAmount = loanRepaymentScheduleInstallment.getAdjustedInterestAmount();
+
+        // Apply the freed paid portion against the non-penalty buckets. The exact split is decided by the
+        // transaction replay at foreclosure time; principal-first is an approximation, but the quoted TOTAL is
+        // exact either way, and the total is what the expectedAmount validation compares.
+        Money freedPaid = reversedPenaltyPaidPortion;
+        if (freedPaid.isGreaterThanZero()) {
+            final Money principalCut = freedPaid.isGreaterThan(principalOutstanding) ? principalOutstanding : freedPaid;
+            principalOutstanding = principalOutstanding.minus(principalCut);
+            freedPaid = freedPaid.minus(principalCut);
+        }
+        if (freedPaid.isGreaterThanZero()) {
+            final Money interestCut = freedPaid.isGreaterThan(interestOutstanding) ? interestOutstanding : freedPaid;
+            interestOutstanding = interestOutstanding.minus(interestCut);
+            freedPaid = freedPaid.minus(interestCut);
+        }
+        if (freedPaid.isGreaterThanZero()) {
+            final Money feeCut = freedPaid.isGreaterThan(feeChargesOutstanding) ? feeChargesOutstanding : freedPaid;
+            feeChargesOutstanding = feeChargesOutstanding.minus(feeCut);
+            freedPaid = freedPaid.minus(feeCut);
+        }
+        if (freedPaid.isGreaterThanZero()) {
+            // Freed money exceeding the non-penalty buckets settles the remaining penalties in the replay too -
+            // mirror that so an over-settled quote lands on zero, matching the zero-payoff execution path.
+            final Money penaltyCut = freedPaid.isGreaterThan(penaltyChargesOutstanding) ? penaltyChargesOutstanding : freedPaid;
+            penaltyChargesOutstanding = penaltyChargesOutstanding.minus(penaltyCut);
+        }
+        // Added AFTER the freed-paid cascade: the foreclosure charge does not exist during the reconcile's replay,
+        // so freed money can never pay it - the quoted fee survives in full, exactly as it will be collected.
+        feeChargesOutstanding = feeChargesOutstanding.plus(foreclosureFees);
 
         final Money outStandingAmount = principalOutstanding.plus(interestOutstanding).plus(feeChargesOutstanding)
                 .plus(penaltyChargesOutstanding).plus(Money.of(currency, adjustedInterestAmount));
@@ -2825,50 +2867,75 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
     }
 
     /**
-     * Sum of active overdue-installment penalties that the pre-foreclosure reconcile
-     * (LoanChargeWritePlatformService#reconcileOverduePenaltiesAsOf) will reverse when the foreclosure is executed:
-     * penalties not yet past their wait-period trigger as of the foreclosure date, and penalties dated after their
-     * triggering installment's payoff once its principal+interest+fees are fully settled (e.g. applied by COB while a
-     * backdated repayment had not yet been booked). Mirrors the reconcile's deactivation rules so the quote matches
-     * what the foreclosure actually collects.
-     * <p>
-     * Only counts penalties dated on/before {@code transactionDate}, and only when the reconcile will actually run
-     * (same preconditions as LoanOverduePenaltyPreTransactionEventService): anything else is not in the foreclosure
-     * base or will not be reversed, so subtracting it would under-quote the payoff.
+     * What the pre-foreclosure reconcile will reverse, as it affects the quote: reversed outstanding that sits in the
+     * quoted base, and money already paid toward reversed penalties that reprocessing will free.
      */
-    private BigDecimal reversibleOverduePenaltyOutstanding(final Loan loan, final LocalDate transactionDate) {
-        if (!loan.isOpen() || loan.isChargedOff() || !externalBusinessEventConfigurationService
-                .isExternalEventConfiguredForPosting(new LoanApplyOverduePenaltiesThroughBusinessDateBusinessEvent(loan))) {
-            return BigDecimal.ZERO;
-        }
+    private record ReversedOverduePenaltyProjection(BigDecimal outstandingInBase, BigDecimal paidPortion) {
+
+        static final ReversedOverduePenaltyProjection NONE = new ReversedOverduePenaltyProjection(BigDecimal.ZERO, BigDecimal.ZERO);
+    }
+
+    /**
+     * Projects, in one pass over the loan's charges, what the pre-foreclosure reconcile
+     * (LoanChargeWritePlatformService#reconcileOverduePenaltiesAsOf) will reverse when the foreclosure executes,
+     * delegating the per-charge reversal rules to the write service's shared predicate so quote and reconcile cannot
+     * drift. Two components:
+     * <ul>
+     * <li>{@code outstandingInBase} - outstanding of reversible penalties dated on/before {@code transactionDate}.
+     * Later-dated penalties are reversed too (beyond-date pass) but are not part of the quoted base, so subtracting
+     * their outstanding would under-quote the payoff.</li>
+     * <li>{@code paidPortion} - money already paid toward ANY reversed penalty, beyond-date ones included. Deactivating
+     * a charge frees the money allocated to it and the reprocess reallocates it to principal/interest/fees, so the
+     * foreclosure collects that much less. Waived portions are not money and are not counted.</li>
+     * </ul>
+     * The caller must gate on LoanChargeWritePlatformService#willReconcileOverduePenalties: when the reconcile will not
+     * run, nothing is reversed and the projection is {@link ReversedOverduePenaltyProjection#NONE}.
+     */
+    private ReversedOverduePenaltyProjection reversedOverduePenaltyProjection(final Loan loan, final LocalDate transactionDate) {
         final MonetaryCurrency currency = loan.getCurrency();
-        BigDecimal total = BigDecimal.ZERO;
+        BigDecimal outstandingInBase = BigDecimal.ZERO;
+        Money paidPortion = Money.zero(currency);
         for (final LoanCharge loanCharge : loan.getCharges()) {
-            if (!loanCharge.isActive() || !loanCharge.hasLinkedOverdueInstallment()
-                    || DateUtils.isAfter(loanCharge.getDueLocalDate(), transactionDate)) {
+            if (!loanCharge.isActive() || !loanCharge.isOverdueInstallmentCharge()) {
                 continue;
             }
-            if (!loanCharge.isOverdueInstallmentPenaltyTriggeredAsOf(transactionDate)) {
-                total = total.add(loanCharge.amountOutstanding());
+            // The beyond-date pass (deactivateOverdueLoanChargesFrom, fromDueDate = transactionDate + 1) reverses
+            // every active overdue-installment penalty dated after the foreclosure date; the shared predicate covers
+            // the wait-period and post-payoff passes.
+            final boolean dueAfterDate = DateUtils.isAfter(loanCharge.getDueLocalDate(), transactionDate);
+            if (!dueAfterDate && !loanChargeWritePlatformService.isOverduePenaltyReversibleOnReconcile(loan, loanCharge, transactionDate)) {
                 continue;
             }
-            final LoanRepaymentScheduleInstallment triggeringInstallment = loanCharge.getOverdueInstallmentCharge().getInstallment();
-            final Money nonPenaltyOutstanding = triggeringInstallment.getPrincipalOutstanding(currency)
-                    .plus(triggeringInstallment.getInterestOutstanding(currency))
-                    .plus(triggeringInstallment.getFeeChargesOutstanding(currency));
-            if (nonPenaltyOutstanding.isGreaterThanZero()) {
+            if (dueAfterDate && isInFullyFutureInstallment(loan, loanCharge, transactionDate)) {
+                // The base already credits this paid amount: retrieveIncomeOutstandingTillDate's fully-future
+                // installment branch adds the installment's paid penalties to paidFromFutureInstallments, which
+                // fetchLoanForeclosureDetail subtracts from principal. Counting it here would double-subtract.
                 continue;
             }
-            final LocalDate payoffDate = triggeringInstallment.getObligationsMetOnDate();
-            if (payoffDate == null) {
-                continue;
-            }
-            if (!loanCharge.isOverdueInstallmentPenaltyTriggeredAsOf(payoffDate)
-                    || DateUtils.isAfter(loanCharge.getDueLocalDate(), payoffDate)) {
-                total = total.add(loanCharge.amountOutstanding());
+            paidPortion = paidPortion.plus(loanCharge.getAmountPaid(currency));
+            if (!dueAfterDate) {
+                outstandingInBase = outstandingInBase.add(loanCharge.amountOutstanding());
             }
         }
-        return total;
+        return new ReversedOverduePenaltyProjection(outstandingInBase, paidPortion.getAmount());
+    }
+
+    /**
+     * Whether the installment bucketing this charge's due date has not started as of {@code transactionDate} - the
+     * exact condition of retrieveIncomeOutstandingTillDate's fully-future branch, which credits such installments' paid
+     * amounts into the base's paidFromFutureInstallments term.
+     */
+    private boolean isInFullyFutureInstallment(final Loan loan, final LoanCharge loanCharge, final LocalDate transactionDate) {
+        final int firstNormalInstallmentNumber = LoanRepaymentScheduleProcessingWrapper
+                .fetchFirstNormalInstallmentNumber(loan.getRepaymentScheduleInstallments());
+        for (final LoanRepaymentScheduleInstallment installment : loan.getRepaymentScheduleInstallments()) {
+            final boolean isFirstNormal = installment.getInstallmentNumber().equals(firstNormalInstallmentNumber);
+            if (loanCharge.isDueInPeriod(installment.getFromDate(), installment.getDueDate(), isFirstNormal)) {
+                return !(DateUtils.isAfter(transactionDate, installment.getFromDate())
+                        || (isFirstNormal && DateUtils.isEqual(transactionDate, installment.getFromDate())));
+            }
+        }
+        return false;
     }
 
     private static final class CurrencyMapper implements RowMapper<CurrencyData> {
