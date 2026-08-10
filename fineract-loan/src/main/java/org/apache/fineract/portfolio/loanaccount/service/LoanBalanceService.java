@@ -24,10 +24,14 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.RequiredArgsConstructor;
+import org.apache.fineract.infrastructure.core.domain.FineractPlatformTenant;
 import org.apache.fineract.infrastructure.core.persistence.FlushModeHandler;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
+import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
 import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.common.domain.DaysInMonthType;
@@ -51,6 +55,12 @@ import org.springframework.stereotype.Service;
 public class LoanBalanceService {
 
     private static final Logger LOG = LoggerFactory.getLogger(LoanBalanceService.class);
+
+    // calculateTotalOverpayment runs on every summary refresh, so a loan whose mismatch is baked into data would
+    // re-fire the alert-grade suppression log on every touch and flood log-based alerting. Remember which loans
+    // (per tenant) have already been reported this JVM and log follow-ups at DEBUG. Only defective loans ever enter
+    // this set, so it stays tiny.
+    private static final Set<String> SUPPRESSION_ALERTED_LOANS = ConcurrentHashMap.newKeySet();
 
     private final CapitalizedIncomeBalanceService capitalizedIncomeBalanceService;
     private final FlushModeHandler flushModeHandler;
@@ -104,15 +114,31 @@ public class LoanBalanceService {
             // source), never genuine customer money. It should NEVER fire in a healthy system, so wire log-based
             // alerting to the stable FORECLOSURE_OVERPAYMENT_SUPPRESSED marker and investigate every occurrence.
             // Both ledger totals are logged so the mismatch is diagnosable without replaying the loan.
-            LOG.error(
-                    "FORECLOSURE_OVERPAYMENT_SUPPRESSED loan {}: computed overpayment {} zeroed (transactions net {} vs schedule absorbed"
-                            + " {}). Schedule is settled and no transaction carries an overpayment portion, so the difference is a"
-                            + " transaction/schedule mismatch, not customer money. Investigate this loan's transaction bookkeeping.",
-                    loan.getId(), overpayment.getAmount(), totalPaidInRepayments.getAmount(),
-                    cumulativeTotalPaidOnInstallments.getAmount());
+            if (isFirstSuppressionAlertForLoan(loan)) {
+                LOG.error("FORECLOSURE_OVERPAYMENT_SUPPRESSED loan {}: computed overpayment {} zeroed (transactions net {} vs schedule"
+                        + " absorbed {}). Schedule is settled and no transaction carries an overpayment portion, so the difference"
+                        + " is a transaction/schedule mismatch, not customer money. Investigate this loan's transaction" + " bookkeeping.",
+                        loan.getId(), overpayment.getAmount(), totalPaidInRepayments.getAmount(),
+                        cumulativeTotalPaidOnInstallments.getAmount());
+            } else {
+                LOG.debug(
+                        "FORECLOSURE_OVERPAYMENT_SUPPRESSED (repeat) loan {}: computed overpayment {} zeroed (transactions net {} vs"
+                                + " schedule absorbed {}).",
+                        loan.getId(), overpayment.getAmount(), totalPaidInRepayments.getAmount(),
+                        cumulativeTotalPaidOnInstallments.getAmount());
+            }
             return Money.zero(currency);
         }
         return overpayment;
+    }
+
+    private boolean isFirstSuppressionAlertForLoan(final Loan loan) {
+        if (loan.getId() == null) {
+            return true;
+        }
+        final FineractPlatformTenant tenant = ThreadLocalContextUtil.getTenant();
+        final String key = (tenant != null ? tenant.getTenantIdentifier() : "") + ":" + loan.getId();
+        return SUPPRESSION_ALERTED_LOANS.add(key);
     }
 
     private boolean hasActualOverpaymentPortion(final Loan loan, final MonetaryCurrency currency) {
