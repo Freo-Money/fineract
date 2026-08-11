@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.loanschedule.domain;
 
 import java.math.BigDecimal;
+import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.common.domain.DaysInYearType;
 import org.apache.fineract.portfolio.common.domain.PeriodFrequencyType;
@@ -31,9 +32,11 @@ public class AprCalculator {
             final Integer numberOfRepayments, final Integer repaymentEvery, final PeriodFrequencyType repaymentPeriodFrequencyType,
             final DaysInYearType daysInYearType) {
         BigDecimal defaultAnnualNominalInterestRate = BigDecimal.ZERO;
+        // for ACTUAL, getValue() is the enum code (1), not a day count
+        final int daysInYear = daysInYearType.getNumberOfDays(DateUtils.getBusinessLocalDate());
         switch (interestPeriodFrequencyType) {
             case DAYS:
-                defaultAnnualNominalInterestRate = interestRatePerPeriod.multiply(BigDecimal.valueOf(daysInYearType.getValue()));
+                defaultAnnualNominalInterestRate = interestRatePerPeriod.multiply(BigDecimal.valueOf(daysInYear));
             break;
             case WEEKS:
                 defaultAnnualNominalInterestRate = interestRatePerPeriod.multiply(BigDecimal.valueOf(52));
@@ -50,7 +53,7 @@ public class AprCalculator {
 
                 switch (repaymentPeriodFrequencyType) {
                     case DAYS:
-                        defaultAnnualNominalInterestRate = ratePerPeriod.multiply(BigDecimal.valueOf(daysInYearType.getValue()));
+                        defaultAnnualNominalInterestRate = ratePerPeriod.multiply(BigDecimal.valueOf(daysInYear));
                     break;
                     case WEEKS:
                         defaultAnnualNominalInterestRate = ratePerPeriod.multiply(BigDecimal.valueOf(52));
