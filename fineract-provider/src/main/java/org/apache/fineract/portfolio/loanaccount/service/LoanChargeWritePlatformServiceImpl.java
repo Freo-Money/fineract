@@ -808,9 +808,21 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         LocalDate fromDueDate = command.dateValueOfParameterNamed("dueDate");
 
         Loan loan = loanAssembler.assembleFrom(loanId);
-        deactivateOverdueLoanChargesFrom(loan, fromDueDate);
-
+        // Replay only open, non-charged-off cumulative loans (the guards the other reprocess sites in this class
+        // apply; a progressive replay would also drop the additional penalty bucket and rewrite the saved interest
+        // model). Other loans keep the deactivate-only behavior.
+        final boolean replay = deactivateOverdueLoanChargesFrom(loan, fromDueDate) && loan.isOpen() && !loan.isChargedOff()
+                && loan.isCumulativeSchedule();
+        if (replay) {
+            replayTransactionsAfterOverduePenaltyDeactivation(loan);
+            realignAdditionalPenaltyInstallment(loan);
+            loanLifecycleStateMachine.determineAndTransition(loan, loan.getLastUserTransactionDate());
+        }
         loanRepositoryWrapper.saveAndFlush(loan);
+        if (replay) {
+            loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
+            businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
+        }
 
         final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
         return commandProcessingResultBuilder.withLoanId(loanId) //
@@ -822,15 +834,19 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     /**
      * Deactivates active overdue-installment penalty charges dated on/after {@code fromDueDate}, clears the related
      * accrued-penalty markers and reverses accrual transactions on/after that date. Shared by the
-     * {@code deactivateOverdue} command and the backdated-transaction penalty recalculation.
+     * {@code deactivateOverdue} command and the backdated-transaction penalty recalculation. Returns {@code true} when
+     * at least one charge was deactivated, so callers can replay the transactions and refresh the summary. An
+     * accrual-only reversal needs no replay: adjustLoanTransaction re-derives accrual state itself and plain accrual
+     * transactions are not part of the reprocessing set.
      */
-    private void deactivateOverdueLoanChargesFrom(final Loan loan, final LocalDate fromDueDate) {
+    private boolean deactivateOverdueLoanChargesFrom(final Loan loan, final LocalDate fromDueDate) {
         List<LoanCharge> loanCharges = loanChargeRepository.findByLoanIdAndFromDueDate(loan.getId(), fromDueDate);
         // Only active overdue-installment penalties are eligible for deactivation; the query also returns fees and
         // already-inactive charges (and the same charge may have been deactivated by the ineligible-installments pass),
         // which inactivateOverdueLoanCharge would reject.
-        loanCharges.stream().filter(LoanCharge::isActive).filter(LoanCharge::isOverdueInstallmentCharge)
-                .forEach(this::inactivateOverdueLoanCharge);
+        final List<LoanCharge> chargesToDeactivate = loanCharges.stream().filter(LoanCharge::isActive)
+                .filter(LoanCharge::isOverdueInstallmentCharge).toList();
+        chargesToDeactivate.forEach(this::inactivateOverdueLoanCharge);
 
         List<LoanRepaymentScheduleInstallment> repaymentScheduleInstallments = loan
                 .getRepaymentScheduleInstallments(si -> DateUtils.isDateInRangeInclusive(fromDueDate, si.getFromDate(), si.getDueDate())
@@ -840,6 +856,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                 tx -> tx.isNotReversed() && DateUtils.isAfterInclusive(tx.getTransactionDate(), fromDueDate) && tx.isAccrualRelated());
         accrualsToReverse.forEach(tx -> loanAdjustmentService.adjustLoanTransaction(loan, tx,
                 LoanAdjustmentParameter.builder().transactionDate(tx.getTransactionDate()).build(), null, new HashMap<>()));
+        return !chargesToDeactivate.isEmpty();
     }
 
     @Transactional
@@ -850,25 +867,66 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             return;
         }
         // Remove penalties for installments not yet past their wait-period trigger (e.g. COB may have posted early).
-        deactivateOverduePenaltiesForIneligibleInstallments(loan, asOfDate);
+        boolean anyDeactivated = deactivateOverduePenaltiesForIneligibleInstallments(loan, asOfDate);
         // Reverse penalties applied after an installment's payoff date once its principal+interest+fees are fully paid
         // (e.g. a matured loan whose principal was cleared but COB kept accruing penalties into the additional bucket).
-        deactivatePostPayoffOverduePenalties(loan);
+        anyDeactivated |= deactivatePostPayoffOverduePenalties(loan);
         // Remove penalties dated after the target date (excess applied beyond it, e.g. by COB or by recurring periods
         // up to today) so the loan reflects exactly the penalties due up to the target date...
-        deactivateOverdueLoanChargesFrom(loan, asOfDate.plusDays(1));
+        anyDeactivated |= deactivateOverdueLoanChargesFrom(loan, asOfDate.plusDays(1));
+        if (anyDeactivated && loan.isCumulativeSchedule()) {
+            // A replay is guaranteed below (the re-apply's own reprocess, or the explicit one after it), and a replay
+            // reallocates payments against the active charges only — reset the deactivated charges' paid markers now
+            // so their rows agree with the replayed allocations instead of double-counting the money.
+            resetPaidAmountOnInactiveOverduePenalties(loan);
+        }
         loanRepositoryWrapper.saveAndFlush(loan);
-        // ...then apply any penalties that are due up to the target date but not yet applied. NPA loans are not skipped
-        // in the transaction context.
+        // ...then apply any penalties that are due up to the target date but not yet applied, computing the overdue
+        // set before any redistribution (redistributing first could mark a historically-overdue installment as paid
+        // and hide it from the re-apply). NPA loans are not skipped in the transaction context.
         final boolean skipNpaLoans = false;
-        applyOverdueChargesForLoanByLoanId(loanId, skipNpaLoans, asOfDate);
+        final Collection<OverdueLoanScheduleData> overdueInstallments = loanReadPlatformService.retrieveAllOverdueInstallmentsForLoan(loan,
+                asOfDate);
+        final boolean applied = applyOverdueChargesForLoan(loanId, overdueInstallments, skipNpaLoans, asOfDate);
+        final Loan reconciledLoan = loanAssembler.assembleFrom(loanId);
+        boolean reprocessed = false;
+        boolean paidMarkersReset = false;
+        // Deactivation only flips the charges inactive; when the re-apply did not replay (nothing to add, or it
+        // skipped the loan), redistribute here so the installments' penalty portions and the summary reflect the
+        // remaining active charges. Then re-check the post-payoff pass: the redistribution itself can pay off an
+        // installment, making penalties dated after its payoff reversible only now. Cumulative schedules only — a
+        // progressive replay would drop the additional penalty bucket and rewrite the saved interest model.
+        if (reconciledLoan.isCumulativeSchedule()) {
+            if (applied) {
+                // The re-apply's interest-recalculation branch can deactivate further post-maturity penalties during
+                // schedule regeneration (bypassing inactivateOverdueLoanCharge) before its replay; that replay already
+                // reallocated their money, so align their paid markers with it here.
+                paidMarkersReset = resetPaidAmountOnInactiveOverduePenalties(reconciledLoan);
+            }
+            boolean replayRequired = anyDeactivated && !applied;
+            while (true) {
+                if (replayRequired) {
+                    replayTransactionsAfterOverduePenaltyDeactivation(reconciledLoan);
+                    reprocessed = true;
+                }
+                if (!deactivatePostPayoffOverduePenalties(reconciledLoan)) {
+                    break;
+                }
+                replayRequired = true;
+            }
+        }
         // Realign the post-maturity penalty bucket's due date to the latest penalty that actually remains, so a
         // backdated reversal shrinks the schedule row (e.g. 24th -> 6th) instead of leaving it at the date COB had
         // extended it to; drop the bucket entirely when no post-maturity penalty remains.
-        final Loan reconciledLoan = loanAssembler.assembleFrom(loanId);
-        if (realignAdditionalPenaltyInstallment(reconciledLoan)) {
+        final boolean realigned = realignAdditionalPenaltyInstallment(reconciledLoan);
+        if (reprocessed || realigned || paidMarkersReset) {
             loanRepositoryWrapper.saveAndFlush(reconciledLoan);
         }
+        // Deliberately no status transition, delinquency retag or balance event here: this method runs inside the
+        // pre-transaction hook of a repayment / charge payment / foreclosure, and the enclosing operation derives
+        // status, delinquency and events itself after processing. Transitioning mid-hook can close the loan and fail
+        // the enclosing operation's active-status validation, and a balance event on a transiently-closed loan
+        // triggers closure accruals for a loan the next step re-opens.
     }
 
     /**
@@ -925,26 +983,31 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
      * {@link LoanCharge#isOverdueInstallmentPenaltyTriggeredAsOf(LocalDate)}, not via the enumerated
      * overdue-installment set (which excludes {@code obligationsMet} / {@code additional} installments). That exclusion
      * would wrongly remove post-maturity penalties bucketed in the additional installment while their triggering
-     * installment is fully paid.
+     * installment is fully paid. Returns {@code true} when at least one charge was deactivated.
      */
-    private void deactivateOverduePenaltiesForIneligibleInstallments(final Loan loan, final LocalDate asOfDate) {
+    private boolean deactivateOverduePenaltiesForIneligibleInstallments(final Loan loan, final LocalDate asOfDate) {
+        boolean anyDeactivated = false;
         for (final LoanCharge loanCharge : List.copyOf(loan.getCharges())) {
             if (!loanCharge.isActive() || !loanCharge.hasLinkedOverdueInstallment()) {
                 continue;
             }
             if (!loanCharge.isOverdueInstallmentPenaltyTriggeredAsOf(asOfDate)) {
                 inactivateOverdueLoanCharge(loanCharge);
+                anyDeactivated = true;
             }
         }
+        return anyDeactivated;
     }
 
     /**
      * Reverses overdue-installment penalties dated after their triggering installment's payoff date, for installments
      * whose principal+interest+fees are fully paid. Once an installment's non-penalty obligation is settled there is
      * nothing left to penalize, so any penalty applied for a later date (e.g. by a COB run after the payoff) is
-     * deactivated. Penalties dated on/before the payoff (the genuinely-overdue window) are kept.
+     * deactivated. Penalties dated on/before the payoff (the genuinely-overdue window) are kept. Returns {@code true}
+     * when at least one charge was deactivated.
      */
-    private void deactivatePostPayoffOverduePenalties(final Loan loan) {
+    private boolean deactivatePostPayoffOverduePenalties(final Loan loan) {
+        boolean anyDeactivated = false;
         final MonetaryCurrency currency = loan.getCurrency();
         for (final LoanCharge loanCharge : List.copyOf(loan.getCharges())) {
             if (!loanCharge.isActive() || !loanCharge.hasLinkedOverdueInstallment()) {
@@ -968,8 +1031,10 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             if (!loanCharge.isOverdueInstallmentPenaltyTriggeredAsOf(payoffDate)
                     || DateUtils.isAfter(loanCharge.getDueLocalDate(), payoffDate)) {
                 inactivateOverdueLoanCharge(loanCharge);
+                anyDeactivated = true;
             }
         }
+        return anyDeactivated;
     }
 
     @Transactional
@@ -987,6 +1052,26 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         // the business date so the periods after the transaction date are recomputed on the new (reduced) outstanding.
         final boolean skipNpaLoans = false;
         applyOverdueChargesForLoanByLoanId(loanId, skipNpaLoans, DateUtils.getBusinessLocalDate());
+    }
+
+    /**
+     * Resets the paid-amount markers on inactive overdue-installment penalties. A transaction replay reallocates
+     * payments against the active charges only, which would leave a just-deactivated charge's amountPaid pointing at
+     * money the replay moves elsewhere — call this only when a replay follows (or has just run) in the same
+     * transaction. Returns {@code true} when at least one charge was reset.
+     */
+    private boolean resetPaidAmountOnInactiveOverduePenalties(final Loan loan) {
+        final MonetaryCurrency currency = loan.getCurrency();
+        final List<LoanCharge> staleCharges = loan.getCharges().stream()
+                .filter(charge -> !charge.isActive() && charge.isOverdueInstallmentCharge() && charge.isPaidOrPartiallyPaid(currency))
+                .toList();
+        staleCharges.forEach(charge -> charge.resetPaidAmount(currency));
+        return !staleCharges.isEmpty();
+    }
+
+    private void replayTransactionsAfterOverduePenaltyDeactivation(final Loan loan) {
+        resetPaidAmountOnInactiveOverduePenalties(loan);
+        reprocessLoanTransactionsService.reprocessTransactions(loan);
     }
 
     private void inactivateOverdueLoanCharge(LoanCharge loanCharge) {
@@ -1015,11 +1100,15 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         applyOverdueChargesForLoan(loanId, overdueLoanScheduleDataList, skipNpaLoans, DateUtils.getBusinessLocalDate());
     }
 
-    private void applyOverdueChargesForLoan(final Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList,
+    /**
+     * Returns {@code true} when the loan was processed (installments charged and the schedule redistributed via
+     * reprocess or interest recalculation), {@code false} when the loan was skipped entirely.
+     */
+    private boolean applyOverdueChargesForLoan(final Long loanId, Collection<OverdueLoanScheduleData> overdueLoanScheduleDataList,
             final boolean skipNpaLoans, final LocalDate asOfDate) {
         if (overdueLoanScheduleDataList.isEmpty()) {
             log.info("Apply overdue charges for loan {}: skipping, no overdue installments to process", loanId);
-            return;
+            return false;
         }
         log.info("Apply overdue charges for loan {}: starting, {} overdue installment(s) to process", loanId,
                 overdueLoanScheduleDataList.size());
@@ -1027,17 +1116,17 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
         Loan loan = this.loanAssembler.assembleFrom(loanId);
         if (loan.isChargedOff()) {
             log.warn("Apply overdue charges for loan {}: skipping, loan is charged-off", loanId);
-            return;
+            return false;
         }
         if (skipNpaLoans && loan.isNpa()) {
             log.warn("Apply overdue charges for loan {}: skipping, loan is classified as NPA", loanId);
-            return;
+            return false;
         }
         Optional<Charge> optPenaltyCharge = loan.getLoanProduct().getCharges().stream()
                 .filter((e) -> ChargeTimeType.OVERDUE_INSTALLMENT.getValue().equals(e.getChargeTimeType()) && e.isLoanCharge()).findFirst();
         if (optPenaltyCharge.isEmpty()) {
             log.info("Apply overdue charges for loan {}: skipping, loan product has no overdue-installment charge defined", loanId);
-            return;
+            return false;
         }
         final Charge penaltyCharge = optPenaltyCharge.get();
         final BigDecimal maxCumulativePenaltyCap = penaltyCharge.getMaxCumulativePenaltyCap();
@@ -1048,7 +1137,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
             if (remainingCumulativePenaltyCap.compareTo(BigDecimal.ZERO) <= 0) {
                 log.info("Apply overdue charges for loan {}: skipping, cumulative penalty cap already reached (cap={}, alreadyApplied={})",
                         loanId, maxCumulativePenaltyCap, alreadyApplied);
-                return;
+                return false;
             }
         }
         boolean runInterestRecalculation = false;
@@ -1121,6 +1210,7 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                     "Apply overdue charges for loan {}: completed, installmentsProcessed={}, runInterestRecalculation={}, reprocessRequired={}",
                     loanId, installmentsProcessed, runInterestRecalculation, reprocessRequired);
         }
+        return true;
     }
 
     @Transactional
