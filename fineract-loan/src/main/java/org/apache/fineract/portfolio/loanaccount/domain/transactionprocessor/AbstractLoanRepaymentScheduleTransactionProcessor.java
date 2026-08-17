@@ -921,17 +921,11 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             final Money cap = amountRemaining.isGreaterThan(payablePenalty) ? payablePenalty : amountRemaining;
             penaltyPaid = installment.payPenaltyChargesComponent(transactionDate, cap);
             amountRemaining = amountRemaining.minus(penaltyPaid);
-            if (penaltyPaid.isGreaterThanZero()) {
-                updateChargesPaidAmountBy(loanTransaction, penaltyPaid, extractPenaltyCharges(charges), installmentNumber);
-            }
         }
         if (payableFee.isGreaterThanZero() && amountRemaining.isGreaterThanZero()) {
             final Money cap = amountRemaining.isGreaterThan(payableFee) ? payableFee : amountRemaining;
             feePaid = installment.payFeeChargesComponent(transactionDate, cap);
             amountRemaining = amountRemaining.minus(feePaid);
-            if (feePaid.isGreaterThanZero()) {
-                updateChargesPaidAmountBy(loanTransaction, feePaid, extractFeeCharges(charges), installmentNumber);
-            }
         }
 
         if (penaltyPaid.plus(feePaid).isGreaterThanZero()) {
