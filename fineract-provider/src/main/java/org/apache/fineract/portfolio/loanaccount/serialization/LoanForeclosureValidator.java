@@ -18,8 +18,10 @@
  */
 package org.apache.fineract.portfolio.loanaccount.serialization;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.core.service.MathUtil;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanForeclosureException;
 import org.springframework.stereotype.Component;
@@ -33,6 +35,15 @@ public final class LoanForeclosureValidator {
 
     public void validateForForeclosure(final Loan loan, final LocalDate transactionDate) {
         validate(loan, transactionDate, false);
+    }
+
+    public void validateExpectedForeclosureAmount(final Loan loan, final BigDecimal expectedForeclosureAmount,
+            final BigDecimal actualForeclosureAmount) {
+        if (!MathUtil.isEqualTo(expectedForeclosureAmount, actualForeclosureAmount)) {
+            final String defaultUserMessage = "The expectedForeclosureAmount does not match the actual foreclosure amount for the loan.";
+            throw new LoanForeclosureException("loan.foreclosure.expected.amount.mismatch", defaultUserMessage, loan.getId(),
+                    expectedForeclosureAmount, actualForeclosureAmount);
+        }
     }
 
     private void validate(final Loan loan, final LocalDate transactionDate, final boolean allowFutureDate) {

@@ -802,7 +802,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
     @Override
     public LoanTransaction foreCloseLoan(Loan loan, final LocalDate foreClosureDate, final String noteText, final ExternalId externalId,
-            Map<Long, BigDecimal> foreclosureChargePercentageMap, Map<String, Object> changes) {
+            Map<Long, BigDecimal> foreclosureChargePercentageMap, Map<String, Object> changes, final BigDecimal expectedForeclosureAmount) {
 
         if (loan.isChargedOff() && DateUtils.isBefore(foreClosureDate, loan.getChargedOffOnDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
@@ -838,6 +838,11 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         Money payPrincipal = foreCloseDetail.getPrincipal(currency);
         LoanTransaction payment = foreclosureChargeHelper.createForeclosurePaymentTransaction(loan, foreCloseDetail, foreClosureDate,
                 externalId);
+
+        if (configurationDomainService.isForeclosureExpectedAmountValidationEnabled()) {
+            final BigDecimal actualForeclosureAmount = payment == null ? BigDecimal.ZERO : payment.getAmount();
+            loanForeclosureValidator.validateExpectedForeclosureAmount(loan, expectedForeclosureAmount, actualForeclosureAmount);
+        }
 
         if (payment != null && foreclosureFee.isGreaterThanZero()) {
             foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
