@@ -2781,16 +2781,21 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         final Collection<PaymentTypeData> paymentTypeOptions = this.paymentTypeReadPlatformService.retrieveAllPaymentTypes();
         final BigDecimal outstandingLoanBalance = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency).getAmount();
         final Boolean isManuallyReversed = false;
-        loanBalanceService.applyForeclosureRounding(loan, loanRepaymentScheduleInstallment, foreclosureFees, updateCharges);
-        Money feeChargesOutstanding = loanRepaymentScheduleInstallment.getFeeChargesOutstanding(currency);
-        feeChargesOutstanding = feeChargesOutstanding.plus(foreclosureFees);
         Money penaltyChargesOutstanding = loanRepaymentScheduleInstallment.getPenaltyChargesOutstanding(currency);
         // Foreclosure base already includes straddle penalty outstanding; reconcile using the same till-date applied
         // total (per-charge, includes post-maturity additional-bucket penalties) so only the unapplied delta is added.
         final BigDecimal foreclosurePenaltyAdjustment = overduePenaltyTemplateAdjustment(loan, transactionDate,
                 overduePenaltyOutstandingTillDate(loan, transactionDate));
-        penaltyChargesOutstanding = Money.of(currency,
+        final Money adjustedPenaltyChargesOutstanding = Money.of(currency,
                 MathUtil.add(penaltyChargesOutstanding.getAmount(), foreclosurePenaltyAdjustment).max(BigDecimal.ZERO));
+        // The actual foreclosure applies these penalties as charges before rounding, so the unapplied delta must be
+        // part of the rounding base here too or the template lands on a different multiple.
+        final Money unappliedPenaltyDelta = adjustedPenaltyChargesOutstanding.minus(penaltyChargesOutstanding);
+        penaltyChargesOutstanding = adjustedPenaltyChargesOutstanding;
+        loanBalanceService.applyForeclosureRounding(loan, loanRepaymentScheduleInstallment, foreclosureFees.plus(unappliedPenaltyDelta),
+                transactionDate);
+        Money feeChargesOutstanding = loanRepaymentScheduleInstallment.getFeeChargesOutstanding(currency);
+        feeChargesOutstanding = feeChargesOutstanding.plus(foreclosureFees);
         Money principalOutstanding = loanRepaymentScheduleInstallment.getPrincipalOutstanding(currency);
         Money interestOutstanding = loanRepaymentScheduleInstallment.getInterestOutstanding(currency);
         BigDecimal adjustedInterestAmount = loanRepaymentScheduleInstallment.getAdjustedInterestAmount();
