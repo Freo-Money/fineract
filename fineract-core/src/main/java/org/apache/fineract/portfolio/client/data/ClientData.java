@@ -71,6 +71,7 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
     private CodeValueData clientType;
     private CodeValueData clientClassification;
     private Boolean isStaff;
+    private Boolean isNpa;
 
     private Long officeId;
     private String officeName;
@@ -347,6 +348,7 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
                 templateData.familyMemberOptions, clientData.legalForm, clientData.address, clientData.isAddressEnabled, null,
                 clientData.isStaff, clientCollateralManagements);
         result.setMaritalStatusOptions(templateData.maritalStatusOptions);
+        result.setIsNpa(clientData.getIsNpa());
         return result;
     }
 
@@ -383,6 +385,7 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
                 clientData.address, clientData.isAddressEnabled, null, clientData.isStaff, clientCollateralManagements);
         result.maritalStatus = clientData.maritalStatus;
         result.maritalStatusId = clientData.maritalStatusId;
+        result.isNpa = clientData.isNpa;
         return result;
     }
 
