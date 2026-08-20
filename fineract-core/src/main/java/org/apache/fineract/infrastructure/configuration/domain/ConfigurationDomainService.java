@@ -164,6 +164,12 @@ public interface ConfigurationDomainService {
      */
     boolean isRefundOnClosedLoansEnabled();
 
+    /**
+     * When enabled, the expectedForeclosureAmount submitted in the loan foreclosure request must be present and must
+     * match the actual computed foreclosure amount, otherwise the foreclosure is rejected. Disabled by default.
+     */
+    boolean isForeclosureExpectedAmountValidationEnabled();
+
     String getAssetOwnerTransferOustandingInterestStrategy();
 
     Integer getArrearsBasedOnValue();

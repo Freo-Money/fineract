@@ -633,8 +633,9 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
             throw new InvalidJsonException();
         }
 
-        final Set<String> foreclosureParameters = new HashSet<>(Arrays.asList("transactionDate", "note", "locale", "dateFormat",
-                "externalId", LoanApiConstants.foreclosureChargePercentageMapParamName));
+        final Set<String> foreclosureParameters = new HashSet<>(
+                Arrays.asList("transactionDate", "note", "locale", "dateFormat", "externalId",
+                        LoanApiConstants.foreclosureChargePercentageMapParamName, LoanApiConstants.expectedForeclosureAmountParamName));
 
         final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
         this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, foreclosureParameters);
@@ -651,6 +652,16 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
 
         final String externalId = this.fromApiJsonHelper.extractStringNamed("externalId", element);
         baseDataValidator.reset().parameter("externalId").value(externalId).ignoreIfNull().notExceedingLengthOf(100);
+
+        final BigDecimal expectedForeclosureAmount = this.fromApiJsonHelper
+                .extractBigDecimalWithLocaleNamed(LoanApiConstants.expectedForeclosureAmountParamName, element);
+        if (this.configurationDomainService.isForeclosureExpectedAmountValidationEnabled()) {
+            baseDataValidator.reset().parameter(LoanApiConstants.expectedForeclosureAmountParamName).value(expectedForeclosureAmount)
+                    .notNull().zeroOrPositiveAmount();
+        } else {
+            baseDataValidator.reset().parameter(LoanApiConstants.expectedForeclosureAmountParamName).value(expectedForeclosureAmount)
+                    .ignoreIfNull().zeroOrPositiveAmount();
+        }
 
         validatePaymentDetails(baseDataValidator, element);
         throwExceptionIfValidationWarningsExist(dataValidationErrors);

@@ -2797,6 +2797,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             throw new PlatformApiDataValidationException(List.of(error), e);
         }
         this.loanTransactionValidator.validateLoanForeclosureChargePercentages(loan, foreclosureChargePercentageMap);
+        final BigDecimal expectedForeclosureAmount = this.fromApiJsonHelper
+                .extractBigDecimalWithLocaleNamed(LoanApiConstants.expectedForeclosureAmountParamName, element);
         final Map<String, Object> changes = new LinkedHashMap<>();
         // Got changed to match with the rest of the APIs
         changes.put("dateFormat", command.dateFormat());
@@ -2817,7 +2819,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 loanRescheduleRequest);
 
         LoanTransaction foreclosureTransaction = this.loanAccountDomainService.foreCloseLoan(loan, transactionDate, noteText, externalId,
-                foreclosureChargePercentageMap, changes);
+                foreclosureChargePercentageMap, changes, expectedForeclosureAmount);
 
         if (StringUtils.isNotBlank(noteText)) {
             changes.put(LoanApiConstants.noteParameterName, noteText);
