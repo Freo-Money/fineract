@@ -300,6 +300,9 @@ public class LoanChargeAssembler {
                     amountPercentageAppliedTo = loan.getPrincipal().getAmount();
                 }
             break;
+            case PERCENT_OF_DISBURSEMENT_AMOUNT:
+                amountPercentageAppliedTo = loan.getPrincipal().getAmount();
+            break;
             case PERCENT_OF_AMOUNT_AND_INTEREST:
                 if (command.hasParameter("principal") && command.hasParameter("interest")) {
                     amountPercentageAppliedTo = command.bigDecimalValueOfParameterNamed("principal")
