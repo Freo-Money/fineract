@@ -2786,7 +2786,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final Loan loan = this.loanAssembler.assembleFrom(loanId);
         final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed(LoanApiConstants.transactionDateParamName, element);
         final ExternalId externalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
-        this.loanTransactionValidator.validateLoanForeclosure(command.json());
+        this.loanTransactionValidator.validateLoanForeclosure(command.json(), loan);
         Map<Long, BigDecimal> foreclosureChargePercentageMap;
         try {
             foreclosureChargePercentageMap = foreclosureChargeHelper.extractChargePercentagesFromJsonElement(element,

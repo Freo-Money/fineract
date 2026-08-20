@@ -839,7 +839,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         LoanTransaction payment = foreclosureChargeHelper.createForeclosurePaymentTransaction(loan, foreCloseDetail, foreClosureDate,
                 externalId);
 
-        if (configurationDomainService.isForeclosureExpectedAmountValidationEnabled()) {
+        if (loan.getLoanProduct().isValidateForeclosureExpectedAmount()) {
             final BigDecimal actualForeclosureAmount = payment == null ? BigDecimal.ZERO : payment.getAmount();
             loanForeclosureValidator.validateExpectedForeclosureAmount(loan, expectedForeclosureAmount, actualForeclosureAmount);
         }
