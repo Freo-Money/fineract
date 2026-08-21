@@ -403,9 +403,10 @@ public class LoanAccountData {
         }
 
         // Add net get net disbursal amount from charges and principal
+        // principal can be null when the product defines no default principal; skip the net calculation then
         BigDecimal netDisbursalAmount = principal;
 
-        if (!charges.isEmpty()) {
+        if (netDisbursalAmount != null && !charges.isEmpty()) {
             for (LoanChargeData charge : charges) {
                 netDisbursalAmount = netDisbursalAmount.subtract(charge.getAmount());
             }

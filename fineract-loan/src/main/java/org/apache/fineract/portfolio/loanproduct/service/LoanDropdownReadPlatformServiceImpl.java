@@ -110,9 +110,9 @@ public class LoanDropdownReadPlatformServiceImpl implements LoanDropdownReadPlat
 
     @Override
     public List<EnumOptionData> retrieveInterestRateFrequencyTypeOptions() {
-        // support for monthly and annual percentage rate (MPR) and (APR)
-        return Arrays.asList(interestRateFrequencyType(PeriodFrequencyType.MONTHS), interestRateFrequencyType(PeriodFrequencyType.YEARS),
-                interestRateFrequencyType(PeriodFrequencyType.WHOLE_TERM));
+        // support for daily, monthly and annual percentage rate (DPR), (MPR) and (APR)
+        return Arrays.asList(interestRateFrequencyType(PeriodFrequencyType.DAYS), interestRateFrequencyType(PeriodFrequencyType.MONTHS),
+                interestRateFrequencyType(PeriodFrequencyType.YEARS), interestRateFrequencyType(PeriodFrequencyType.WHOLE_TERM));
     }
 
     @Override
