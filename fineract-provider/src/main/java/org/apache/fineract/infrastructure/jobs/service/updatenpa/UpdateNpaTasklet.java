@@ -18,106 +18,36 @@
  */
 package org.apache.fineract.infrastructure.jobs.service.updatenpa;
 
-import java.util.ArrayList;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.fineract.accounting.common.AccountingRuleType;
-import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ThreadLocalContextUtil;
-import org.apache.fineract.infrastructure.core.service.database.DatabaseSpecificSQLGenerator;
 import org.apache.fineract.infrastructure.core.service.database.RoutingDataSourceServiceFactory;
-import org.apache.fineract.infrastructure.security.service.PlatformSecurityContext;
-import org.apache.fineract.portfolio.loanaccount.service.LoanAccrualsProcessingService;
-import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.batch.core.StepContribution;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+/**
+ * Nightly UPDATE_NPA. Delegates entirely to the active {@link NpaProcessor}s: exactly one of loan-level or client-level
+ * is active, selected by {@code enable-client-npa}.
+ */
 @Slf4j
 @RequiredArgsConstructor
 public class UpdateNpaTasklet implements Tasklet {
 
     private final RoutingDataSourceServiceFactory dataSourceServiceFactory;
-    private final DatabaseSpecificSQLGenerator sqlGenerator;
-    private final PlatformSecurityContext context;
-    private final LoanAccrualsProcessingService loanAccrualsProcessingService;
+    private final NpaProcessorFactory npaProcessorFactory;
 
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
-        AppUser user = context.getAuthenticatedUserIfPresent();
         final JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSourceServiceFactory.determineDataSourceService().retrieveDataSource());
 
-        // Query loans that should move out of NPA
-        int accrualPeriodicType = AccountingRuleType.ACCRUAL_PERIODIC.getValue();
-        // Optimized: Move product filter to JOIN, remove COALESCE (already filtered by NOT NULL)
-        String baseMoveOutSql = "SELECT loan2.id FROM m_loan loan2 " + "INNER JOIN m_product_loan mpl ON mpl.id = loan2.product_id "
-                + "  AND mpl.overdue_days_for_npa IS NOT NULL " + "LEFT JOIN m_loan_arrears_aging laa ON laa.loan_id = loan2.id "
-                + "WHERE loan2.loan_status_id = 300 " + "  AND loan2.is_npa = true " + "  AND mpl.accounting_type ";
-        String moveOutCondition = " AND (" + "  (mpl.account_moves_out_of_npa_only_on_arrears_completion = false "
-                + "   AND (laa.overdue_since_date_derived IS NULL OR laa.overdue_since_date_derived > "
-                + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "mpl.overdue_days_for_npa", "day") + ")) "
-                + "  OR (mpl.account_moves_out_of_npa_only_on_arrears_completion = true "
-                + "      AND laa.overdue_since_date_derived IS NULL)" + ")";
-        List<Long> loansToMoveOutBulk = jdbcTemplate.queryForList(baseMoveOutSql + "!= " + accrualPeriodicType + moveOutCondition,
-                Long.class);
-        List<Long> loansToMoveOutAccrual = jdbcTemplate.queryForList(baseMoveOutSql + "= " + accrualPeriodicType + moveOutCondition,
-                Long.class);
-
-        // Query loans that should move to NPA
-        // Optimized: Move product filter to JOIN, remove COALESCE (already filtered by NOT NULL)
-        String baseMoveToSql = "SELECT loan.id FROM m_loan loan " + "INNER JOIN m_loan_arrears_aging laa ON laa.loan_id = loan.id "
-                + "INNER JOIN m_product_loan mpl ON mpl.id = loan.product_id " + "  AND mpl.overdue_days_for_npa IS NOT NULL "
-                + "WHERE loan.loan_status_id = 300 " + "  AND loan.is_npa = false " + "  AND mpl.accounting_type ";
-        String moveToCondition = " AND laa.overdue_since_date_derived < "
-                + sqlGenerator.subDate(sqlGenerator.currentBusinessDate(), "mpl.overdue_days_for_npa", "day") + " GROUP BY loan.id";
-        List<Long> loansToMoveToBulk = jdbcTemplate.queryForList(baseMoveToSql + "!= " + accrualPeriodicType + moveToCondition, Long.class);
-        List<Long> loansToMoveToAccrual = jdbcTemplate.queryForList(baseMoveToSql + "= " + accrualPeriodicType + moveToCondition,
-                Long.class);
-        // Process loans moving TO NPA
-        if (!loansToMoveToBulk.isEmpty()) {
-            updateLoansNpaStatusBulk(jdbcTemplate, loansToMoveToBulk, true, user);
-        }
-        if (!loansToMoveToAccrual.isEmpty()) {
-            loanAccrualsProcessingService.convertAccrualToSuspenseForNpaLoans(loansToMoveToAccrual);
-        }
-        // Process loans moving OUT OF NPA
-        if (!loansToMoveOutBulk.isEmpty()) {
-            updateLoansNpaStatusBulk(jdbcTemplate, loansToMoveOutBulk, false, user);
-        }
-        if (!loansToMoveOutAccrual.isEmpty()) {
-            loanAccrualsProcessingService.reverseAccrualSuspenseForNonNpaLoans(loansToMoveOutAccrual);
+        for (final NpaProcessor processor : npaProcessorFactory.getActiveProcessors()) {
+            processor.reconcile(jdbcTemplate);
         }
 
         log.debug("{}: Records affected by updateNPA", ThreadLocalContextUtil.getTenant().getName());
         return RepeatStatus.FINISHED;
     }
-
-    private void updateLoansNpaStatusBulk(JdbcTemplate jdbcTemplate, List<Long> loanIds, boolean setNpa, AppUser user) {
-        if (loanIds.isEmpty()) {
-            return;
-        }
-
-        StringBuilder inClause = new StringBuilder();
-        for (int i = 0; i < loanIds.size(); i++) {
-            if (i > 0) {
-                inClause.append(",");
-            }
-            inClause.append("?");
-        }
-
-        String sql = setNpa
-                ? "UPDATE m_loan SET is_npa = true, last_modified_by = ?, last_modified_on_utc = ? WHERE id IN (" + inClause + ")"
-                : "UPDATE m_loan SET is_npa = false, last_modified_by = ?, last_modified_on_utc = ? WHERE id IN (" + inClause + ")";
-
-        List<Object> params = new ArrayList<>();
-        params.add(user.getId());
-        params.add(DateUtils.getAuditOffsetDateTime());
-        params.addAll(loanIds);
-
-        jdbcTemplate.update(sql, params.toArray());
-    }
-
 }

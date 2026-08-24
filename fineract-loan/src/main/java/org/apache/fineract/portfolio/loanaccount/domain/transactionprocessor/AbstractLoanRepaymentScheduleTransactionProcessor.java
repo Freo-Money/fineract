@@ -125,7 +125,34 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         processLatestTransaction(loanTransaction, ctx);
     }
 
+    /**
+     * Resolves the processor a transaction's frozen NPA stamp dictates (same resolution as
+     * {@link #processLatestTransactionRespectingNpaStrategy}); returns {@code this} when no override applies. Used by
+     * reprocess branches whose allocation is strategy-specific but does not run through processLatestTransaction
+     * (charge payments, active-loan refunds), so their replay honours the strategy the original posting allocated with
+     * instead of silently shifting to the outer product strategy.
+     */
+    protected AbstractLoanRepaymentScheduleTransactionProcessor resolveNpaAwareProcessor(final LoanTransaction loanTransaction) {
+        final Loan loan = loanTransaction.getLoan();
+        if (npaTransactionProcessingStrategyResolver != null && transactionProcessorFactory != null && loan != null) {
+            final String strategyCode = npaTransactionProcessingStrategyResolver.resolve(loan, loanTransaction);
+            final LoanRepaymentScheduleTransactionProcessor processor = transactionProcessorFactory.determineProcessor(strategyCode);
+            if (!getCode().equalsIgnoreCase(processor.getCode())
+                    && processor instanceof AbstractLoanRepaymentScheduleTransactionProcessor delegate) {
+                return delegate;
+            }
+        }
+        return this;
+    }
+
+    /**
+     * Single definition lives on the resolver (which also consults client-level NPA status); the flag-only fallback
+     * exists solely for non-Spring instantiation where the resolver was never injected.
+     */
     protected boolean isEffectiveLoanNpa(final Loan loan) {
+        if (npaTransactionProcessingStrategyResolver != null) {
+            return npaTransactionProcessingStrategyResolver.isEffectiveLoanNpa(loan);
+        }
         return loan != null && loan.isNpa();
     }
 
@@ -235,6 +262,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 // Clear the existing installment mappings once up front so that the per-charge calls can accumulate
                 // (rather than overwrite) portions when multiple charges fall in the same installment.
                 loanTransaction.clearLoanTransactionToRepaymentScheduleMappings();
+                // Replay with the strategy the original posting allocated with (frozen NPA stamp when present)
+                final AbstractLoanRepaymentScheduleTransactionProcessor chargeProcessor = resolveNpaAwareProcessor(loanTransaction);
                 Money unprocessed = loanTransaction.getAmount(currency);
                 for (LoanChargePaidDetail chargePaidDetail : chargePaidDetails) {
                     final List<LoanRepaymentScheduleInstallment> processInstallments = new ArrayList<>(1);
@@ -243,8 +272,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                     if (processAmt.isGreaterThan(unprocessed)) {
                         processAmt = unprocessed;
                     }
-                    Money chargeLeftover = handleTransactionAndCharges(loanTransaction, currency, processInstallments, transferCharges,
-                            processAmt, chargePaidDetail.isFeeCharge());
+                    Money chargeLeftover = chargeProcessor.handleTransactionAndCharges(loanTransaction, currency, processInstallments,
+                            transferCharges, processAmt, chargePaidDetail.isFeeCharge());
                     unprocessed = unprocessed.minus(processAmt).plus(chargeLeftover);
                     if (!unprocessed.isGreaterThanZero()) {
                         break;
@@ -252,7 +281,7 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 }
 
                 if (unprocessed.isGreaterThanZero()) {
-                    onLoanOverpayment(loanTransaction, unprocessed);
+                    chargeProcessor.onLoanOverpayment(loanTransaction, unprocessed);
                     loanTransaction.setOverPayments(unprocessed);
                 }
 
@@ -308,7 +337,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 handleWriteOff(loanTransaction, currency, installments);
             } else if (loanTransaction.isRefundForActiveLoan()) {
                 loanTransaction.resetDerivedComponents();
-                handleRefund(loanTransaction, currency, installments, charges);
+                // Replay with the strategy the original posting allocated with (frozen NPA stamp when present)
+                resolveNpaAwareProcessor(loanTransaction).handleRefund(loanTransaction, currency, installments, charges);
             } else if (loanTransaction.isCreditBalanceRefund()) {
                 recalculateCreditTransaction(changedTransactionDetail, loanTransaction, currency, installments, overpaymentHolder);
             } else if (loanTransaction.isChargeback()) {

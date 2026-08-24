@@ -446,7 +446,9 @@
     </changeSet>
 
     <!-- Config rows are mandatory: with external events enabled, posting an event type that has no
-         m_external_event_configuration row throws ExternalEventConfigurationNotFoundException -->
+         m_external_event_configuration row throws ExternalEventConfigurationNotFoundException.
+         One changeset per row: the PK is `type`, so a shared precondition would either PK-violate or
+         MARK_RAN-skip the other rows on a database that already carries some of them. -->
     <changeSet author="fineract" id="1065-12">
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">select count(1) from m_external_event_configuration where type = 'ClientEnteredNpaBusinessEvent'</sqlCheck>
@@ -455,10 +457,20 @@
             <column name="type" value="ClientEnteredNpaBusinessEvent"/>
             <column name="enabled" valueBoolean="false"/>
         </insert>
+    </changeSet>
+    <changeSet author="fineract" id="1065-13">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">select count(1) from m_external_event_configuration where type = 'ClientExitedNpaBusinessEvent'</sqlCheck>
+        </preConditions>
         <insert tableName="m_external_event_configuration">
             <column name="type" value="ClientExitedNpaBusinessEvent"/>
             <column name="enabled" valueBoolean="false"/>
         </insert>
+    </changeSet>
+    <changeSet author="fineract" id="1065-14">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">select count(1) from m_external_event_configuration where type = 'ClientTriggerLoanChangedBusinessEvent'</sqlCheck>
+        </preConditions>
         <insert tableName="m_external_event_configuration">
             <column name="type" value="ClientTriggerLoanChangedBusinessEvent"/>
             <column name="enabled" valueBoolean="false"/>

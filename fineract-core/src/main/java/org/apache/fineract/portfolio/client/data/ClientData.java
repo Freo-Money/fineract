@@ -355,19 +355,20 @@ public final class ClientData implements Comparable<ClientData>, Serializable {
     public static ClientData templateWithSavingAccountOptions(final ClientData clientData,
             final Collection<SavingsAccountData> savingAccountOptions) {
         final Set<ClientCollateralManagementData> clientCollateralManagements = null;
-        return new ClientData(clientData.accountNo, clientData.status, clientData.subStatus, clientData.officeId, clientData.officeName,
-                clientData.transferToOfficeId, clientData.transferToOfficeName, clientData.id, clientData.firstname, clientData.middlename,
-                clientData.lastname, clientData.fullname, clientData.displayName, clientData.externalId, clientData.mobileNo,
-                clientData.emailAddress, clientData.dateOfBirth, clientData.gender, clientData.activationDate, clientData.imageId,
-                clientData.staffId, clientData.staffName, clientData.officeOptions, clientData.groups, clientData.staffOptions,
-                clientData.narrations, clientData.genderOptions, clientData.timeline, clientData.savingProductOptions,
-                clientData.savingsProductId, clientData.savingsProductName, clientData.savingsAccountId, savingAccountOptions,
-                clientData.clientType, clientData.clientClassification, clientData.clientTypeOptions,
+        final ClientData result = new ClientData(clientData.accountNo, clientData.status, clientData.subStatus, clientData.officeId,
+                clientData.officeName, clientData.transferToOfficeId, clientData.transferToOfficeName, clientData.id, clientData.firstname,
+                clientData.middlename, clientData.lastname, clientData.fullname, clientData.displayName, clientData.externalId,
+                clientData.mobileNo, clientData.emailAddress, clientData.dateOfBirth, clientData.gender, clientData.activationDate,
+                clientData.imageId, clientData.staffId, clientData.staffName, clientData.officeOptions, clientData.groups,
+                clientData.staffOptions, clientData.narrations, clientData.genderOptions, clientData.timeline,
+                clientData.savingProductOptions, clientData.savingsProductId, clientData.savingsProductName, clientData.savingsAccountId,
+                savingAccountOptions, clientData.clientType, clientData.clientClassification, clientData.clientTypeOptions,
                 clientData.clientClassificationOptions, clientData.clientNonPersonConstitutionOptions,
                 clientData.clientNonPersonMainBusinessLineOptions, clientData.clientNonPersonDetails, clientData.clientLegalFormOptions,
                 clientData.familyMemberOptions, clientData.legalForm, clientData.address, clientData.isAddressEnabled, null,
                 clientData.isStaff, clientCollateralManagements);
-
+        result.setIsNpa(clientData.getIsNpa());
+        return result;
     }
 
     public static ClientData setParentGroups(final ClientData clientData, final Collection<GroupGeneralData> parentGroups,

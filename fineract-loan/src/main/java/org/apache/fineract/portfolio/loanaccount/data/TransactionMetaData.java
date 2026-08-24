@@ -22,6 +22,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 
@@ -29,6 +30,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 @Setter
 @AllArgsConstructor
 @NoArgsConstructor
+@Slf4j
 public class TransactionMetaData {
 
     private static final FromJsonHelper JSON_HELPER = new FromJsonHelper();
@@ -128,6 +130,9 @@ public class TransactionMetaData {
         try {
             return JSON_HELPER.fromJson(json, TransactionMetaData.class);
         } catch (Exception e) {
+            // Null means "no metadata": a frozen NPA stamp silently degrades to the product strategy downstream, so
+            // corruption must at least be visible in the logs.
+            log.warn("Unparseable transaction_meta_data dropped; any frozen NPA stamp in it is lost: {}", json, e);
             return null;
         }
     }

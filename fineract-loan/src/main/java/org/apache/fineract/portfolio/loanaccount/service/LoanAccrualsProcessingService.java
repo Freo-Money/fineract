@@ -56,5 +56,19 @@ public interface LoanAccrualsProcessingService {
 
     void convertAccrualToSuspenseForNpaLoans(@NonNull List<Long> loanIds);
 
+    /**
+     * Converts outstanding ACCRUAL to ACCRUAL_SUSPENSE without flipping {@code loan.is_npa} and without starting a new
+     * transaction, so the caller's transaction stays atomic (used after client-NPA contagion has already set
+     * {@code is_npa}).
+     */
+    void convertAccrualToSuspenseForAlreadyNpaLoans(@NonNull List<Long> loanIds);
+
     void reverseAccrualSuspenseForNonNpaLoans(@NonNull List<Long> loanIds);
+
+    /**
+     * Reverses outstanding ACCRUAL_SUSPENSE without starting a new transaction, so the caller's transaction stays
+     * atomic (used after the caller has already cleared and saved {@code loan.is_npa}). A REQUIRES_NEW update here
+     * would bump the loan's version behind the caller's dirty Loan entity and make the caller's own commit fail.
+     */
+    void reverseAccrualSuspenseForAlreadyNonNpaLoans(@NonNull List<Long> loanIds);
 }

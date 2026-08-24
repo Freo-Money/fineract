@@ -142,6 +142,7 @@ import org.apache.fineract.portfolio.calendar.exception.CalendarParameterUpdateN
 import org.apache.fineract.portfolio.calendar.service.CalendarUtils;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.exception.ClientNotActiveException;
+import org.apache.fineract.portfolio.client.npa.service.ClientNpaWritePlatformService;
 import org.apache.fineract.portfolio.collectionsheet.command.CollectionSheetBulkDisbursalCommand;
 import org.apache.fineract.portfolio.collectionsheet.command.CollectionSheetBulkRepaymentCommand;
 import org.apache.fineract.portfolio.collectionsheet.command.SingleDisbursalCommand;
@@ -290,6 +291,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanTransactionProcessingService loanTransactionProcessingService;
     private final LoanBalanceService loanBalanceService;
     private final LoanTransactionService loanTransactionService;
+    private final ClientNpaWritePlatformService clientNpaWritePlatformService;
 
     @Transactional
     @Override
@@ -516,6 +518,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         }
 
         businessEventNotifierService.notifyPostBusinessEvent(new LoanDisbursalBusinessEvent(loan));
+        clientNpaWritePlatformService.onLoanDisbursed(loan);
 
         Long disbursalTransactionId = null;
         ExternalId disbursalTransactionExternalId = null;
@@ -848,6 +851,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     loan.isInterestBearingAndInterestRecalculationEnabled(), true);
             loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
             businessEventNotifierService.notifyPostBusinessEvent(new LoanDisbursalBusinessEvent(loan));
+            clientNpaWritePlatformService.onLoanDisbursed(loan);
         }
 
         return changes;
@@ -917,6 +921,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             this.accountTransfersWritePlatformService.reverseAllTransactions(loanId, PortfolioAccountType.LOAN);
             createNote(loan, command, changes);
             businessEventNotifierService.notifyPostBusinessEvent(new LoanUndoDisbursalBusinessEvent(loan));
+            // Undoing a disbursal takes the loan back out of ACTIVE, so unwind its client-NPA mapping and history
+            // the same way every other out-of-ACTIVE transition does
+            clientNpaWritePlatformService.onLoanClosed(loan);
         }
 
         return new CommandProcessingResultBuilder() //
@@ -1458,6 +1465,10 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanWaiveInterestBusinessEvent(waiveInterestTransaction));
+        // An interest waiver can settle the last outstanding amount and close the loan
+        if (loan.isClosed()) {
+            clientNpaWritePlatformService.onLoanClosed(loan);
+        }
         return new CommandProcessingResultBuilder() //
                 .withCommandId(command.commandId()) //
                 .withEntityId(waiveInterestTransaction.getId()) //
@@ -1563,6 +1574,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
             businessEventNotifierService.notifyPostBusinessEvent(new LoanWrittenOffPostBusinessEvent(loanTransaction));
 
+            clientNpaWritePlatformService.onLoanClosed(loan);
+
             builder.withEntityId(loanTransaction.getId()).withEntityExternalId(loanTransaction.getExternalId());
         }
 
@@ -1628,6 +1641,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
 
         businessEventNotifierService.notifyPostBusinessEvent(new LoanCloseBusinessEvent(loan));
+        clientNpaWritePlatformService.onLoanClosed(loan);
 
         // Update loan transaction on repayment.
         this.loanAccountDomainService.updateAndSaveLoanCollateralTransactionsForIndividualAccounts(loan, null);
@@ -1692,6 +1706,8 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             this.noteRepository.save(note);
         }
         businessEventNotifierService.notifyPostBusinessEvent(new LoanCloseAsRescheduleBusinessEvent(loan));
+
+        clientNpaWritePlatformService.onLoanClosed(loan);
 
         // disable all active standing instructions linked to the loan
         this.loanAccountDomainService.disableStandingInstructionsLinkedToClosedLoan(loan);
@@ -2210,6 +2226,11 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         journalEntryPoster.postJournalEntriesForLoanTransaction(writeOffTransaction, false, false);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanUndoWrittenOffBusinessEvent(writeOffTransaction));
+
+        // Undoing a write-off reopens the loan; re-map it under an active client NPA (see handleChargebackTransaction)
+        if (loan.getStatus().isActive()) {
+            clientNpaWritePlatformService.onLoanDisbursed(loan);
+        }
 
         return new CommandProcessingResultBuilder() //
                 .withOfficeId(loan.getOfficeId()) //
@@ -3220,6 +3241,11 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                             new MoneyHolder(loan.getTotalOverpaidAsMoney()), null));
         }
         loanLifecycleStateMachine.determineAndTransition(loan, chargebackTransaction.getTransactionDate());
+        // A chargeback can reopen a closed loan; re-map it under an active client NPA — the nightly reconcile never
+        // re-maps a reopened loan while the exit strategy keeps the client NPA without an independently-NPA loan
+        if (loan.getStatus().isActive()) {
+            clientNpaWritePlatformService.onLoanDisbursed(loan);
+        }
     }
 
     private void validateIsMultiDisbursalLoanAndDisbursedMoreThanOneTranche(Loan loan) {

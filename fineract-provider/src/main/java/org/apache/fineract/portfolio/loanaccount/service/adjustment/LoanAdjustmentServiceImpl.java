@@ -42,9 +42,11 @@ import org.apache.fineract.organisation.monetary.domain.MonetaryCurrency;
 import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.account.PortfolioAccountType;
 import org.apache.fineract.portfolio.account.service.AccountTransfersWritePlatformService;
+import org.apache.fineract.portfolio.client.npa.service.ClientNpaWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.HolidayDetailDTO;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanBuyDownFeeBalance;
@@ -69,6 +71,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanBalanceService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanDownPaymentHandlerService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanJournalEntryPoster;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
+import org.apache.fineract.portfolio.loanaccount.service.NpaTransactionProcessingStrategyResolver;
 import org.apache.fineract.portfolio.loanaccount.service.ReprocessLoanTransactionsService;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
@@ -101,6 +104,8 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
     private final ReprocessLoanTransactionsService reprocessLoanTransactionsService;
     private final LoanCapitalizedIncomeBalanceRepository loanCapitalizedIncomeBalanceRepository;
     private final LoanBuyDownFeeBalanceRepository loanBuyDownFeeBalanceRepository;
+    private final ClientNpaWritePlatformService clientNpaWritePlatformService;
+    private final NpaTransactionProcessingStrategyResolver npaTransactionProcessingStrategyResolver;
 
     @Override
     public CommandProcessingResult adjustLoanTransaction(Loan loan, LoanTransaction transactionToAdjust, LoanAdjustmentParameter parameter,
@@ -111,6 +116,19 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
         ExternalId txnExternalId = parameter.getTxnExternalId();
         ExternalId reversalTxnExternalId = parameter.getReversalTxnExternalId();
         String noteText = parameter.getNoteText();
+
+        // Same pre-NPA-start freeze as repayment/charge/refund posting: a replacement dated before the client's NPA
+        // start would rewrite pre-NPA history while the client is NPA. Adjustments on/after npa_start_date may stamp
+        // under the NPA strategy (see adjustExistingTransaction). Accrual-related adjustments are exempt: the penalty
+        // machinery (deactivateOverdueLoanChargesFrom, reconcileOverduePenaltiesAsOf) reverses accruals through this
+        // method dated at the accrual's own date — routinely before npa_start_date on any NPA loan — and an accrual
+        // reversal does not reprocess repayment allocation history.
+        if (!transactionToAdjust.isAccrualRelated()) {
+            clientNpaWritePlatformService.validateTransactionNotBeforeClientNpaStart(loan, transactionDate);
+        }
+
+        // Captured before the reversal/replacement below re-derives the status: an adjustment can reopen a closed loan
+        final boolean wasClosedBeforeAdjustment = loan.isClosed();
 
         final Money transactionAmountAsMoney = Money.of(loan.getCurrency(), transactionAmount);
         LoanTransaction newTransactionDetail = LoanTransaction.repaymentType(transactionToAdjust.getTypeOf(), loan.getOffice(),
@@ -272,6 +290,14 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
         }
         loanLifecycleStateMachine.determineAndTransition(loan, loan.getLastUserTransactionDate());
 
+        if (loan.isClosed()) {
+            clientNpaWritePlatformService.onLoanClosed(loan);
+        } else if (wasClosedBeforeAdjustment && loan.getStatus().isActive()) {
+            // Adjusting the repayment that closed the loan reopens it; re-map it under an active client NPA, the same
+            // way the chargeback and undo-write-off reopen paths do
+            clientNpaWritePlatformService.onLoanDisbursed(loan);
+        }
+
         loanAccrualsProcessingService.processAccrualsOnInterestRecalculation(loan, loan.isInterestBearingAndInterestRecalculationEnabled(),
                 true);
 
@@ -322,37 +348,26 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
 
         loanChargeValidator.validateRepaymentTypeTransactionNotBeforeAChargeRefund(transactionForAdjustment.getLoan(),
                 transactionForAdjustment, "reversed");
+
+        final boolean shouldRestoreSuspenseOnReverse = (transactionForAdjustment.isRepaymentLikeType()
+                || transactionForAdjustment.isChargePayment()) && loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct();
+
         transactionForAdjustment.reverse(reversalExternalId);
         transactionForAdjustment.manuallyAdjustedOrReversed();
 
-        // For NPA loans, when CHARGE_PAYMENT is reversed, create ACCRUAL_SUSPENSE to restore suspense balance
-        // (since ACCRUAL_SUSPENSE_REVERSE was created when payment was made)
-        if (transactionForAdjustment.getTypeOf().equals(LoanTransactionType.CHARGE_PAYMENT) && loan.isNpa()
-                && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+        // Restore ACCRUAL_SUSPENSE when reversing an NPA repayment/charge payment that previously posted
+        // ACCRUAL_SUSPENSE_REVERSE. Reversing the ACCRUAL_SUSPENSE_REVERSE is sufficient: posting the reversed
+        // transaction creates counter journal entries (restoring the suspense GL balance), and the derived
+        // net-suspense calculation ignores reversed transactions. Posting an additional compensating
+        // ACCRUAL_SUSPENSE here would restore the suspense twice.
+        if (shouldRestoreSuspenseOnReverse) {
             LoanTransaction suspenseReverseTransaction = findMatchingSuspenseReverseTransaction(loan, transactionForAdjustment);
 
             if (suspenseReverseTransaction != null) {
-                // Reverse the ACCRUAL_SUSPENSE_REVERSE transaction
                 suspenseReverseTransaction.reverse(reversalExternalId);
                 suspenseReverseTransaction.manuallyAdjustedOrReversed();
                 loanTransactionRepository.saveAndFlush(suspenseReverseTransaction);
                 journalEntryPoster.postJournalEntriesForLoanTransaction(suspenseReverseTransaction, false, false);
-
-                // Create ACCRUAL_SUSPENSE to restore the suspense balance
-                BigDecimal interestPortion = suspenseReverseTransaction.getInterestPortion();
-                BigDecimal feePortion = suspenseReverseTransaction.getFeeChargesPortion();
-                BigDecimal penaltyPortion = suspenseReverseTransaction.getPenaltyChargesPortion();
-                BigDecimal totalAmount = MathUtil.add(interestPortion, feePortion, penaltyPortion);
-
-                if (MathUtil.isGreaterThanZero(totalAmount)) {
-                    LoanTransaction accrualSuspenseTransaction = LoanTransaction.accrueSuspenseTransaction(loan, loan.getOffice(),
-                            transactionForAdjustment.getTransactionDate(), totalAmount, interestPortion, feePortion, penaltyPortion,
-                            reversalExternalId);
-                    LoanTransaction savedSuspenseTransaction = loanTransactionRepository.save(accrualSuspenseTransaction);
-                    loanTransactionRepository.flush(); // Flush to ensure ID is available for journal entry posting
-                    loan.addLoanTransaction(savedSuspenseTransaction);
-                    journalEntryPoster.postJournalEntriesForLoanTransaction(savedSuspenseTransaction, false, false);
-                }
             }
         }
 
@@ -383,8 +398,18 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
         }
 
         if (newTransactionDetail.isRepaymentLikeType() || newTransactionDetail.isWaiver()) {
+            // The replacement is built fresh and only ever reaches the reprocess path, which never stamps: without
+            // carrying the original's frozen NPA stamp (or stamping anew while the loan is NPA), it would silently
+            // allocate under the product strategy instead of the strategy the original was processed with.
+            // Pre-NPA-dated adjustments are rejected earlier via validateTransactionNotBeforeClientNpaStart.
+            TransactionMetaData.copyNpaFields(transactionForAdjustment, newTransactionDetail);
+            npaTransactionProcessingStrategyResolver.stampIfAbsent(loan, newTransactionDetail);
             loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, newTransactionDetail, transactionForAdjustment,
                     scheduleGeneratorDTO);
+        }
+
+        if (newTransactionDetail.isRepaymentLikeType() || newTransactionDetail.isChargePayment()) {
+            loanAccountDomainService.createAccrualSuspenseReverseForNpaRepaymentIfApplicable(loan, newTransactionDetail);
         }
 
         // A refund is not repayment-like, so the branch above does not reprocess it. Replaying the surviving
