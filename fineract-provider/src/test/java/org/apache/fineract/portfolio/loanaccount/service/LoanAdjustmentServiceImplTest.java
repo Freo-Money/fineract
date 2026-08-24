@@ -19,16 +19,20 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -55,6 +59,8 @@ import org.apache.fineract.portfolio.account.service.AccountTransfersReadPlatfor
 import org.apache.fineract.portfolio.account.service.AccountTransfersWritePlatformService;
 import org.apache.fineract.portfolio.calendar.domain.CalendarInstanceRepository;
 import org.apache.fineract.portfolio.calendar.domain.CalendarRepository;
+import org.apache.fineract.portfolio.client.exception.LoanTransactionBeforeClientNpaStartException;
+import org.apache.fineract.portfolio.client.npa.service.ClientNpaWritePlatformService;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
 import org.apache.fineract.portfolio.loanaccount.domain.GLIMAccountInfoRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
@@ -76,6 +82,7 @@ import org.apache.fineract.portfolio.loanaccount.serialization.LoanApplicationVa
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanUpdateCommandFromApiJsonDeserializer;
+import org.apache.fineract.portfolio.loanaccount.service.adjustment.LoanAdjustmentParameter;
 import org.apache.fineract.portfolio.loanaccount.service.adjustment.LoanAdjustmentServiceImpl;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.portfolio.paymentdetail.service.PaymentDetailWritePlatformService;
@@ -94,6 +101,10 @@ class LoanAdjustmentServiceImplTest {
     @InjectMocks
     private LoanAdjustmentServiceImpl underTest;
 
+    @Mock
+    private NpaTransactionProcessingStrategyResolver npaTransactionProcessingStrategyResolver;
+    @Mock
+    private ClientNpaWritePlatformService clientNpaWritePlatformService;
     @Mock
     private LoanRepaymentScheduleTransactionProcessorFactory transactionProcessorFactory;
     @Mock
@@ -241,6 +252,7 @@ class LoanAdjustmentServiceImplTest {
         // Verify that related transaction is reversed and event is triggered
         verify(relatedTransaction).reverse();
         verify(relatedTransaction).manuallyAdjustedOrReversed();
+        verify(npaTransactionProcessingStrategyResolver).stampIfAbsent(loan, newTransactionDetail);
 
         ArgumentCaptor<LoanAdjustTransactionBusinessEvent> eventCaptor = ArgumentCaptor.forClass(LoanAdjustTransactionBusinessEvent.class);
         verify(businessEventNotifierService).notifyPostBusinessEvent(eventCaptor.capture());
@@ -281,6 +293,45 @@ class LoanAdjustmentServiceImplTest {
         verify(unrelatedTransaction, never()).reverse();
         verify(unrelatedTransaction, never()).manuallyAdjustedOrReversed();
         verify(businessEventNotifierService, never()).notifyPostBusinessEvent(any(LoanAdjustTransactionBusinessEvent.class));
+        verify(npaTransactionProcessingStrategyResolver).stampIfAbsent(loan, newTransactionDetail);
+    }
+
+    @Test
+    void adjustLoanTransactionRejectsDateBeforeClientNpaStart() {
+        final Loan loan = mock(Loan.class);
+        final LoanTransaction transactionToAdjust = mock(LoanTransaction.class);
+        final LocalDate adjustmentDate = LocalDate.of(2026, 1, 1);
+        final LoanAdjustmentParameter parameter = LoanAdjustmentParameter.builder().transactionDate(adjustmentDate)
+                .transactionAmount(BigDecimal.TEN).txnExternalId(ExternalId.empty()).reversalTxnExternalId(ExternalId.empty()).build();
+
+        doThrow(new LoanTransactionBeforeClientNpaStartException(10L, 100L, adjustmentDate, adjustmentDate.plusDays(30)))
+                .when(clientNpaWritePlatformService).validateTransactionNotBeforeClientNpaStart(loan, adjustmentDate);
+
+        assertThrows(LoanTransactionBeforeClientNpaStartException.class,
+                () -> underTest.adjustLoanTransaction(loan, transactionToAdjust, parameter, 1L, new HashMap<>()));
+
+        verify(clientNpaWritePlatformService).validateTransactionNotBeforeClientNpaStart(loan, adjustmentDate);
+        verify(loanUtilService, never()).buildScheduleGeneratorDTO(any(), any());
+    }
+
+    @Test
+    void adjustLoanTransactionSkipsClientNpaGuardForAccrualReversals() {
+        final Loan loan = mock(Loan.class);
+        final LoanTransaction accrualToReverse = mock(LoanTransaction.class);
+        // The penalty machinery (deactivateOverdueLoanChargesFrom) reverses accruals dated at the accrual's own date,
+        // routinely before the client's npa_start_date; the pre-NPA-start guard must not fire for them
+        when(accrualToReverse.isAccrualRelated()).thenReturn(true);
+        final LocalDate adjustmentDate = LocalDate.of(2026, 1, 1);
+        final LoanAdjustmentParameter parameter = LoanAdjustmentParameter.builder().transactionDate(adjustmentDate)
+                .transactionAmount(BigDecimal.ZERO).txnExternalId(ExternalId.empty()).reversalTxnExternalId(ExternalId.empty()).build();
+
+        try {
+            underTest.adjustLoanTransaction(loan, accrualToReverse, parameter, 1L, new HashMap<>());
+        } catch (RuntimeException ignored) {
+            // Downstream mock wiring is incomplete; only the guard behavior is under test here
+        }
+
+        verify(clientNpaWritePlatformService, never()).validateTransactionNotBeforeClientNpaStart(any(), any());
     }
 
 }

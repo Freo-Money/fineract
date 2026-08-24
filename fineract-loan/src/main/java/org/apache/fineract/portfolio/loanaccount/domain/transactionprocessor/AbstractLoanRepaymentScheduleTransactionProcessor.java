@@ -55,6 +55,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanInstallmentCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleProcessingWrapper;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleTransactionProcessorFactory;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRelation;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRelationTypeEnum;
@@ -66,8 +67,10 @@ import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.imp
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.InterestPrincipalPenaltyFeesOrderLoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.service.LoanBalanceService;
+import org.apache.fineract.portfolio.loanaccount.service.NpaTransactionProcessingStrategyResolver;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.util.CollectionUtils;
 
 /**
@@ -88,10 +91,69 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
     protected final LoanChargeValidator loanChargeValidator;
     protected final LoanBalanceService loanBalanceService;
     private LoanProductRoundingModeService loanProductRoundingModeService;
+    private LoanRepaymentScheduleTransactionProcessorFactory transactionProcessorFactory;
+    private NpaTransactionProcessingStrategyResolver npaTransactionProcessingStrategyResolver;
 
     @Autowired(required = false)
     public void setLoanProductRoundingModeService(final LoanProductRoundingModeService loanProductRoundingModeService) {
         this.loanProductRoundingModeService = loanProductRoundingModeService;
+    }
+
+    @Lazy
+    @Autowired(required = false)
+    public void setTransactionProcessorFactory(final LoanRepaymentScheduleTransactionProcessorFactory transactionProcessorFactory) {
+        this.transactionProcessorFactory = transactionProcessorFactory;
+    }
+
+    @Lazy
+    @Autowired(required = false)
+    public void setNpaTransactionProcessingStrategyResolver(
+            final NpaTransactionProcessingStrategyResolver npaTransactionProcessingStrategyResolver) {
+        this.npaTransactionProcessingStrategyResolver = npaTransactionProcessingStrategyResolver;
+    }
+
+    protected void processLatestTransactionRespectingNpaStrategy(final LoanTransaction loanTransaction, final TransactionCtx ctx) {
+        final Loan loan = loanTransaction.getLoan();
+        if (npaTransactionProcessingStrategyResolver != null && transactionProcessorFactory != null && loan != null) {
+            final String strategyCode = npaTransactionProcessingStrategyResolver.resolve(loan, loanTransaction);
+            final LoanRepaymentScheduleTransactionProcessor processor = transactionProcessorFactory.determineProcessor(strategyCode);
+            if (!getCode().equalsIgnoreCase(processor.getCode())) {
+                processor.processLatestTransaction(loanTransaction, ctx);
+                return;
+            }
+        }
+        processLatestTransaction(loanTransaction, ctx);
+    }
+
+    /**
+     * Resolves the processor a transaction's frozen NPA stamp dictates (same resolution as
+     * {@link #processLatestTransactionRespectingNpaStrategy}); returns {@code this} when no override applies. Used by
+     * reprocess branches whose allocation is strategy-specific but does not run through processLatestTransaction
+     * (charge payments, active-loan refunds), so their replay honours the strategy the original posting allocated with
+     * instead of silently shifting to the outer product strategy.
+     */
+    protected AbstractLoanRepaymentScheduleTransactionProcessor resolveNpaAwareProcessor(final LoanTransaction loanTransaction) {
+        final Loan loan = loanTransaction.getLoan();
+        if (npaTransactionProcessingStrategyResolver != null && transactionProcessorFactory != null && loan != null) {
+            final String strategyCode = npaTransactionProcessingStrategyResolver.resolve(loan, loanTransaction);
+            final LoanRepaymentScheduleTransactionProcessor processor = transactionProcessorFactory.determineProcessor(strategyCode);
+            if (!getCode().equalsIgnoreCase(processor.getCode())
+                    && processor instanceof AbstractLoanRepaymentScheduleTransactionProcessor delegate) {
+                return delegate;
+            }
+        }
+        return this;
+    }
+
+    /**
+     * Single definition lives on the resolver (which also consults client-level NPA status); the flag-only fallback
+     * exists solely for non-Spring instantiation where the resolver was never injected.
+     */
+    protected boolean isEffectiveLoanNpa(final Loan loan) {
+        if (npaTransactionProcessingStrategyResolver != null) {
+            return npaTransactionProcessingStrategyResolver.isEffectiveLoanNpa(loan);
+        }
+        return loan != null && loan.isNpa();
     }
 
     protected MathContext resolveMathContext(final Loan loan) {
@@ -200,6 +262,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 // Clear the existing installment mappings once up front so that the per-charge calls can accumulate
                 // (rather than overwrite) portions when multiple charges fall in the same installment.
                 loanTransaction.clearLoanTransactionToRepaymentScheduleMappings();
+                // Replay with the strategy the original posting allocated with (frozen NPA stamp when present)
+                final AbstractLoanRepaymentScheduleTransactionProcessor chargeProcessor = resolveNpaAwareProcessor(loanTransaction);
                 Money unprocessed = loanTransaction.getAmount(currency);
                 for (LoanChargePaidDetail chargePaidDetail : chargePaidDetails) {
                     final List<LoanRepaymentScheduleInstallment> processInstallments = new ArrayList<>(1);
@@ -208,8 +272,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                     if (processAmt.isGreaterThan(unprocessed)) {
                         processAmt = unprocessed;
                     }
-                    Money chargeLeftover = handleTransactionAndCharges(loanTransaction, currency, processInstallments, transferCharges,
-                            processAmt, chargePaidDetail.isFeeCharge());
+                    Money chargeLeftover = chargeProcessor.handleTransactionAndCharges(loanTransaction, currency, processInstallments,
+                            transferCharges, processAmt, chargePaidDetail.isFeeCharge());
                     unprocessed = unprocessed.minus(processAmt).plus(chargeLeftover);
                     if (!unprocessed.isGreaterThanZero()) {
                         break;
@@ -217,7 +281,7 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 }
 
                 if (unprocessed.isGreaterThanZero()) {
-                    onLoanOverpayment(loanTransaction, unprocessed);
+                    chargeProcessor.onLoanOverpayment(loanTransaction, unprocessed);
                     loanTransaction.setOverPayments(unprocessed);
                 }
 
@@ -238,7 +302,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             if (loanTransaction.isRepaymentLikeType() || loanTransaction.isInterestWaiver() || loanTransaction.isRecoveryRepayment()) {
                 // pass through for new transactions
                 if (loanTransaction.getId() == null) {
-                    processLatestTransaction(loanTransaction, new TransactionCtx(currency, installments, charges, overpaymentHolder, null));
+                    processLatestTransactionRespectingNpaStrategy(loanTransaction,
+                            new TransactionCtx(currency, installments, charges, overpaymentHolder, null));
                     loanTransaction.adjustInterestComponent();
                 } else {
                     /**
@@ -249,7 +314,7 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
 
                     // Reset derived component of new loan transaction and
                     // re-process transaction
-                    processLatestTransaction(newLoanTransaction,
+                    processLatestTransactionRespectingNpaStrategy(newLoanTransaction,
                             new TransactionCtx(currency, installments, charges, overpaymentHolder, null));
                     newLoanTransaction.adjustInterestComponent();
                     /**
@@ -272,7 +337,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 handleWriteOff(loanTransaction, currency, installments);
             } else if (loanTransaction.isRefundForActiveLoan()) {
                 loanTransaction.resetDerivedComponents();
-                handleRefund(loanTransaction, currency, installments, charges);
+                // Replay with the strategy the original posting allocated with (frozen NPA stamp when present)
+                resolveNpaAwareProcessor(loanTransaction).handleRefund(loanTransaction, currency, installments, charges);
             } else if (loanTransaction.isCreditBalanceRefund()) {
                 recalculateCreditTransaction(changedTransactionDetail, loanTransaction, currency, installments, overpaymentHolder);
             } else if (loanTransaction.isChargeback()) {
