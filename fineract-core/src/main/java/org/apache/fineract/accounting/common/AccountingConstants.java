@@ -55,7 +55,6 @@ public final class AccountingConstants {
         INCOME_FROM_GOODWILL_CREDIT_FEES(20), //
         INCOME_FROM_GOODWILL_CREDIT_PENALTY(21), //
         CLASSIFICATION_INCOME(22), //
-        EXCESS_PAYMENT_PARKING(23), //
         ;
 
         private final Integer value;

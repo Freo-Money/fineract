@@ -826,6 +826,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         this.loanUtilService.validateRepaymentTransactionType(repaymentTransactionType);
 
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        // On an excess-parking loan a repayment of the quoted outstanding does not close the loan: money not yet due is
+        // parked and swept on the due dates. Early closure goes through foreclosure, whose template nets the pool.
+        if (repaymentTransactionType.isRepayment() && loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.prepay.not.supported.with.excess.parking",
+                    "Loan: " + loanId + " prepayment template is not supported for loans with excess payment parking;"
+                            + " use the foreclosure template (command=foreclosure) to close the loan early.",
+                    loanId);
+        }
 
         final MonetaryCurrency currency = loan.getCurrency();
         final ApplicationCurrency applicationCurrency = this.applicationCurrencyRepository.findOneWithNotFoundDetection(currency);
@@ -2813,9 +2821,13 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             final BigDecimal totalExcess = loan.getTotalExcessPaymentAmount();
             if (totalExcess != null && totalExcess.compareTo(BigDecimal.ZERO) > 0) {
                 final Money excessMoney = Money.of(currency, totalExcess);
-                final Money applicableExcess = excessMoney.isGreaterThan(outStandingAmount) ? outStandingAmount : excessMoney;
-                excessPaymentPortion = applicableExcess.getAmount();
-                outStandingAmount = outStandingAmount.minus(applicableExcess);
+                // Same rule as the foreclosure itself (LoanAccountDomainServiceJpa#applyExcessToForeclosureDetail): the
+                // whole pool is applied. The portions stay gross; amount is what the customer pays, never below zero.
+                // A pool larger than the payable leaves amount 0 and the surplus (excessPaymentPortion minus the
+                // portions) is refunded after the foreclosure closes the loan as overpaid.
+                excessPaymentPortion = excessMoney.getAmount();
+                outStandingAmount = excessMoney.isGreaterThan(outStandingAmount) ? Money.zero(currency)
+                        : outStandingAmount.minus(excessMoney);
             }
         }
 

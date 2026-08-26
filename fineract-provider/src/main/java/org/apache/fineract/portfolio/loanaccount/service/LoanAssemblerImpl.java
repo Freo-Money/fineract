@@ -619,6 +619,10 @@ public class LoanAssemblerImpl implements LoanAssembler {
                 loan.setIsFloatingInterestRate(null);
             }
             loan.updateIsInterestRecalculationEnabled();
+            // The loan carries its own copy of the parking flag; a product switch must take the new product's value,
+            // else the loan parks on a product that does not support it (or silently stops parking).
+            loan.getLoanRepaymentScheduleDetail()
+                    .setEnableExcessPaymentParking(loanProduct.getLoanProductRelatedDetail().isEnableExcessPaymentParking());
             changes.put(Loan.RECALCULATE_LOAN_SCHEDULE, true);
         }
 

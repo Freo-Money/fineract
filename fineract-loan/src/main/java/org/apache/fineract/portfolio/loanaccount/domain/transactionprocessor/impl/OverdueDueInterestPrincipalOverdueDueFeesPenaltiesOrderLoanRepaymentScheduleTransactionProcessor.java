@@ -304,6 +304,11 @@ public class OverdueDueInterestPrincipalOverdueDueFeesPenaltiesOrderLoanRepaymen
     }
 
     @Override
+    protected boolean isFeesBeforePenaltiesForExcessParking() {
+        return true;
+    }
+
+    @Override
     protected Money handleRefundTransactionPaymentOfInstallment(final LoanRepaymentScheduleInstallment currentInstallment,
             final LoanTransaction loanTransaction, final Money transactionAmountUnprocessed,
             final List<LoanTransactionToRepaymentScheduleMapping> transactionMappings) {

@@ -306,6 +306,10 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                 && loan.isFeeCompoundingEnabledForInterestRecalculation()) {
             loanAccrualsProcessingService.processAccrualsOnInterestRecalculation(loan, true, true);
         }
+        // Parking loan holding a pool: a charge that lands on an installment already due (e.g. a bounce charge on a due
+        // date the pool already paid, or a post-maturity fee on an overpaid loan) is settled from the pool on that due
+        // date, as the nightly job would have done. A charge on an installment not yet due waits for its due date.
+        this.loanAccountDomainService.settleParkedExcessForDueDatesFrom(loan, transactionDate, false);
         this.loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
 
         businessEventNotifierService.notifyPostBusinessEvent(new LoanAddChargeBusinessEvent(loanCharge));

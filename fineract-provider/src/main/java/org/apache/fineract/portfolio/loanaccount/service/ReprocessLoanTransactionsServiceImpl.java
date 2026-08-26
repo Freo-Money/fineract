@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.service;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -40,6 +41,7 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleProcessingWrapper;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionComparator;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.LoanRepaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.MoneyHolder;
@@ -86,7 +88,11 @@ public class ReprocessLoanTransactionsServiceImpl implements ReprocessLoanTransa
 
     @Override
     public void reprocessTransactionsWithPostTransactionChecks(final Loan loan, final LocalDate transactionDate) {
-        final List<LoanTransaction> transactions = loanTransactionRepository.findNonReversedTransactionsForReprocessingByLoan(loan);
+        // Replay in the same order as every other replay path: the repository returns database order, which does not
+        // apply the same-date ranks (customer payment, then sweep, then refund) the excess-parking splits rely on.
+        final List<LoanTransaction> transactions = new ArrayList<>(
+                loanTransactionRepository.findNonReversedTransactionsForReprocessingByLoan(loan));
+        transactions.sort(LoanTransactionComparator.INSTANCE);
         final ChangedTransactionDetail changedTransactionDetail = reprocessTransactionsAndFetchChangedTransactions(loan, transactions);
         handleChangedDetail(changedTransactionDetail);
     }

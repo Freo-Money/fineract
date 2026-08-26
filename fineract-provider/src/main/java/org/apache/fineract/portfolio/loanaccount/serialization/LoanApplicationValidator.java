@@ -230,6 +230,8 @@ public final class LoanApplicationValidator {
                     "repaymentsStartingFromDate is not supported with BPI method add to first installment with principal grace.",
                     expectedFirstRepaymentOnDate);
         }
+
+        validateExcessPaymentParkingStrategy(loan);
     }
 
     public void validateForModify(final Loan loan) {
@@ -252,6 +254,33 @@ public final class LoanApplicationValidator {
                     "expected.first.repayment.date.not.supported.with.bpimethod.add.to.first.installment.with.principal.grace",
                     "repaymentsStartingFromDate is not supported with BPI method add to first installment with principal grace.",
                     expectedFirstRepaymentOnDate);
+        }
+
+        validateExcessPaymentParkingStrategy(loan);
+    }
+
+    /**
+     * A loan can override its product's repayment strategy; with excess payment parking the effective strategy must
+     * still be one parking is verified with.
+     */
+    private void validateExcessPaymentParkingStrategy(final Loan loan) {
+        final String strategyCode = loan.transactionProcessingStrategy();
+        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()
+                && (strategyCode == null || !LoanProductConstants.EXCESS_PAYMENT_PARKING_SUPPORTED_STRATEGIES.contains(strategyCode))) {
+            throw new GeneralPlatformDomainRuleException(
+                    "error.msg.loan.excess.payment.parking.not.supported.for.transaction.processing.strategy",
+                    "Excess payment parking is not supported with repayment strategy " + strategyCode, strategyCode);
+        }
+    }
+
+    /**
+     * Topup closes the old loan with a plain repayment of its prepayment amount; on a loan that parks, that repayment
+     * would be parked and the loan would stay open next to the new one.
+     */
+    private void validateLoanToCloseDoesNotParkExcess(final Loan loanToClose) {
+        if (loanToClose.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.topup.not.supported.for.excess.parking.loan",
+                    "Topup cannot close loan " + loanToClose.getId() + ": it has excess payment parking enabled.", loanToClose.getId());
         }
     }
 
@@ -674,6 +703,7 @@ public final class LoanApplicationValidator {
                                     "error.msg.loan.loanIdToClose.no.active.loan.associated.to.client.found",
                                     "loanIdToClose is invalid, No Active Loan associated with the given Client ID found.");
                         }
+                        validateLoanToCloseDoesNotParkExcess(loanToClose);
                         if (loanToClose.isMultiDisburmentLoan()
                                 && !loanToClose.getLoanProductRelatedDetail().isInterestRecalculationEnabled()) {
                             throw new GeneralPlatformDomainRuleException(
@@ -1416,6 +1446,7 @@ public final class LoanApplicationValidator {
                                 "error.msg.loan.loanIdToClose.no.active.loan.associated.to.client.found",
                                 "loanIdToClose is invalid, No Active Loan associated with the given Client ID found.");
                     }
+                    validateLoanToCloseDoesNotParkExcess(loanToClose);
                     if (loanToClose.isMultiDisburmentLoan()
                             && !loanToClose.getLoanProductRelatedDetail().isInterestRecalculationEnabled()) {
                         throw new GeneralPlatformDomainRuleException(
@@ -2030,6 +2061,7 @@ public final class LoanApplicationValidator {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.to.be.closed.with.topup.is.not.active",
                     "Loan to be closed with this topup is not active.");
         }
+        validateLoanToCloseDoesNotParkExcess(loanToClose);
 
         final LocalDate lastUserTransactionOnLoanToClose = loanToClose.getLastUserTransactionDate();
         if (DateUtils.isBefore(loan.getDisbursementDate(), lastUserTransactionOnLoanToClose)) {

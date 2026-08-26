@@ -231,14 +231,11 @@ public class ProductToGLAccountMappingWritePlatformServiceImpl implements Produc
                 this.loanProductToGLAccountMappingHelper.saveLoanToLiabilityAccountMapping(element,
                         LoanProductAccountingParams.OVERPAYMENT.getValue(), loanProductId, AccrualAccountsForLoan.OVERPAYMENT.getValue());
 
-                final Boolean enableExcessPaymentParkingAccrual = this.fromApiJsonHelper.extractBooleanNamed("enableExcessPaymentParking",
-                        element);
-
-                if (Boolean.TRUE.equals(enableExcessPaymentParkingAccrual)) {
-                    this.loanProductToGLAccountMappingHelper.saveLoanToLiabilityAccountMapping(element,
-                            LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), loanProductId,
-                            AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue());
-                }
+                // Saved whenever supplied (mandatory only when the product is created with enableExcessPaymentParking),
+                // so the mapping can be configured up front even if parking is enabled later.
+                this.loanProductToGLAccountMappingHelper.saveLoanToLiabilityAccountMapping(element,
+                        LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), loanProductId,
+                        AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue());
 
                 this.loanProductToGLAccountMappingHelper.saveLoanToLiabilityAccountMapping(element,
                         LoanProductAccountingParams.DEFERRED_INCOME_LIABILITY.getValue(), loanProductId,

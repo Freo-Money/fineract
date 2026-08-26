@@ -1216,7 +1216,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 .orElseThrow(() -> new LoanTransactionNotFoundException(command.entityId(), command.getLoanId()));
 
         Loan loan = this.loanAssembler.assembleFrom(loanId);
-        if (loan.getStatus().isClosed() && loan.getLoanSubStatus() != null && loan.getLoanSubStatus().equals(LoanSubStatus.FORECLOSED)) {
+        // On a parking loan, a foreclosure that used a parked pool larger than the payable leaves the loan OVERPAID
+        // (surplus to refund), not closed; it must not be reopened either. Loans without parking keep the existing
+        // rule: only a closed foreclosed loan is refused.
+        final boolean foreclosureCannotBeReopened = loan.getStatus().isClosed()
+                || (loan.getStatus().isOverpaid() && loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking());
+        if (foreclosureCannotBeReopened && loan.getLoanSubStatus() != null && loan.getLoanSubStatus().equals(LoanSubStatus.FORECLOSED)) {
             final String defaultUserMessage = "The loan cannot reopened as it is foreclosed.";
             throw new LoanForeclosureException("loan.cannot.be.reopened.as.it.is.foreclosured", defaultUserMessage, loanId);
         }
@@ -1295,6 +1300,14 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             throw new PlatformServiceUnavailableException(
                     "error.msg.loan.chargeback.operation.not.allowed", "Loan transaction:" + transactionId
                             + " chargeback not allowed for loan transaction type, its type is " + loanTransaction.getTypeOf().getCode(),
+                    transactionId);
+        }
+        // Part of this repayment sits in the parked-excess pool; the chargeback processor only knows installments, so
+        // it would return the money while leaving the pool (and the parking liability) inflated. Reverse it instead.
+        if (loanTransaction.getExcessPayment(loanTransaction.getLoan().getCurrency()).isGreaterThanZero()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.chargeback.not.allowed.on.parked.repayment",
+                    "Loan transaction:" + transactionId + " chargeback not allowed because part of it is parked as excess payment;"
+                            + " reverse the transaction instead",
                     transactionId);
         }
 
@@ -1500,6 +1513,14 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     + " backdated transaction is not allowed. Transaction date cannot be earlier than the charge-off date of the loan",
                     loanId);
         }
+        // The customer's parked money would stay in the parking liability of a written-off loan, which the nightly
+        // job does not sweep.
+        if (loan.getTotalExcessPaymentAmount() != null && loan.getTotalExcessPaymentAmount().compareTo(BigDecimal.ZERO) > 0) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.writeoff.not.allowed.with.parked.excess",
+                    "Loan: " + loanId + " Write-off is not allowed while it holds parked excess payment of "
+                            + loan.getTotalExcessPaymentAmount() + ". Refund or settle the parked amount first.",
+                    loanId, loan.getTotalExcessPaymentAmount());
+        }
         businessEventNotifierService.notifyPreBusinessEvent(new LoanWrittenOffPreBusinessEvent(loan));
         entityDatatableChecksWritePlatformService.runTheCheckForProduct(loanId, EntityTables.LOAN.getName(),
                 StatusEnum.WRITE_OFF.getValue(), EntityTables.LOAN.getForeignKeyColumnNameOnDatatable(), loan.productId());
@@ -1675,6 +1696,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         if (loan.isChargedOff()) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.is.charged.off",
                     "Loan: " + loanId + " Close as rescheduled is not allowed. Loan Account is Charged-off", loanId);
+        }
+        // The rescheduled status is outside the nightly excess job, so a parked pool would be stranded there.
+        if (loan.getTotalExcessPaymentAmount() != null && loan.getTotalExcessPaymentAmount().compareTo(BigDecimal.ZERO) > 0) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.close.rescheduled.not.allowed.with.parked.excess",
+                    "Loan: " + loanId + " Close as rescheduled is not allowed while it holds parked excess payment of "
+                            + loan.getTotalExcessPaymentAmount() + ". Refund or settle the parked amount first.",
+                    loanId, loan.getTotalExcessPaymentAmount());
         }
         removeLoanCycle(loan);
         businessEventNotifierService.notifyPreBusinessEvent(new LoanCloseAsRescheduleBusinessEvent(loan));
@@ -2863,6 +2891,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             throw new GeneralPlatformDomainRuleException("error.msg.loan.is.already.charged.off",
                     "Loan: " + loanId + " is already charged-off", loanId);
         }
+        // The charged-off repayment journal entries do not book the parked excess portion, so a parking loan that is
+        // charged off would lose parked cash from the ledger. Not supported until that accounting exists.
+        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.chargeoff.not.supported.with.excess.parking",
+                    "Loan: " + loanId + " charge-off is not supported for loans with excess payment parking enabled", loanId);
+        }
         if (DateUtils.isBefore(transactionDate, loan.getLastUserTransactionDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.charge.off.is.before.than.the.last.user.transaction",
                     "Loan: " + loanId + " charge-off cannot be executed. User transaction was found after the charge-off transaction date!",
@@ -3361,6 +3395,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
         }
         loan.getLoanTransactions().retainAll(retainTransactions);
+        // No replay follows this reversal, so the parked-excess pool must be rebuilt here (it would otherwise keep
+        // funding sweeps with money whose parking entries have just been reversed).
+        loan.recomputeTotalExcessPaymentAmountFromTransactions();
     }
 
     private Optional<LoanTransaction> closeAsWrittenOff(final Loan loan, final JsonCommand command, final Map<String, Object> changes,
@@ -3662,6 +3699,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 journalEntryPoster.postJournalEntriesForLoanTransaction(transaction, false, false);
             });
         }
+        loan.recomputeTotalExcessPaymentAmountFromTransactions();
     }
 
     public void closeAsMarkedForReschedule(final Loan loan, final JsonCommand command, final Map<String, Object> changes) {
