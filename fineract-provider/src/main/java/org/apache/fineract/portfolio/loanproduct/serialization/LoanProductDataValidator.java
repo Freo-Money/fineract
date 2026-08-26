@@ -728,10 +728,11 @@ public final class LoanProductDataValidator {
             baseDataValidator.reset().parameter(LoanProductAccountingParams.OVERPAYMENT.getValue()).value(overpaymentAccountId).notNull()
                     .integerGreaterThanZero();
 
+            // Mandatory for every accrual-periodic product, independent of enableExcessPaymentParking, so the
+            // parking mapping is configured once at creation and no flow ever finds it missing.
             final Long excessPaymentParkingAccountId = this.fromApiJsonHelper
                     .extractLongNamed(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), element);
-            if (this.fromApiJsonHelper.parameterExists("enableExcessPaymentParking", element)
-                    && this.fromApiJsonHelper.extractBooleanNamed("enableExcessPaymentParking", element)) {
+            if (AccountingValidations.isAccrualPeriodicBasedAccounting(accountingRuleType)) {
                 baseDataValidator.reset().parameter(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue())
                         .value(excessPaymentParkingAccountId).notNull().integerGreaterThanZero();
             }
@@ -888,6 +889,13 @@ public final class LoanProductDataValidator {
             final Boolean enableExcessPaymentParking = this.fromApiJsonHelper.extractBooleanNamed("enableExcessPaymentParking", element);
             baseDataValidator.reset().parameter("enableExcessPaymentParking").value(enableExcessPaymentParking).ignoreIfNull()
                     .validateForBooleanValue();
+            // Only the accrual-periodic accounting processor posts the parking liability; on any other accounting
+            // mode a parked repayment's journal entries would silently drop the parked cash.
+            if (Boolean.TRUE.equals(enableExcessPaymentParking)
+                    && !AccountingValidations.isAccrualPeriodicBasedAccounting(accountingRuleType)) {
+                baseDataValidator.reset().parameter("enableExcessPaymentParking")
+                        .failWithCode("supported.only.for.accrual.periodic.accounting");
+            }
         }
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.LOAN_SCHEDULE_TYPE, element)) {
             validateLoanScheduleType(transactionProcessingStrategyCode, baseDataValidator, element);
@@ -1885,14 +1893,25 @@ public final class LoanProductDataValidator {
         baseDataValidator.reset().parameter(LoanProductAccountingParams.OVERPAYMENT.getValue()).value(overpaymentAccountId).ignoreIfNull()
                 .integerGreaterThanZero();
 
+        // The mapping is mandatory at creation for accrual-periodic products; on update just validate the value
+        // when one is supplied.
         final Long excessPaymentParkingAccountId = this.fromApiJsonHelper
                 .extractLongNamed(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), element);
+        baseDataValidator.reset().parameter(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue())
+                .value(excessPaymentParkingAccountId).ignoreIfNull().integerGreaterThanZero();
 
         if (this.fromApiJsonHelper.parameterExists("enableExcessPaymentParking", element)
                 && this.fromApiJsonHelper.extractBooleanNamed("enableExcessPaymentParking", element)) {
-
-            baseDataValidator.reset().parameter(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue())
-                    .value(excessPaymentParkingAccountId).notNull().integerGreaterThanZero();
+            // Only the accrual-periodic accounting processor posts the parking liability; on any other accounting
+            // mode a parked repayment's journal entries would silently drop the parked cash.
+            Integer parkingRuleType = accountingRuleType;
+            if (parkingRuleType == null && loanProduct.getAccountingRule() != null) {
+                parkingRuleType = loanProduct.getAccountingRule().getValue();
+            }
+            if (!AccountingValidations.isAccrualPeriodicBasedAccounting(parkingRuleType)) {
+                baseDataValidator.reset().parameter("enableExcessPaymentParking")
+                        .failWithCode("supported.only.for.accrual.periodic.accounting");
+            }
         }
 
         final Long receivableInterestAccountId = this.fromApiJsonHelper

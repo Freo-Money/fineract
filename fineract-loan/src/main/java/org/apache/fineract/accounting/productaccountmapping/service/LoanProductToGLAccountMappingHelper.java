@@ -466,13 +466,11 @@ public class LoanProductToGLAccountMappingHelper extends ProductToGLAccountMappi
                 mergeLoanToLiabilityAccountMappingChanges(element, LoanProductAccountingParams.OVERPAYMENT.getValue(), loanProductId,
                         CashAccountsForLoan.OVERPAYMENT.getValue(), CashAccountsForLoan.OVERPAYMENT.toString(), changes);
 
-                final Boolean enableExcessPaymentParkingAccrual = this.fromApiJsonHelper.extractBooleanNamed("enableExcessPaymentParking",
-                        element);
-                if (Boolean.TRUE.equals(enableExcessPaymentParkingAccrual)) {
-                    mergeLoanToLiabilityAccountMappingChanges(element, LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(),
-                            loanProductId, CashAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue(),
-                            CashAccountsForLoan.EXCESS_PAYMENT_PARKING.toString(), changes);
-                }
+                // Applied whenever the request supplies the account (the merge no-ops on an absent param); the
+                // mapping is a one-time product configuration independent of the enableExcessPaymentParking flag.
+                mergeLoanToLiabilityAccountMappingChanges(element, LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(),
+                        loanProductId, AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue(),
+                        AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.toString(), changes);
                 if (!enableBuyDownFee && !enableIncomeCapitalization) {
                     deleteProductToGLAccountMapping(loanProductId, PortfolioProductType.LOAN,
                             AccrualAccountsForLoan.DEFERRED_INCOME_LIABILITY.getValue());

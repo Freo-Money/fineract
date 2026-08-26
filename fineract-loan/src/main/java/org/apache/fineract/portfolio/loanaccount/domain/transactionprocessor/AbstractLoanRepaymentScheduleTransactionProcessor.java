@@ -22,6 +22,8 @@ import static java.math.BigDecimal.ZERO;
 import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction.accrualAdjustment;
 import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction.accrueTransaction;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
@@ -335,10 +337,12 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             if (loanTransaction.isRepaymentLikeType() || loanTransaction.isInterestWaiver() || loanTransaction.isRecoveryRepayment()) {
                 loanTransaction.resetDerivedComponents();
             }
+            // Schedule generation replays transactions for projection only - it must never mutate the loan-level
+            // parked-excess pool, else every schedule projection inflates or drains it.
             if (loanTransaction.isInterestWaiver()) {
-                processTransaction(loanTransaction, currency, installments, loanCharges, null);
+                processTransaction(loanTransaction, currency, installments, loanCharges, null, false);
             } else {
-                unProcessed = processTransaction(loanTransaction, currency, installments, loanCharges, null);
+                unProcessed = processTransaction(loanTransaction, currency, installments, loanCharges, null, false);
             }
         }
         return unProcessed;
@@ -721,6 +725,12 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
 
     protected Money processTransaction(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
             final List<LoanRepaymentScheduleInstallment> installments, final Set<LoanCharge> charges, Money amountToProcess) {
+        return processTransaction(loanTransaction, currency, installments, charges, amountToProcess, true);
+    }
+
+    private Money processTransaction(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
+            final List<LoanRepaymentScheduleInstallment> installments, final Set<LoanCharge> charges, Money amountToProcess,
+            final boolean mutateLoanPool) {
         int installmentIndex = 0;
 
         final LocalDate transactionDate = loanTransaction.getTransactionDate();
@@ -749,7 +759,8 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             }
 
             loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
-            if (loan.getTotalExcessPaymentAmount() != null && loan.getTotalExcessPaymentAmount().compareTo(BigDecimal.ZERO) > 0) {
+            if (mutateLoanPool && loan.getTotalExcessPaymentAmount() != null
+                    && loan.getTotalExcessPaymentAmount().compareTo(BigDecimal.ZERO) > 0) {
 
                 Money consumedAmount = loanTransaction.getAmount(currency);
                 loan.subtractFromTotalExcessPaymentAmount(consumedAmount);
@@ -810,9 +821,11 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                         transactionAmountUnprocessed, transactionMappings, charges);
 
                 if (transactionAmountUnprocessed.isGreaterThanZero()) {
-                    loanTransaction.updateTransactionMetaData("{\"transactionSubType\":\"EXCESS_SETTLEMENT\"}");
+                    tagExcessSettlementMetaData(loanTransaction);
                     loanTransaction.setExcessPayment(transactionAmountUnprocessed);
-                    updateTotalExcessPayment(loanTransaction, transactionAmountUnprocessed);
+                    if (mutateLoanPool) {
+                        updateTotalExcessPayment(loanTransaction, transactionAmountUnprocessed);
+                    }
                 }
 
                 loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
@@ -838,10 +851,12 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
 
         if (transactionAmountUnprocessed.isGreaterThanZero()) {
 
-            loanTransaction.updateTransactionMetaData("{\"transactionSubType\":\"EXCESS_SETTLEMENT\"}");
+            tagExcessSettlementMetaData(loanTransaction);
             loanTransaction.setExcessPayment(transactionAmountUnprocessed);
 
-            updateTotalExcessPayment(loanTransaction, transactionAmountUnprocessed);
+            if (mutateLoanPool) {
+                updateTotalExcessPayment(loanTransaction, transactionAmountUnprocessed);
+            }
         }
 
         loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
@@ -862,6 +877,26 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
     private boolean isSystemGeneratedTransaction(final LoanTransaction tx) {
 
         return tx != null && tx.getTypeOf() == LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT;
+    }
+
+    /**
+     * Marks the transaction as an excess settlement without discarding metadata already present on it (e.g. gateway
+     * payloads set at creation). Unparseable existing metadata is left untouched rather than overwritten.
+     */
+    private void tagExcessSettlementMetaData(final LoanTransaction loanTransaction) {
+        final String existingMetaData = loanTransaction.getTransactionMetaData();
+        if (existingMetaData == null || existingMetaData.isBlank()) {
+            loanTransaction.updateTransactionMetaData("{\"transactionSubType\":\"EXCESS_SETTLEMENT\"}");
+            return;
+        }
+        try {
+            final JsonObject metaData = JsonParser.parseString(existingMetaData).getAsJsonObject();
+            metaData.addProperty("transactionSubType", "EXCESS_SETTLEMENT");
+            loanTransaction.updateTransactionMetaData(metaData.toString());
+        } catch (RuntimeException e) {
+            log.warn("Could not merge EXCESS_SETTLEMENT sub-type into existing transaction metadata of loan transaction [id={}]; "
+                    + "keeping the existing metadata unchanged.", loanTransaction.getId(), e);
+        }
     }
 
     /**
