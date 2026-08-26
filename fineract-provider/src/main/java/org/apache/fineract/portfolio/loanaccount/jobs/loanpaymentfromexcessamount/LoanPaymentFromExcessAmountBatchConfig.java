@@ -19,8 +19,9 @@
 
 package org.apache.fineract.portfolio.loanaccount.jobs.loanpaymentfromexcessamount;
 
-import lombok.RequiredArgsConstructor;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.job.builder.JobBuilder;
@@ -31,9 +32,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Configuration
-@RequiredArgsConstructor
 public class LoanPaymentFromExcessAmountBatchConfig {
 
     @Autowired
@@ -43,10 +45,10 @@ public class LoanPaymentFromExcessAmountBatchConfig {
     private PlatformTransactionManager transactionManager;
 
     @Autowired
-    private org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService loanAccountDomainService;
+    private LoanAccountDomainService loanAccountDomainService;
 
     @Autowired
-    private org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper loanRepositoryWrapper;
+    private LoanRepositoryWrapper loanRepositoryWrapper;
 
     @Bean
     protected Step loanPaymentFromExcessAmountStep() {
@@ -62,6 +64,10 @@ public class LoanPaymentFromExcessAmountBatchConfig {
 
     @Bean
     public LoanPaymentFromExcessAmountTasklet loanPaymentFromExcessAmountTasklet() {
-        return new LoanPaymentFromExcessAmountTasklet(loanAccountDomainService, loanRepositoryWrapper);
+        // Each loan is processed in its own REQUIRES_NEW transaction (see tasklet) so a failure on one loan does
+        // not roll back the payments already made for the others.
+        final TransactionTemplate perLoanTransactionTemplate = new TransactionTemplate(transactionManager);
+        perLoanTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return new LoanPaymentFromExcessAmountTasklet(loanAccountDomainService, loanRepositoryWrapper, perLoanTransactionTemplate);
     }
 }

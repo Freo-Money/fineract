@@ -894,17 +894,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal);
             newTransactions.clear();
         }
-        // determineAndTransition internally calls updateLoanSummaryDerivedFields, which
-        // recognizes remaining excess as overpaid for foreclosed loans and transitions accordingly
         loanLifecycleStateMachine.determineAndTransition(loan, foreClosureDate);
-
-        // After all summary updates are done, clear excess and move it to overpaid
-        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
-            final BigDecimal remainingExcess = loan.getTotalExcessPaymentAmount();
-            if (remainingExcess != null && remainingExcess.compareTo(BigDecimal.ZERO) > 0) {
-                loan.setTotalExcessPaymentAmount(null);
-            }
-        }
         changes.put("transactions", transactionIds);
         changes.put("eventAmount", payPrincipal.getAmount().negate());
 
@@ -937,7 +927,16 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         final Money foreclosureTotal = foreCloseDetail.getPrincipal(currency).plus(foreCloseDetail.getInterestCharged(currency))
                 .plus(foreCloseDetail.getFeeChargesCharged(currency)).plus(foreCloseDetail.getPenaltyChargesCharged(currency));
         final Money excessMoney = Money.of(currency, totalExcess);
-        final Money excessToApply = excessMoney.isGreaterThan(foreclosureTotal) ? foreclosureTotal : excessMoney;
+
+        // Parked excess beyond the foreclosure payable cannot be settled by this operation and would strand as a
+        // liability with no owning loan state once the loan closes. Refund the surplus first, then foreclose.
+        if (excessMoney.isGreaterThan(foreclosureTotal)) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.foreclosure.parked.excess.exceeds.payable",
+                    "The parked excess amount " + excessMoney.getAmount() + " exceeds the foreclosure payable amount "
+                            + foreclosureTotal.getAmount() + ". Refund the surplus excess before foreclosing the loan.",
+                    excessMoney.getAmount(), foreclosureTotal.getAmount());
+        }
+        final Money excessToApply = excessMoney;
 
         if (!excessToApply.isGreaterThanZero()) {
             return;
@@ -983,10 +982,9 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             foreCloseDetail.setPenaltyCharges(foreCloseDetail.getPenaltyChargesCharged(currency).minus(penaltyReduction).getAmount());
         }
 
-        // Update excess on loan — remainder stays as excess here;
-        // calculateTotalOverpayment will recognize it as overpaid during foreclosure summary update
-        final BigDecimal remainingExcess = totalExcess.subtract(excessToApply.getAmount());
-        loan.setTotalExcessPaymentAmount(MathUtil.zeroToNull(remainingExcess));
+        // The whole pool is consumed by the excess repayment (surplus beyond the payable is rejected above);
+        // reprocessing rebuilds the (now zero) pool from the transaction replay.
+        loan.setTotalExcessPaymentAmount(null);
     }
 
     private LoanTransaction persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
