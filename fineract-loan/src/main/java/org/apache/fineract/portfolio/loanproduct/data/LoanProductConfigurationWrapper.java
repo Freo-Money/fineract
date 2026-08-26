@@ -31,6 +31,7 @@ import org.apache.fineract.infrastructure.core.serialization.FromJsonHelper;
 import org.apache.fineract.portfolio.common.domain.DaysInMonthType;
 import org.apache.fineract.portfolio.common.domain.DaysInYearType;
 import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
+import org.apache.fineract.portfolio.loanproduct.domain.PartPaymentRecalculationStrategy;
 
 /**
  * Generic wrapper for loan product configurations. This class is designed to be extensible and can hold multiple
@@ -53,6 +54,8 @@ public class LoanProductConfigurationWrapper implements Serializable {
     // private PaymentConfigDTO paymentConfig;
     // private FeeConfigDTO feeConfig;
     // private RiskConfigDTO riskConfig;
+
+    private PartPaymentConfigDTO partPaymentConfig;
 
     public LoanProductConfigurationWrapper(BrokenPeriodInterestConfigDTO brokenPeriodConfig) {
         this.brokenPeriodConfig = brokenPeriodConfig;
@@ -88,6 +91,14 @@ public class LoanProductConfigurationWrapper implements Serializable {
         // JsonElement configElement = jsonHelper.parse(configJson);
         // wrapper.add("paymentConfig", configElement);
         // }
+
+        if (partPaymentConfig != null) {
+            JsonObject configElement = new JsonObject();
+            if (partPaymentConfig.getStrategy() != null) {
+                configElement.addProperty("strategy", partPaymentConfig.getStrategy().getCode());
+            }
+            wrapper.add("partPaymentConfig", configElement);
+        }
 
         return jsonHelper.toJson(wrapper);
     }
@@ -131,10 +142,39 @@ public class LoanProductConfigurationWrapper implements Serializable {
             // );
             // }
 
+            JsonElement partPaymentConfigElement = jsonObject.get("partPaymentConfig");
+            if (partPaymentConfigElement != null) {
+                String strategyString = jsonHelper.extractStringNamed("strategy", partPaymentConfigElement);
+                PartPaymentRecalculationStrategy strategy = PartPaymentRecalculationStrategy.fromCode(strategyString);
+                wrapper.partPaymentConfig = new PartPaymentConfigDTO(strategy);
+            }
+
             return wrapper;
         } catch (Exception e) {
             throw new RuntimeException("Failed to deserialize configuration wrapper", e);
         }
+    }
+
+    /**
+     * Create an independent copy of this wrapper, including fresh copies of every configuration DTO it holds. Used when
+     * a loan snapshots its product's configuration so that later edits on either side cannot mutate the other's
+     * in-memory state.
+     */
+    public LoanProductConfigurationWrapper copy() {
+        LoanProductConfigurationWrapper copy = new LoanProductConfigurationWrapper();
+
+        if (brokenPeriodConfig != null) {
+            copy.brokenPeriodConfig = new BrokenPeriodInterestConfigDTO(brokenPeriodConfig.getStrategy(),
+                    brokenPeriodConfig.getDaysInMonthType(), brokenPeriodConfig.getDaysInYearType());
+        }
+
+        // Future extensibility: copy more configuration types here
+
+        if (partPaymentConfig != null) {
+            copy.partPaymentConfig = new PartPaymentConfigDTO(partPaymentConfig.getStrategy());
+        }
+
+        return copy;
     }
 
     /**
@@ -152,6 +192,10 @@ public class LoanProductConfigurationWrapper implements Serializable {
         // configs.put("paymentConfig", paymentConfig);
         // }
 
+        if (partPaymentConfig != null) {
+            configs.put("partPaymentConfig", partPaymentConfig);
+        }
+
         return configs;
     }
 
@@ -159,7 +203,7 @@ public class LoanProductConfigurationWrapper implements Serializable {
      * Check if any configuration is present
      */
     public boolean hasAnyConfiguration() {
-        return brokenPeriodConfig != null;
+        return brokenPeriodConfig != null || partPaymentConfig != null;
         // Future extensibility: Add more configuration types here
         // || paymentConfig != null;
     }

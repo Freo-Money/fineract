@@ -204,6 +204,7 @@ import org.apache.fineract.portfolio.loanaccount.serialization.LoanApplicationVa
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanOfficerValidator;
+import org.apache.fineract.portfolio.loanaccount.serialization.LoanPartPaymentValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanRefundValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanUpdateCommandFromApiJsonDeserializer;
@@ -290,6 +291,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
     private final LoanTransactionProcessingService loanTransactionProcessingService;
     private final LoanBalanceService loanBalanceService;
     private final LoanTransactionService loanTransactionService;
+    private final LoanPartPaymentValidator loanPartPaymentValidator;
 
     @Transactional
     @Override
@@ -2832,6 +2834,53 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 .withLoanId(loanId) //
                 .withEntityId(foreclosureTransaction.getId()) //
                 .withEntityExternalId(foreclosureTransaction.getExternalId()) //
+                .with(changes) //
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public CommandProcessingResult makePartPayment(final Long loanId, final JsonCommand command) {
+        final String json = command.json();
+        // Payload validation first, so a malformed request is rejected before the loan is even assembled. The rules
+        // that need the loan itself - the balance the payment has to stay under, the accrued interest it has to exceed
+        // - are applied below and inside partPayLoan, where the loan's schedule and terms are available.
+        this.loanTransactionValidator.validateLoanPartPayment(json);
+
+        final JsonElement element = fromApiJsonHelper.parse(json);
+        final Loan loan = this.loanAssembler.assembleFrom(loanId);
+        final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed(LoanApiConstants.transactionDateParamName, element);
+        final BigDecimal transactionAmount = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed("transactionAmount", element);
+        final ExternalId externalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
+
+        // A part-payment cannot reach the loan's total outstanding amount - at that point it is a payoff and belongs to
+        // the foreclosure command. Refused here, as soon as the loan is available and before the payment details are
+        // created or partPayLoan is entered, so nothing is written: no transaction, no re-amortised schedule, no
+        // summary update and no journal entries. partPayLoan applies the same rule again for callers that reach the
+        // domain service directly.
+        this.loanPartPaymentValidator.validateAmountWithinTotalOutstanding(loan, transactionAmount);
+
+        final Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("dateFormat", command.dateFormat());
+        changes.put("transactionDate", command.stringValueOfParameterNamed(LoanApiConstants.transactionDateParamName));
+        changes.put("transactionAmount", transactionAmount);
+        changes.put("externalId", externalId);
+
+        String noteText = this.fromApiJsonHelper.extractStringNamed(LoanApiConstants.noteParamName, element);
+        PaymentDetail paymentDetail = this.paymentDetailWritePlatformService.createPaymentDetail(command, changes);
+
+        LoanTransaction partPaymentTransaction = this.loanAccountDomainService.partPayLoan(loan, transactionDate, transactionAmount,
+                paymentDetail, noteText, externalId, changes);
+
+        if (partPaymentTransaction == null) {
+            return new CommandProcessingResultBuilder().withLoanId(loanId).build();
+        }
+
+        final CommandProcessingResultBuilder commandProcessingResultBuilder = new CommandProcessingResultBuilder();
+        return commandProcessingResultBuilder //
+                .withLoanId(loanId) //
+                .withEntityId(partPaymentTransaction.getId()) //
+                .withEntityExternalId(partPaymentTransaction.getExternalId()) //
                 .with(changes) //
                 .build();
     }

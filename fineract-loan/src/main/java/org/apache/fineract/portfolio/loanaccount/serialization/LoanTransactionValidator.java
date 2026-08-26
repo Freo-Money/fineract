@@ -64,6 +64,8 @@ public interface LoanTransactionValidator {
 
     void validateLoanForeclosureChargePercentages(Loan loan, Map<Long, BigDecimal> foreclosureChargePercentageMap);
 
+    void validateLoanPartPayment(String json);
+
     void validateLoanClientIsActive(Loan loan);
 
     void validateLoanGroupIsActive(Loan loan);
