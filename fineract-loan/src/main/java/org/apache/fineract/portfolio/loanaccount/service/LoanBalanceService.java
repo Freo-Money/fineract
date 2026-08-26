@@ -72,13 +72,10 @@ public class LoanBalanceService {
         // But when a same-day repayment (or any extra payment) genuinely overpays the loan, the transaction
         // processor stamps a real overpayment portion on a transaction - in that case keep the overpayment so the
         // loan can transition to OVERPAID instead of silently swallowing it.
-        // Also, remaining parked excess counts as genuine overpayment on foreclosure.
+        // Parked excess never survives foreclosure: a surplus beyond the foreclosure payable blocks the
+        // foreclosure up front, and anything up to the payable is consumed by it.
         if (loan.isForeclosure() && loan.getSummary() != null && loan.getSummary().getTotalOutstanding(currency).isZero()
                 && !hasActualOverpaymentPortion(loan, currency)) {
-            final BigDecimal remainingExcess = loan.getTotalExcessPaymentAmount();
-            if (remainingExcess != null && remainingExcess.compareTo(BigDecimal.ZERO) > 0) {
-                return Money.of(currency, remainingExcess);
-            }
             return Money.zero(currency);
         }
 
