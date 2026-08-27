@@ -51,15 +51,24 @@ public class JmsBatchWorkerMessageListener implements MessageListener, Initializ
     @Override
     @SuppressWarnings({ "unchecked" })
     public void onMessage(jakarta.jms.Message message) {
+        StepExecutionRequestHandler.HandleOutcome outcome = null;
         try {
             Message<ContextualMessage> msg = (Message<ContextualMessage>) converter.fromMessage(message);
             log.debug("Received JMS partition message {}", msg);
             Message<StepExecutionRequest> requestMessage = inputInterceptor.beforeHandleMessage(msg);
-            stepExecutionRequestHandler.handle(requestMessage.getPayload());
+            outcome = stepExecutionRequestHandler.handle(requestMessage.getPayload());
         } catch (Exception e) {
             log.error("Exception while processing JMS message", e);
         }
 
+        if (outcome == StepExecutionRequestHandler.HandleOutcome.IN_FLIGHT) {
+            // Best effort: leave the message unacknowledged so the broker can redeliver it as the recovery trigger
+            // for the worker running this partition. With CLIENT_ACKNOWLEDGE the redelivery happens only when the
+            // session recycles, and a later acknowledge on the same session may still consume it (JMS acknowledges
+            // cumulatively); SQS is the broker with full duplicate-recovery semantics.
+            log.info("Keeping JMS partition message unacknowledged; partition is in flight elsewhere");
+            return;
+        }
         try {
             message.acknowledge();
         } catch (JMSException e) {

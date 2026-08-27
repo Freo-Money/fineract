@@ -253,12 +253,6 @@ public class FineractProperties {
          * Number of concurrent consumer threads polling the queue. Default 1 (same as JMS single consumer).
          */
         private Integer concurrency;
-        /**
-         * Optional DLQ queue URL. Configure the main queue's redrive policy in AWS to send failed messages to this DLQ
-         * after maxReceiveCount. When set, failed messages can optionally be sent here explicitly (otherwise rely on
-         * SQS redrive policy).
-         */
-        private String dlqQueueUrl;
 
         /**
          * Returns true only when both accessKey and secretKey are set. AWS requires both for static credentials; if

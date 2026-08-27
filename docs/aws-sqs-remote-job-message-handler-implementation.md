@@ -99,11 +99,10 @@ Add under `fineract.remote-job-message-handler.sqs.*` (with env overrides `FINER
 - `region` (e.g. `us-east-1`)
 - `access-key` (optional, empty = use default chain)
 - `secret-key` (optional)
-- `visibility-timeout-seconds` (queue-level in AWS; used for documentation and optional ChangeMessageVisibility)
+- `visibility-timeout-seconds` (applied per-receive on `ReceiveMessageRequest`, clamped to the SQS cap of 43200s; also drives the orphaned-partition takeover threshold, default 3600)
 - `wait-time-seconds` (long polling, e.g. 20)
 - `max-number-of-messages` per receive (e.g. 1)
 - `concurrency` (consumer threads per instance, default 1)
-- `dlq-queue-url` (optional; for redrive policy reference or explicit send on failure)
 
 Add to `FineractProperties.FineractRemoteJobMessageHandlerProperties`:
 
@@ -111,7 +110,7 @@ Add to `FineractProperties.FineractRemoteJobMessageHandlerProperties`:
 
 New nested class (e.g. in `FineractProperties`):
 
-- `FineractRemoteJobMessageHandlerSqsProperties`: enabled, queueUrl, region, accessKey, secretKey, visibilityTimeoutSeconds, waitTimeSeconds, maxNumberOfMessages, concurrency, dlqQueueUrl.
+- `FineractRemoteJobMessageHandlerSqsProperties`: enabled, queueUrl, region, accessKey, secretKey, visibilityTimeoutSeconds, waitTimeSeconds, maxNumberOfMessages, concurrency.
 
 ### 3.3 Condition (exactly one handler)
 
@@ -139,14 +138,14 @@ New nested class (e.g. in `FineractProperties`):
 - **New config class:** `SqsWorkerConfig` (condition: `SqsWorkerCondition` = batch-worker-enabled and sqs.enabled).
 - **New listener/handler class:** e.g. `SqsBatchWorkerMessageListener` or `SqsRemoteMessageListener` (component, conditional on `SqsWorkerCondition`):
   - Uses a polling loop or Spring integration / AWS SDK v2 SQS consumer to receive messages (long polling recommended: `waitTimeSeconds` up to 20).
-  - For each message: deserialize body to `ContextualMessage` (JSON), call `inputInterceptor.beforeHandleMessage(contextualMessage)`, then `stepExecutionRequestHandler.handle(stepExecutionRequest)`.
-  - On success: delete the message. On failure: do not delete (or use visibility timeout and optional DLQ); document at-least-once and idempotent step behaviour.
+  - For each message: deserialize body to `ContextualMessage` (JSON), call `inputInterceptor.beforeHandleMessage(contextualMessage)`, then `stepExecutionRequestHandler.handle(stepExecutionRequest)`, which returns a `HandleOutcome`.
+  - Outcome `PROCESSED` or `DISCARD`: delete the message. Outcome `IN_FLIGHT` (partition running on another worker, or its metadata not readable): keep the message — it is the crash-recovery trigger and is re-evaluated after the next visibility expiry. On exception: do not delete; the message retries after the visibility timeout and the queue redrive policy dead-letters it after `maxReceiveCount`.
 - **Concurrency:** Configurable via `fineract.remote-job-message-handler.sqs.concurrency` (default 1, same as JMS single consumer). That many threads each run the SQS long-poll loop; SQS distributes messages across workers. Each partition is processed by one worker; standard queue gives at-least-once delivery.
-- **Visibility timeout:** Configured at **queue level** in AWS (not in `ReceiveMessageRequest`). Set the SQS queue’s default visibility timeout (e.g. to match `visibility-timeout-seconds` in config). Use AWS `ChangeMessageVisibility` if processing may exceed that (e.g. extend visibility in the worker for long-running steps).
-- **DLQ:** Optional `dlq-queue-url`. Two patterns supported: (1) **Queue redrive policy:** Configure the main queue in AWS with a redrive policy to the DLQ after `maxReceiveCount`; on failure the worker does not delete the message, so it reappears after visibility timeout and is eventually moved to DLQ by SQS. (2) **Explicit send on failure:** When `dlq-queue-url` is set and processing throws, the worker sends the message body to the DLQ and deletes it from the main queue so it is not retried indefinitely.
+- **Visibility timeout:** Applied **per-receive** via `ReceiveMessageRequest.visibilityTimeout` from `visibility-timeout-seconds` (clamped to the SQS hard cap of 43200s), so the configured value is authoritative and does not fall back to the queue attribute. Size it comfortably above the p99 partition duration.
+- **DLQ (REQUIRED — queue redrive policy):** The main queue **must** have a redrive policy to a DLQ with a suitable `maxReceiveCount`. The worker never sends to a DLQ itself and never deletes a failed message; a message that keeps failing (e.g. a poison payload that cannot be deserialized) reappears after each visibility timeout and is moved to the DLQ by SQS after `maxReceiveCount` receives. **Without a redrive policy a poison message retries forever.** Note that `IN_FLIGHT` keep-cycles also count toward `maxReceiveCount`, so choose it above `max-partition-runtime / visibility-timeout` (e.g. 5+) and alarm on DLQ depth.
 - **Multitenant:** `ContextualMessage` carries `FineractContext` (tenant, auth, business dates). The worker calls `inputInterceptor.beforeHandleMessage(contextualMessage)`, which runs `ThreadLocalContextUtil.init(contextualMessage.getContext())` and `setActionContext(ActionContext.COB)` before `stepExecutionRequestHandler.handle()`, so each partition runs with the correct tenant context. No change to existing JMS/Kafka/Spring behaviour.
 
-**Logging and error handling (SQS vs JMS/Kafka):** Worker threads use `ExecutorService.execute(Runnable)` (not `submit`), matching patterns like `SendMessageToSmsGatewayTasklet` and avoiding ignored `Future` return values. Each runnable wraps the poll loop in try-catch and logs `"SQS worker thread failed (worker {}), stopping poll loop"` on exception. `InterruptedException` is handled separately (interrupt flag restored, loop exits). Per-message: debug `"Received SQS partition message"` / `"SQS message deleted after successful processing"`; on failure, error `"Exception while processing SQS message"` and optionally `"Moved failed SQS message to DLQ"`. JMS/Kafka both log processing exceptions but still acknowledge (message removed); SQS does not delete on failure unless DLQ is configured. `Throwable`s that are not `Exception` (e.g. `OutOfMemoryError`) are not caught and will terminate that worker thread; monitor logs and thread count.
+**Logging and error handling (SQS vs JMS/Kafka):** Worker threads use `ExecutorService.execute(Runnable)` (not `submit`), matching patterns like `SendMessageToSmsGatewayTasklet` and avoiding ignored `Future` return values. Each runnable wraps the poll loop in try-catch and logs `"SQS worker thread failed (worker {}), stopping poll loop"` on exception. `InterruptedException` is handled separately (interrupt flag restored, loop exits). Per-message: debug `"Received SQS partition message"` / `"SQS message {} deleted (outcome {})"`; on failure, error `"Exception while processing SQS message"` (message kept for retry/redrive); on an in-flight duplicate, info `"Keeping SQS message {} on the queue"`. Kafka logs processing exceptions but still commits the offset; JMS acknowledges except on an `IN_FLIGHT` outcome (best-effort keep). SQS never deletes on failure. `Throwable`s that are not `Exception` (e.g. `OutOfMemoryError`) are not caught and will terminate that worker thread; monitor logs and thread count.
 
 ### 3.6 Serialization
 
@@ -238,17 +237,7 @@ Use IAM roles so the application uses the **default credential chain** and never
 }
 ```
 
-If you use a DLQ and the worker sends failed messages to it explicitly, add:
-
-```json
-{
-  "Effect": "Allow",
-  "Action": ["sqs:SendMessage"],
-  "Resource": "arn:aws:sqs:REGION:ACCOUNT_ID:DLQ_QUEUE_NAME"
-}
-```
-
-Replace `REGION`, `ACCOUNT_ID`, `QUEUE_NAME`, and `DLQ_QUEUE_NAME` with your values.
+The worker never sends to the DLQ itself (SQS's redrive policy moves failed messages), so no DLQ permission is needed for the application. Replace `REGION`, `ACCOUNT_ID`, and `QUEUE_NAME` with your values.
 
 ### 5.3 Credentials: Static access key and secret (optional)
 
@@ -278,10 +267,9 @@ Use static credentials only when IAM roles are not available (e.g. some on-prem 
 | `FINERACT_REMOTE_JOB_MESSAGE_HANDLER_SQS_SECRET_KEY` | No | AWS secret key | **Leave unset** when using IAM role. |
 | `FINERACT_REMOTE_JOB_MESSAGE_HANDLER_SQS_ENDPOINT` | No | Override SQS endpoint | **Leave unset** for real AWS; set only for LocalStack or custom endpoints. |
 | `FINERACT_REMOTE_JOB_MESSAGE_HANDLER_SQS_WAIT_TIME_SECONDS` | No | Long poll wait (max 20) | Default 20. |
-| `FINERACT_REMOTE_JOB_MESSAGE_HANDLER_SQS_VISIBILITY_TIMEOUT_SECONDS` | No | Visibility timeout (queue-level in AWS) | Match your queue’s visibility timeout; used for docs and optional ChangeMessageVisibility. |
-| `FINERACT_REMOTE_JOB_MESSAGE_HANDLER_SQS_MAX_NUMBER_OF_MESSAGES` | No | Messages per ReceiveMessage call | Default 1. |
+| `FINERACT_REMOTE_JOB_MESSAGE_HANDLER_SQS_VISIBILITY_TIMEOUT_SECONDS` | No | Visibility timeout, applied per-receive | Default 3600; clamped to the SQS cap 43200. **Overrides the queue attribute.** Size above p99 partition duration; also drives the orphan-takeover threshold (2x this value). |
+| `FINERACT_REMOTE_JOB_MESSAGE_HANDLER_SQS_MAX_NUMBER_OF_MESSAGES` | No | Messages per ReceiveMessage call | Default 1. Keep at 1: a buffered second message's visibility clock runs while the first processes. |
 | `FINERACT_REMOTE_JOB_MESSAGE_HANDLER_SQS_CONCURRENCY` | No | Consumer threads per instance | Default 1; increase to process more messages in parallel per instance. |
-| `FINERACT_REMOTE_JOB_MESSAGE_HANDLER_SQS_DLQ_QUEUE_URL` | No | Dead-letter queue URL | Optional; set if you use explicit send-to-DLQ on failure. |
 
 Manager and worker mode are controlled by:
 
@@ -291,8 +279,8 @@ Manager and worker mode are controlled by:
 ### 5.5 AWS setup checklist
 
 1. Create a **standard SQS queue** in the same region as your Fineract deployment.
-2. (Optional) Create a **DLQ** and set the main queue’s **redrive policy** to send messages to the DLQ after a suitable `maxReceiveCount`; or configure `FINERACT_REMOTE_JOB_MESSAGE_HANDLER_SQS_DLQ_QUEUE_URL` and use explicit send-on-failure.
-3. Set the queue **visibility timeout** (e.g. 60–300 seconds) to be at least as long as your longest partition step; workers can extend it via `ChangeMessageVisibility` if needed.
+2. **(REQUIRED)** Create a **DLQ** and set the main queue’s **redrive policy** to send messages to the DLQ after a suitable `maxReceiveCount` (5+; must exceed `max-partition-runtime / visibility-timeout` since in-flight keep-cycles also count). Without a redrive policy a poison message retries forever. Alarm on DLQ depth, and set the DLQ `MessageRetentionPeriod` high enough (e.g. 14 days) to investigate before evidence expires.
+3. The application applies `visibility-timeout-seconds` per-receive, overriding the queue attribute; set it above your longest partition step.
 4. For production, attach an **IAM role** (task role / instance profile / IRSA) with the SQS permissions above; leave access key and secret key unset.
 5. Configure **VPC and security**: workers and manager must be able to reach the SQS endpoint (same region and VPC or public endpoint with correct IAM).
 

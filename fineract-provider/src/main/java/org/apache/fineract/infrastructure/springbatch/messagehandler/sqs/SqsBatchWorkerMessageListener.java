@@ -35,20 +35,23 @@ import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
-import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 
 /**
  * SQS worker that polls the remote job queue and processes partition requests. Multitenant context is carried in
  * {@link ContextualMessage#getContext()} and restored by {@link InputChannelInterceptor#beforeHandleMessage} before the
- * step runs, so each partition runs with the correct tenant context. On failure, the message is either sent to the
- * configured DLQ (if dlqQueueUrl is set) and removed from the main queue, or left on the queue for visibility timeout
- * and optional redrive policy to move to DLQ after maxReceiveCount.
+ * step runs, so each partition runs with the correct tenant context. The message is deleted only when the handler
+ * reports the partition as consumed (processed or discardable duplicate). It is intentionally kept on the queue when
+ * the partition is still in flight on another worker (the message is that worker's crash-recovery trigger) and on
+ * failure (retry for transient errors); the queue's redrive policy moves repeatedly failing messages to the DLQ once
+ * maxReceiveCount is exceeded.
  */
 @Slf4j
 @RequiredArgsConstructor
 public class SqsBatchWorkerMessageListener {
 
     private static final int IDLE_SLEEP_MILLIS = 500;
+    // SQS hard cap for the ReceiveMessage VisibilityTimeout parameter is 43200 seconds (12h)
+    private static final int MAX_SQS_VISIBILITY_TIMEOUT_SECONDS = 43200;
 
     private final StepExecutionRequestHandler stepExecutionRequestHandler;
     private final InputChannelInterceptor inputInterceptor;
@@ -118,41 +121,46 @@ public class SqsBatchWorkerMessageListener {
     }
 
     private void processMessage(Message message) {
-        String queueUrl = queueUrl();
-        String dlqUrl = dlqQueueUrl();
         try {
             ContextualMessage contextualMessage = sqsMessageSerializer.deserialize(message.body());
             log.debug("Received SQS partition message {}", message.messageId());
             // Restores tenant context (multitenant) before running the step
-            stepExecutionRequestHandler.handle(inputInterceptor.beforeHandleMessage(contextualMessage));
-            sqsClient.deleteMessage(DeleteMessageRequest.builder().queueUrl(queueUrl).receiptHandle(message.receiptHandle()).build());
-            log.debug("SQS message deleted after successful processing {}", message.messageId());
-        } catch (Exception e) {
-            log.error("Exception while processing SQS message {}", message.messageId(), e);
-            if (dlqUrl != null && !dlqUrl.isBlank()) {
-                try {
-                    sqsClient.sendMessage(SendMessageRequest.builder().queueUrl(dlqUrl).messageBody(message.body()).build());
-                    sqsClient.deleteMessage(
-                            DeleteMessageRequest.builder().queueUrl(queueUrl).receiptHandle(message.receiptHandle()).build());
-                    log.info("Moved failed SQS message {} to DLQ", message.messageId());
-                } catch (Exception ex) {
-                    log.error("Failed to send message to DLQ {}", message.messageId(), ex);
-                }
+            StepExecutionRequestHandler.HandleOutcome outcome = stepExecutionRequestHandler
+                    .handle(inputInterceptor.beforeHandleMessage(contextualMessage));
+            if (outcome == StepExecutionRequestHandler.HandleOutcome.IN_FLIGHT) {
+                // The partition is still running on another worker and this message is its only recovery trigger.
+                // Keep it: it stays invisible until the visibility timeout expires and is then re-evaluated —
+                // discarded once the partition finished, or taken over once it looks orphaned
+                log.info("Keeping SQS message {} on the queue; partition is in flight on another worker", message.messageId());
+                return;
             }
-            // Otherwise do not delete: message becomes visible again after visibility timeout; configure queue redrive
-            // policy to send to DLQ after maxReceiveCount
+            sqsClient.deleteMessage(DeleteMessageRequest.builder().queueUrl(queueUrl()).receiptHandle(message.receiptHandle()).build());
+            log.debug("SQS message {} deleted (outcome {})", message.messageId(), outcome);
+        } catch (Exception e) {
+            // Intentionally not deleted: only infrastructure errors reach this catch (business failures are recorded
+            // in batch metadata by the handler, which returns normally). The message becomes visible again after the
+            // visibility timeout so transient errors are retried, and the queue's redrive policy moves it to the DLQ
+            // once maxReceiveCount is exceeded
+            log.error("Exception while processing SQS message {}", message.messageId(), e);
         }
     }
 
     /**
-     * Build receive request. Visibility timeout is configured at queue level in AWS; set the queue's default visibility
-     * timeout to match visibilityTimeoutSeconds in config. Use ChangeMessageVisibility if processing may exceed it.
+     * Build receive request. The visibility timeout is applied per-receive so the configured visibility-timeout-seconds
+     * value is authoritative and does not silently fall back to the queue's default attribute. Values above the SQS
+     * hard cap of 43200 seconds (12h) are clamped.
      */
     private ReceiveMessageRequest receiveMessageRequest() {
         FineractProperties.FineractRemoteJobMessageHandlerSqsProperties sqsProperties = fineractProperties.getRemoteJobMessageHandler()
                 .getSqs();
-        return ReceiveMessageRequest.builder().queueUrl(queueUrl()).waitTimeSeconds(defaultIfNull(sqsProperties.getWaitTimeSeconds(), 20))
-                .maxNumberOfMessages(defaultIfNull(sqsProperties.getMaxNumberOfMessages(), 1)).build();
+        ReceiveMessageRequest.Builder builder = ReceiveMessageRequest.builder().queueUrl(queueUrl())
+                .waitTimeSeconds(defaultIfNull(sqsProperties.getWaitTimeSeconds(), 20))
+                .maxNumberOfMessages(defaultIfNull(sqsProperties.getMaxNumberOfMessages(), 1));
+        Integer visibilityTimeout = sqsProperties.getVisibilityTimeoutSeconds();
+        if (visibilityTimeout != null && visibilityTimeout > 0) {
+            builder.visibilityTimeout(Math.min(visibilityTimeout, MAX_SQS_VISIBILITY_TIMEOUT_SECONDS));
+        }
+        return builder.build();
     }
 
     private int defaultIfNull(Integer value, int defaultValue) {
@@ -161,10 +169,6 @@ public class SqsBatchWorkerMessageListener {
 
     private String queueUrl() {
         return fineractProperties.getRemoteJobMessageHandler().getSqs().getQueueUrl();
-    }
-
-    private String dlqQueueUrl() {
-        return fineractProperties.getRemoteJobMessageHandler().getSqs().getDlqQueueUrl();
     }
 
     private void sleep() {

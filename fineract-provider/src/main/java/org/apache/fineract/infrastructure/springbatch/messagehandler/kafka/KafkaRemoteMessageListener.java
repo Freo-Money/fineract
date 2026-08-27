@@ -51,6 +51,9 @@ public class KafkaRemoteMessageListener {
         } catch (Exception e) {
             log.error("Exception while processing Kafka message", e);
         }
+        // The offset is committed regardless of the HandleOutcome: Kafka's consumer-group assignment gives
+        // single-owner delivery, so SQS-style keep-for-recovery semantics do not apply; rebalance replays are
+        // re-evaluated by the handler's status guard
         acknowledgment.acknowledge();
         log.debug("Message was acknowledged {}", acknowledgment);
     }
