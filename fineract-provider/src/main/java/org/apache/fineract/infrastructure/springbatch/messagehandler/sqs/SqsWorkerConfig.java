@@ -26,6 +26,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.env.Environment;
 import software.amazon.awssdk.services.sqs.SqsClient;
 
 @Configuration(proxyBeanMethods = false)
@@ -36,8 +37,8 @@ public class SqsWorkerConfig {
     @Bean
     public SqsBatchWorkerMessageListener sqsBatchWorkerMessageListener(StepExecutionRequestHandler stepExecutionRequestHandler,
             InputChannelInterceptor inputInterceptor, SqsClient sqsClient, SqsMessageSerializer sqsMessageSerializer,
-            FineractProperties fineractProperties) {
+            FineractProperties fineractProperties, Environment environment) {
         return new SqsBatchWorkerMessageListener(stepExecutionRequestHandler, inputInterceptor, sqsClient, sqsMessageSerializer,
-                fineractProperties);
+                fineractProperties, environment);
     }
 }
