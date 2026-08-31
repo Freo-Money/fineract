@@ -244,8 +244,9 @@ public class FineractProperties {
         private String endpoint;
         private Integer waitTimeSeconds;
         /**
-         * Visibility timeout in seconds. Applied at queue level in AWS; configure the SQS queue with this value. Used
-         * optionally to extend message visibility during long processing via ChangeMessageVisibility.
+         * Visibility timeout in seconds, applied per-receive on every ReceiveMessage call (overriding the queue's
+         * default attribute) and clamped to the SQS cap of 43200. Also drives the orphaned-partition takeover threshold
+         * (2x this value) in StepExecutionRequestHandler.
          */
         private Integer visibilityTimeoutSeconds;
         private Integer maxNumberOfMessages;
@@ -253,6 +254,15 @@ public class FineractProperties {
          * Number of concurrent consumer threads polling the queue. Default 1 (same as JMS single consumer).
          */
         private Integer concurrency;
+        /**
+         * Total shutdown (SIGTERM) drain budget in seconds for the SQS worker: how long an in-flight partition may
+         * finish before the worker threads are force-stopped, including a reserved wind-down slice. Default 25 (also
+         * used for negative values); 0 disables the drain. Sizing rules, the interplay with
+         * spring.lifecycle.timeout-per-shutdown-phase and the orchestrator stop window, and the recovery semantics of
+         * an interrupted partition are documented in docs/aws-sqs-remote-job-message-handler-implementation.md
+         * (sections 3.5 and 5.4) — that file is the canonical reference.
+         */
+        private Integer shutdownTimeoutSeconds;
 
         /**
          * Returns true only when both accessKey and secretKey are set. AWS requires both for static credentials; if
