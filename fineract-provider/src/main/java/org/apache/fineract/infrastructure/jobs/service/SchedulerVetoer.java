@@ -29,7 +29,6 @@ import org.quartz.JobExecutionContext;
 import org.quartz.JobKey;
 import org.quartz.Trigger;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
 @Component
@@ -39,7 +38,12 @@ public class SchedulerVetoer {
     private final SchedularWritePlatformService schedularService;
     private final BusinessDateReadPlatformService businessDateReadPlatformService;
 
-    @Transactional
+    // Deliberately NOT @Transactional. The only write is the job claim in
+    // SchedularWritePlatformService#processJobDetailForExecution, which runs in its own REQUIRES_NEW transaction.
+    // An outer transaction here would (a) be marked rollback-only by the first failed claim attempt, so every
+    // @Retry re-attempt joins an already-doomed (and on PostgreSQL, aborted) transaction and cannot succeed, and
+    // (b) throw UnexpectedRollbackException at commit even when the fallback returns a clean veto, so the
+    // fail-closed decision never reaches Quartz as a veto.
     public boolean veto(Trigger trigger, JobExecutionContext context) {
         String tenantIdentifier = trigger.getJobDataMap().getString(SchedulerServiceConstants.TENANT_IDENTIFIER);
         HashMap<BusinessDateType, LocalDate> businessDates = businessDateReadPlatformService.getBusinessDates();
