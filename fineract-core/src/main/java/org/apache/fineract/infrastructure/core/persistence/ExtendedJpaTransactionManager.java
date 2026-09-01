@@ -68,7 +68,9 @@ public class ExtendedJpaTransactionManager extends JpaTransactionManager {
         if (definition.getIsolationLevel() != TransactionDefinition.ISOLATION_DEFAULT) {
             throw new InvalidIsolationLevelException("Custom isolation level " + definition.getIsolationLevel()
                     + " is not supported by the JPA transaction manager; use the JDBC transaction manager (\"jdbcTransactionManager\") "
-                    + "for transactions that require a specific isolation level");
+                    + "for transactions that require a specific isolation level. Note the JDBC transaction manager cannot be "
+                    + "started inside an active JPA transaction on the same DataSource — such a call site must run outside "
+                    + "any JPA-managed transaction");
         }
 
         super.doBegin(transaction, definition);

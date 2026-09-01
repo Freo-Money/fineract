@@ -21,7 +21,7 @@ package org.apache.fineract.infrastructure.core.persistence;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
-import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.jdbc.support.JdbcTransactionManager;
 import org.springframework.transaction.IllegalTransactionStateException;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.DefaultTransactionStatus;
@@ -32,7 +32,12 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * {@link ExtendedJpaTransactionManager} — which rejects custom isolation because the EclipseLink dialect would apply it
  * through shared session state — this manager applies isolation per-connection, which is safe under concurrency.
  */
-public class ExtendedDataSourceTransactionManager extends DataSourceTransactionManager {
+// Extends JdbcTransactionManager (not DataSourceTransactionManager) so commit-time SQLExceptions are translated
+// into Spring's DataAccessException hierarchy — a serialization failure or deadlock at commit surfaces as
+// ConcurrencyFailureException, which Fineract's retry configuration recognizes, instead of an opaque
+// TransactionSystemException. That matters here specifically: this manager exists to host the isolation-sensitive
+// transactions most likely to hit commit-time conflicts.
+public class ExtendedDataSourceTransactionManager extends JdbcTransactionManager {
 
     private final List<TransactionLifecycleCallback> lifecycleCallbacks = new CopyOnWriteArrayList<>();
 
@@ -42,7 +47,10 @@ public class ExtendedDataSourceTransactionManager extends DataSourceTransactionM
         this.readOnly = readOnly;
         setValidateExistingTransaction(true);
         // Set here rather than in doBegin: the flag is consulted by prepareTransactionalConnection
-        // during super.doBegin, so setting it later would miss the first read-only transaction.
+        // during super.doBegin, so setting it later would miss the first read-only transaction. Note the
+        // enforcement ("SET TRANSACTION READ ONLY") fires only when the individual transaction definition
+        // is ALSO marked read-only; a non-read-only definition on a read-only instance relies on the
+        // Hikari pool's connection-level readOnly flag, set from the same mode property.
         if (readOnly) {
             setEnforceReadOnly(true);
         }
