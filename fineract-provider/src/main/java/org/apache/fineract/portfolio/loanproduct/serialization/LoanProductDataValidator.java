@@ -76,6 +76,7 @@ import org.apache.fineract.portfolio.loanproduct.domain.LoanProductPaymentAlloca
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductValueConditionType;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanRescheduleStrategyMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanSupportedInterestRefundTypes;
+import org.apache.fineract.portfolio.loanproduct.domain.PartPaymentRecalculationStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.RecalculationFrequencyType;
 import org.apache.fineract.portfolio.loanproduct.exception.EqualAmortizationUnsupportedFeatureException;
 import org.springframework.stereotype.Component;
@@ -214,7 +215,8 @@ public final class LoanProductDataValidator {
             LoanProductAccountingParams.BUYDOWN_FEE_CLASSIFICATION_TO_INCOME_ACCOUNT_MAPPINGS.getValue(), //
             LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR,
             LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE,
-            LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME, LoanProductConstants.PRECLOSE_EMI_ROUNDING_PARAM_NAME));
+            LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME, LoanProductConstants.PRECLOSE_EMI_ROUNDING_PARAM_NAME,
+            LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY));
 
     private static final String[] SUPPORTED_LOAN_CONFIGURABLE_ATTRIBUTES = { LoanProductConstants.amortizationTypeParamName,
             LoanProductConstants.interestTypeParamName, LoanProductConstants.transactionProcessingStrategyCodeParamName,
@@ -928,6 +930,8 @@ public final class LoanProductDataValidator {
         validateBuyDownFee(transactionProcessingStrategyCode, element, baseDataValidator, accountingRuleType);
 
         validateBrokenPeriodInterest(element, baseDataValidator);
+
+        validatePartPaymentConfig(element, baseDataValidator);
 
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
@@ -2036,6 +2040,8 @@ public final class LoanProductDataValidator {
 
         validateBrokenPeriodInterest(element, baseDataValidator);
 
+        validatePartPaymentConfig(element, baseDataValidator);
+
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
 
@@ -3007,6 +3013,21 @@ public final class LoanProductDataValidator {
                 baseDataValidator.reset().parameter(LoanProductConstants.ENABLE_BUY_DOWN_FEE_PARAM_NAME).failWithCode(
                         "supported.only.for.progressive.loan.buyDownFee", "Buy down fee is only supported for Progressive loans");
             }
+        }
+    }
+
+    /**
+     * Validates the part-payment recalculation strategy. The parameter is optional: when it is absent the product
+     * simply carries no part-payment configuration and the runtime default applies. When present it has to name one of
+     * the {@link PartPaymentRecalculationStrategy} constants, which is what stops a typo from being silently coerced to
+     * {@link PartPaymentRecalculationStrategy#DEFAULT} by {@code PartPaymentRecalculationStrategy.fromCode}.
+     */
+    private void validatePartPaymentConfig(JsonElement element, DataValidatorBuilder baseDataValidator) {
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY, element)) {
+            final String partPaymentRecalculationStrategy = this.fromApiJsonHelper
+                    .extractStringNamed(LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY, element);
+            baseDataValidator.reset().parameter(LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY)
+                    .value(partPaymentRecalculationStrategy).ignoreIfNull().isOneOfEnumValues(PartPaymentRecalculationStrategy.class);
         }
     }
 

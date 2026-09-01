@@ -68,6 +68,7 @@ import org.apache.fineract.portfolio.loanproduct.domain.FutureInstallmentAllocat
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigurableAttributes;
+import org.apache.fineract.portfolio.loanproduct.domain.PartPaymentRecalculationStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.PaymentAllocationTransactionType;
 import org.apache.fineract.portfolio.loanproduct.domain.PaymentAllocationType;
 import org.apache.fineract.portfolio.loanproduct.domain.RepaymentStartDateType;
@@ -276,6 +277,22 @@ public class LoanProductData implements Serializable {
     private final BrokenPeriodConfigData brokenPeriodConfig;
     private List<EnumOptionData> brokenPeriodInterestStrategyOptions;
     private boolean bpiCollectedAtDisbursement;
+
+    // Part Payment Configuration
+    // Populated after construction by the read service - like LoanAccountData#brokenPeriodConfig - rather than through
+    // the constructor, which already carries well over a hundred positional parameters.
+    private PartPaymentConfigData partPaymentConfig;
+    private List<StringEnumOptionData> partPaymentRecalculationStrategyOptions;
+
+    public LoanProductData setPartPaymentConfig(final PartPaymentConfigData partPaymentConfig) {
+        this.partPaymentConfig = partPaymentConfig;
+        return this;
+    }
+
+    public LoanProductData setPartPaymentRecalculationStrategyOptions(final List<StringEnumOptionData> options) {
+        this.partPaymentRecalculationStrategyOptions = options;
+        return this;
+    }
 
     /**
      * Used when returning lookup information about loan product for dropdowns.
@@ -988,6 +1005,8 @@ public class LoanProductData implements Serializable {
         this.precloseEmiRounding = precloseEmiRounding;
         this.installmentInterestCalculationType = installmentInterestCalculationType;
         this.brokenPeriodInterestStrategyOptions = BrokenPeriodInterestStrategy.getOptionDataList();
+        this.partPaymentRecalculationStrategyOptions = ApiFacingEnum
+                .getValuesAsStringEnumOptionDataList(PartPaymentRecalculationStrategy.class);
         this.chargeOptions = null;
         this.penaltyOptions = null;
         this.paymentTypeOptions = null;
@@ -1313,6 +1332,9 @@ public class LoanProductData implements Serializable {
         this.capitalizedIncomeClassificationToIncomeAccountMappings = productData.capitalizedIncomeClassificationToIncomeAccountMappings;
         this.brokenPeriodConfig = productData.brokenPeriodConfig;
         this.brokenPeriodInterestStrategyOptions = BrokenPeriodInterestStrategy.getOptionDataList();
+        this.partPaymentConfig = productData.partPaymentConfig;
+        this.partPaymentRecalculationStrategyOptions = ApiFacingEnum
+                .getValuesAsStringEnumOptionDataList(PartPaymentRecalculationStrategy.class);
     }
 
     private Collection<ChargeData> nullIfEmpty(final Collection<ChargeData> charges) {

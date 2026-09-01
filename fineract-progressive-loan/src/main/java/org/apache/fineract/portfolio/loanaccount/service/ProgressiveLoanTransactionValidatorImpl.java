@@ -612,6 +612,11 @@ public class ProgressiveLoanTransactionValidatorImpl implements ProgressiveLoanT
         loanTransactionValidator.validateAccrualSuspenseReverseForRepayment(loan, suspenseReverseTransaction, repaymentTransaction);
     }
 
+    @Override
+    public void validateLoanPartPayment(final String json) {
+        loanTransactionValidator.validateLoanPartPayment(json);
+    }
+
     private Set<String> getCapitalizedIncomeParameters() {
         return new HashSet<>(Arrays.asList("transactionDate", "dateFormat", "locale", "transactionAmount", "paymentTypeId", "note",
                 "externalId", LoanTransactionApiConstants.TRANSACTION_CLASSIFICATIONID_PARAMNAME));
