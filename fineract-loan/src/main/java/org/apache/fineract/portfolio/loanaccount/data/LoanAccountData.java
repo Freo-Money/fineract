@@ -185,6 +185,7 @@ public class LoanAccountData {
     @Transient
     private BigDecimal feeChargesAtDisbursementCharged;
     private BigDecimal totalOverpaid;
+    private BigDecimal totalExcessPaymentAmount;
 
     // loanCycle
     private Integer loanCounter;
@@ -276,6 +277,7 @@ public class LoanAccountData {
     private Boolean chargedOff;
 
     private Boolean enableDownPayment;
+    private Boolean enableExcessPaymentParking;
     private BigDecimal disbursedAmountPercentageForDownPayment;
     private Boolean enableAutoRepaymentForDownPayment;
     private Boolean interestRecognitionOnDisbursementDate;
@@ -465,17 +467,17 @@ public class LoanAccountData {
             final boolean isLoanProductLinkedToFloatingRate, final Long fundId, final String fundName, final Long loanPurposeId,
             final String loanPurposeName, final Long loanOfficerId, final String loanOfficerName, final CurrencyData currencyData,
             final BigDecimal proposedPrincipal, final BigDecimal principal, final BigDecimal approvedPrincipal,
-            final BigDecimal netDisbursalAmount, final BigDecimal totalOverpaid, final BigDecimal inArrearsTolerance,
-            final Integer termFrequency, final EnumOptionData termPeriodFrequencyType, final Integer numberOfRepayments,
-            final Integer repaymentEvery, final EnumOptionData repaymentFrequencyType, EnumOptionData repaymentFrequencyNthDayType,
-            EnumOptionData repaymentFrequencyDayOfWeekType, final String transactionStrategy, final String transactionStrategyName,
-            final EnumOptionData amortizationType, final BigDecimal interestRatePerPeriod, final EnumOptionData interestRateFrequencyType,
-            final BigDecimal annualInterestRate, final EnumOptionData interestType, final boolean isFloatingInterestRate,
-            final BigDecimal interestRateDifferential, final EnumOptionData interestCalculationPeriodType,
-            Boolean allowPartialPeriodInterestCalcualtion, final LocalDate expectedFirstRepaymentOnDate,
-            final Integer graceOnPrincipalPayment, final Integer recurringMoratoriumOnPrincipalPeriods,
-            final Integer graceOnInterestPayment, final Integer graceOnInterestCharged, final LocalDate interestChargedFromDate,
-            final LoanApplicationTimelineData timeline, final LoanSummaryData loanSummary,
+            final BigDecimal netDisbursalAmount, final BigDecimal totalOverpaid, final BigDecimal totalExcessPaymentAmount,
+            final BigDecimal inArrearsTolerance, final Integer termFrequency, final EnumOptionData termPeriodFrequencyType,
+            final Integer numberOfRepayments, final Integer repaymentEvery, final EnumOptionData repaymentFrequencyType,
+            EnumOptionData repaymentFrequencyNthDayType, EnumOptionData repaymentFrequencyDayOfWeekType, final String transactionStrategy,
+            final String transactionStrategyName, final EnumOptionData amortizationType, final BigDecimal interestRatePerPeriod,
+            final EnumOptionData interestRateFrequencyType, final BigDecimal annualInterestRate, final EnumOptionData interestType,
+            final boolean isFloatingInterestRate, final BigDecimal interestRateDifferential,
+            final EnumOptionData interestCalculationPeriodType, Boolean allowPartialPeriodInterestCalcualtion,
+            final LocalDate expectedFirstRepaymentOnDate, final Integer graceOnPrincipalPayment,
+            final Integer recurringMoratoriumOnPrincipalPeriods, final Integer graceOnInterestPayment, final Integer graceOnInterestCharged,
+            final LocalDate interestChargedFromDate, final LoanApplicationTimelineData timeline, final LoanSummaryData loanSummary,
             final BigDecimal feeChargesDueAtDisbursementCharged, final Boolean syncDisbursementWithMeeting, final Integer loanCounter,
             final Integer loanProductCounter, final Boolean multiDisburseLoan, Boolean canDefineInstallmentAmount,
             final Boolean adjustInterestForRounding, final BigDecimal fixedEmiAmont, final BigDecimal outstandingLoanBalance,
@@ -487,15 +489,15 @@ public class LoanAccountData {
             final BigDecimal topupAmount, final boolean isEqualAmortization, final BigDecimal fixedPrincipalPercentagePerInstallment,
             final DelinquencyRangeData delinquencyRange, final boolean disallowExpectedDisbursements, final boolean fraud,
             LocalDate lastClosedBusinessDate, LocalDate overpaidOnDate, final boolean chargedOff, final boolean enableDownPayment,
-            final BigDecimal disbursedAmountPercentageForDownPayment, final boolean enableAutoRepaymentForDownPayment,
-            final boolean enableInstallmentLevelDelinquency, final EnumOptionData loanScheduleType,
-            final EnumOptionData loanScheduleProcessingType, final Integer fixedLength, final StringEnumOptionData chargeOffBehaviour,
-            final boolean isInterestRecognitionOnDisbursementDate, final StringEnumOptionData daysInYearCustomStrategy,
-            final boolean enableIncomeCapitalization, final StringEnumOptionData capitalizedIncomeCalculationType,
-            final StringEnumOptionData capitalizedIncomeStrategy, StringEnumOptionData capitalizedIncomeType,
-            final boolean enableBuyDownFee, final StringEnumOptionData buyDownFeeCalculationType,
-            final StringEnumOptionData buyDownFeeStrategy, final StringEnumOptionData buyDownFeeIncomeType,
-            final boolean merchantBuyDownFee, final BigDecimal brokenPeriodInterest) {
+            final boolean enableExcessPaymentParking, final BigDecimal disbursedAmountPercentageForDownPayment,
+            final boolean enableAutoRepaymentForDownPayment, final boolean enableInstallmentLevelDelinquency,
+            final EnumOptionData loanScheduleType, final EnumOptionData loanScheduleProcessingType, final Integer fixedLength,
+            final StringEnumOptionData chargeOffBehaviour, final boolean isInterestRecognitionOnDisbursementDate,
+            final StringEnumOptionData daysInYearCustomStrategy, final boolean enableIncomeCapitalization,
+            final StringEnumOptionData capitalizedIncomeCalculationType, final StringEnumOptionData capitalizedIncomeStrategy,
+            StringEnumOptionData capitalizedIncomeType, final boolean enableBuyDownFee,
+            final StringEnumOptionData buyDownFeeCalculationType, final StringEnumOptionData buyDownFeeStrategy,
+            final StringEnumOptionData buyDownFeeIncomeType, final boolean merchantBuyDownFee, final BigDecimal brokenPeriodInterest) {
 
         final CollectionData delinquent = CollectionData.template();
 
@@ -507,7 +509,8 @@ public class LoanAccountData {
                 .setLoanPurposeId(loanPurposeId).setLoanPurposeName(loanPurposeName).setLoanOfficerId(loanOfficerId)
                 .setLoanOfficerName(loanOfficerName).setCurrency(currencyData).setProposedPrincipal(proposedPrincipal)
                 .setPrincipal(principal).setApprovedPrincipal(approvedPrincipal).setNetDisbursalAmount(netDisbursalAmount)
-                .setTotalOverpaid(totalOverpaid).setInArrearsTolerance(inArrearsTolerance).setTermFrequency(termFrequency)
+                .setTotalOverpaid(totalOverpaid).setTotalExcessPaymentAmount(totalExcessPaymentAmount)
+                .setInArrearsTolerance(inArrearsTolerance).setTermFrequency(termFrequency)
                 .setTermPeriodFrequencyType(termPeriodFrequencyType).setNumberOfRepayments(numberOfRepayments)
                 .setRepaymentEvery(repaymentEvery).setRepaymentFrequencyType(repaymentFrequencyType)
                 .setRepaymentFrequencyNthDayType(repaymentFrequencyNthDayType)
@@ -537,7 +540,8 @@ public class LoanAccountData {
                 .setFixedPrincipalPercentagePerInstallment(fixedPrincipalPercentagePerInstallment).setDelinquent(delinquent)
                 .setDelinquencyRange(delinquencyRange).setDisallowExpectedDisbursements(disallowExpectedDisbursements).setFraud(fraud)
                 .setLastClosedBusinessDate(lastClosedBusinessDate).setOverpaidOnDate(overpaidOnDate).setChargedOff(chargedOff)
-                .setEnableDownPayment(enableDownPayment).setDisbursedAmountPercentageForDownPayment(disbursedAmountPercentageForDownPayment)
+                .setEnableDownPayment(enableDownPayment).setEnableExcessPaymentParking(enableExcessPaymentParking)
+                .setDisbursedAmountPercentageForDownPayment(disbursedAmountPercentageForDownPayment)
                 .setEnableAutoRepaymentForDownPayment(enableAutoRepaymentForDownPayment)
                 .setEnableInstallmentLevelDelinquency(enableInstallmentLevelDelinquency).setLoanScheduleType(loanScheduleType)
                 .setLoanScheduleProcessingType(loanScheduleProcessingType).setFixedLength(fixedLength)
