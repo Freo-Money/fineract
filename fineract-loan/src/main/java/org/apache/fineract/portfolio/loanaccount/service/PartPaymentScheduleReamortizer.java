@@ -274,7 +274,10 @@ public class PartPaymentScheduleReamortizer {
 
     private Money resolveInstalmentAmount(final LoanApplicationTerms terms, final PartPaymentRecalculationStrategy strategy,
             final Money balance, final int remainingPeriods, final Money billedInstalmentAmount, final MathContext mc) {
-        if (strategy != null && strategy.isReducedTenure()) {
+        // A null strategy means the caller had nothing configured to pass, so it resolves the same way
+        // LoanAccountDomainServiceJpa#resolvePartPaymentStrategy resolves it - to the product-wide default.
+        final PartPaymentRecalculationStrategy effectiveStrategy = strategy == null ? PartPaymentRecalculationStrategy.DEFAULT : strategy;
+        if (effectiveStrategy.isReducedTenure()) {
             // Keep paying the instalment the customer is used to; the tenure absorbs the part-payment instead.
             return billedInstalmentAmount;
         }

@@ -36,6 +36,6 @@ public class PartPaymentConfigDTO implements Serializable {
     private PartPaymentRecalculationStrategy strategy;
 
     public static PartPaymentConfigDTO createDefault() {
-        return new PartPaymentConfigDTO(PartPaymentRecalculationStrategy.REDUCED_EMI);
+        return new PartPaymentConfigDTO(PartPaymentRecalculationStrategy.DEFAULT);
     }
 }

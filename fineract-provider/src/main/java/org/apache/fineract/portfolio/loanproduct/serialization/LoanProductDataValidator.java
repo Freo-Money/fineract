@@ -3020,7 +3020,7 @@ public final class LoanProductDataValidator {
      * Validates the part-payment recalculation strategy. The parameter is optional: when it is absent the product
      * simply carries no part-payment configuration and the runtime default applies. When present it has to name one of
      * the {@link PartPaymentRecalculationStrategy} constants, which is what stops a typo from being silently coerced to
-     * {@code REDUCED_EMI} by {@code PartPaymentRecalculationStrategy.fromCode}.
+     * {@link PartPaymentRecalculationStrategy#DEFAULT} by {@code PartPaymentRecalculationStrategy.fromCode}.
      */
     private void validatePartPaymentConfig(JsonElement element, DataValidatorBuilder baseDataValidator) {
         if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY, element)) {

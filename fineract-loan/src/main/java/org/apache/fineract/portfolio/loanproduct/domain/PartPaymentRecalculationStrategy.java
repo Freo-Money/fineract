@@ -26,6 +26,13 @@ public enum PartPaymentRecalculationStrategy implements ApiFacingEnum<PartPaymen
     REDUCED_TENURE(2, "partPaymentRecalculationStrategy.reducedTenure", "Reduce Tenure"), //
     ;
 
+    /**
+     * The strategy a part-payment falls back on when neither the loan nor its product names one, and the value every
+     * lenient lookup below coerces an unrecognised input to. Keeping it in one place means the product-wide default is
+     * a single-constant change rather than a hunt through the fallbacks.
+     */
+    public static final PartPaymentRecalculationStrategy DEFAULT = REDUCED_TENURE;
+
     private final Integer value;
     private final String code;
     private final String humanReadableName;
@@ -52,25 +59,25 @@ public enum PartPaymentRecalculationStrategy implements ApiFacingEnum<PartPaymen
 
     public static PartPaymentRecalculationStrategy fromInt(final Integer value) {
         if (value == null) {
-            return REDUCED_EMI;
+            return DEFAULT;
         }
         return switch (value) {
             case 1 -> PartPaymentRecalculationStrategy.REDUCED_EMI;
             case 2 -> PartPaymentRecalculationStrategy.REDUCED_TENURE;
-            default -> REDUCED_EMI;
+            default -> DEFAULT;
         };
     }
 
     public static PartPaymentRecalculationStrategy fromCode(final String code) {
         if (code == null) {
-            return REDUCED_EMI;
+            return DEFAULT;
         }
         for (PartPaymentRecalculationStrategy s : values()) {
             if (s.getCode().equalsIgnoreCase(code)) {
                 return s;
             }
         }
-        return REDUCED_EMI;
+        return DEFAULT;
     }
 
     public boolean isReducedEmi() {

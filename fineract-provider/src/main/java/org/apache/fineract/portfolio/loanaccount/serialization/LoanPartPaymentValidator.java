@@ -28,6 +28,7 @@ import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanSummary;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.apache.fineract.portfolio.loanaccount.exception.LoanPartPaymentException;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.springframework.stereotype.Component;
@@ -38,6 +39,7 @@ public class LoanPartPaymentValidator {
 
     public static final String ERROR_AMOUNT_EXCEEDS_TOTAL_OUTSTANDING = "error.msg.loan.part.payment.amount.cannot.exceed.total.outstanding";
     public static final String ERROR_EMI_DUE_TODAY_NOT_CLEARED = "error.msg.loan.partpayment.emidue.today.not.allowed";
+    public static final String ERROR_PART_PAYMENT_ALREADY_MADE_ON_DATE = "error.msg.loan.partpayment.already.exists.on.date";
 
     public void validateNotOverdue(final Loan loan, final LocalDate transactionDate) {
         List<LoanRepaymentScheduleInstallment> installments = loan.getRepaymentScheduleInstallments();
@@ -78,6 +80,35 @@ public class LoanPartPaymentValidator {
                 throw new LoanPartPaymentException(ERROR_EMI_DUE_TODAY_NOT_CLEARED,
                         "Part-payment is not allowed when an EMI is due today. Please clear the EMI due for today first.", loan.getId(),
                         installment.getInstallmentNumber(), transactionDate);
+            }
+        }
+    }
+
+    /**
+     * Refuses a second part-payment on a date that already carries one.
+     * <p>
+     * A part-payment closes the current period on its payment date and re-amortises the rest of the loan around the
+     * principal prepaid ({@code PartPaymentScheduleReamortizer}). A second payment dated the same day would re-amortise
+     * a schedule the first one has already rewritten, over a period of zero elapsed days: no interest has accrued
+     * between the two, so the second rewrite starts from a balance the first one has already moved. A single
+     * part-payment for the combined amount is the supported way to pay that much on one day.
+     * <p>
+     * Reversed part-payments are ignored - their re-amortisation has been undone, so the day is free again.
+     * <p>
+     * The rule is applied on the transaction date rather than the current business date, matching the rest of this
+     * validator: a backdated part-payment is rewritten around its own date, so that is the day that can only carry one.
+     *
+     * @throws LoanPartPaymentException
+     *             when the loan already has an unreversed part-payment on the transaction date
+     */
+    public void validateNoExistingPartPaymentOn(final Loan loan, final LocalDate transactionDate) {
+        for (final LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (transaction.isPartPayment() && transaction.isNotReversed()
+                    && DateUtils.isEqual(transaction.getTransactionDate(), transactionDate)) {
+                throw new LoanPartPaymentException(ERROR_PART_PAYMENT_ALREADY_MADE_ON_DATE,
+                        "Only one part-payment is allowed per day. Loan: " + loan.getId() + " already has a part-payment on "
+                                + transactionDate + ".",
+                        loan.getId(), transactionDate);
             }
         }
     }
@@ -143,6 +174,7 @@ public class LoanPartPaymentValidator {
 
     public void validatePreConditions(final Loan loan, final LocalDate transactionDate, final BigDecimal transactionAmount) {
         validateNotInTheFuture(transactionDate);
+        validateNoExistingPartPaymentOn(loan, transactionDate);
         validateNotOverdue(loan, transactionDate);
         validateNoUnclearedEmiDueOn(loan, transactionDate);
         validateNotFlatInterest(loan);

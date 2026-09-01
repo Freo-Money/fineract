@@ -2316,7 +2316,8 @@ public final class LoanApplicationValidator {
     /**
      * Validates the loan-level part-payment recalculation strategy override. Optional: when absent the loan inherits
      * the product's strategy. When present it has to name one of the {@link PartPaymentRecalculationStrategy}
-     * constants, so a typo is rejected rather than silently coerced to {@code REDUCED_EMI}.
+     * constants, so a typo is rejected rather than silently coerced to
+     * {@link PartPaymentRecalculationStrategy#DEFAULT}.
      */
     private void validatePartPaymentConfig(JsonElement element, DataValidatorBuilder baseDataValidator) {
         if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY, element)) {

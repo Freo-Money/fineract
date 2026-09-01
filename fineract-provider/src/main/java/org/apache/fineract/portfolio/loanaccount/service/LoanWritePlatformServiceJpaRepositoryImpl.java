@@ -2854,11 +2854,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         final ExternalId externalId = externalIdFactory.createFromCommand(command, LoanApiConstants.externalIdParameterName);
 
         // A part-payment cannot reach the loan's total outstanding amount - at that point it is a payoff and belongs to
-        // the foreclosure command. Refused here, as soon as the loan is available and before the payment details are
-        // created or partPayLoan is entered, so nothing is written: no transaction, no re-amortised schedule, no
-        // summary update and no journal entries. partPayLoan applies the same rule again for callers that reach the
-        // domain service directly.
+        // the foreclosure command - and a day can carry only one part-payment. Refused here, as soon as the loan is
+        // available and before the payment details are created or partPayLoan is entered, so nothing is written: no
+        // transaction, no re-amortised schedule, no summary update and no journal entries. partPayLoan applies both
+        // rules again for callers that reach the domain service directly.
         this.loanPartPaymentValidator.validateAmountWithinTotalOutstanding(loan, transactionAmount);
+        this.loanPartPaymentValidator.validateNoExistingPartPaymentOn(loan, transactionDate);
 
         final Map<String, Object> changes = new LinkedHashMap<>();
         changes.put("dateFormat", command.dateFormat());

@@ -987,6 +987,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         return repaymentTransaction;
     }
 
+    /**
+     * Resolves the strategy a part-payment re-amortises with: the loan's own override first, then its product's, then
+     * the product-wide default ({@link PartPaymentRecalculationStrategy#DEFAULT}) when neither names one.
+     */
     private PartPaymentRecalculationStrategy resolvePartPaymentStrategy(Loan loan) {
         Optional<LoanConfigMapping> loanConfig = loanConfigMappingRepository.findByLoanId(loan.getId());
         if (loanConfig.isPresent()) {
@@ -1002,7 +1006,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                 return config.getStrategy();
             }
         }
-        return PartPaymentRecalculationStrategy.REDUCED_EMI;
+        return PartPaymentRecalculationStrategy.DEFAULT;
     }
 
     private LoanTransaction persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
