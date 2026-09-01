@@ -19,6 +19,8 @@
 package org.apache.fineract.infrastructure.jobs;
 
 import java.util.List;
+import org.apache.fineract.infrastructure.core.config.FineractProperties;
+import org.apache.fineract.infrastructure.core.persistence.ExtendedDataSourceTransactionManager;
 import org.apache.fineract.infrastructure.core.persistence.ExtendedJpaTransactionManager;
 import org.apache.fineract.infrastructure.core.persistence.TransactionLifecycleCallback;
 import org.apache.fineract.infrastructure.core.service.database.RoutingDataSource;
@@ -35,18 +37,32 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.transaction.TransactionManagerCustomizers;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.transaction.PlatformTransactionManager;
 
 @Configuration(proxyBeanMethods = false)
 @EnableBatchProcessing
 public class ScheduledJobRunnerConfig {
 
+    // @Primary is required now that a second PlatformTransactionManager bean exists: unqualified
+    // @Transactional and by-type injections must keep resolving to the JPA manager.
     @Bean
-    public PlatformTransactionManager transactionManager(ObjectProvider<TransactionManagerCustomizers> transactionManagerCustomizers,
-            List<TransactionLifecycleCallback> callbacks) {
-        ExtendedJpaTransactionManager transactionManager = new ExtendedJpaTransactionManager();
+    @Primary
+    public PlatformTransactionManager transactionManager(FineractProperties fineractProperties,
+            ObjectProvider<TransactionManagerCustomizers> transactionManagerCustomizers, List<TransactionLifecycleCallback> callbacks) {
+        ExtendedJpaTransactionManager transactionManager = new ExtendedJpaTransactionManager(fineractProperties.getMode().isReadOnlyMode());
         transactionManager.setLifecycleCallbacks(callbacks);
-        transactionManager.setValidateExistingTransaction(true);
+        transactionManagerCustomizers.ifAvailable(customizers -> customizers.customize(transactionManager));
+        return transactionManager;
+    }
+
+    @Bean
+    public PlatformTransactionManager jdbcTransactionManager(FineractProperties fineractProperties, RoutingDataSource routingDataSource,
+            ObjectProvider<TransactionManagerCustomizers> transactionManagerCustomizers, List<TransactionLifecycleCallback> callbacks) {
+        ExtendedDataSourceTransactionManager transactionManager = new ExtendedDataSourceTransactionManager(
+                fineractProperties.getMode().isReadOnlyMode());
+        transactionManager.setDataSource(routingDataSource);
+        transactionManager.setLifecycleCallbacks(callbacks);
         transactionManagerCustomizers.ifAvailable(customizers -> customizers.customize(transactionManager));
         return transactionManager;
     }
@@ -63,6 +79,14 @@ public class ScheduledJobRunnerConfig {
         return new FineractDataFieldMaxValueIncrementerFactory(routingDataSource);
     }
 
+    // The JobRepository stays on the JPA transaction manager: Spring Batch persists the step execution
+    // context from INSIDE chunk transactions, and a second transaction manager on the same DataSource
+    // would piggyback on the JPA transaction's connection and commit it mid-chunk. ISOLATION_DEFAULT
+    // (required by the JPA manager's isolation guard) equals the READ_COMMITTED previously forced here
+    // on PostgreSQL (production); on MySQL (local dev) the default is REPEATABLE_READ, so concurrent
+    // job-launch races can surface differently there (gap-lock deadlocks instead of a clean
+    // JobExecutionAlreadyRunningException). Duplicate job starts are still blocked on both backends by
+    // the JOB_INST_UN unique constraint.
     @Bean
     public JobRepository jobRepository(RoutingDataSource routingDataSource, PlatformTransactionManager transactionManager,
             Jackson2ExecutionContextStringSerializer executionContextSerializer, DataFieldMaxValueIncrementerFactory incrementerFactory)
@@ -70,7 +94,7 @@ public class ScheduledJobRunnerConfig {
         JobRepositoryFactoryBean factory = new JobRepositoryFactoryBean();
         factory.setDataSource(routingDataSource);
         factory.setTransactionManager(transactionManager);
-        factory.setIsolationLevelForCreate("ISOLATION_READ_COMMITTED");
+        factory.setIsolationLevelForCreate("ISOLATION_DEFAULT");
         factory.setSerializer(executionContextSerializer);
         factory.setIncrementerFactory(incrementerFactory);
         factory.afterPropertiesSet();

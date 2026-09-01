@@ -42,14 +42,14 @@ import org.apache.fineract.useradministration.domain.AppUser;
 import org.springframework.lang.NonNull;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Two phase transactional command processing: save initial...work...finish/failed to handle idempotent requests. As the
- * default isolation level for MYSQL is REPEATABLE_READ and a lower value READ_COMMITED for postgres, we can force to
- * use the same for both database backends to be consistent.
+ * Two phase transactional command processing: save initial...work...finish/failed to handle idempotent requests.
+ * Concurrent duplicate detection relies on the UNIQUE_PORTFOLIO_COMMAND_SOURCE constraint (see saveInitial), not on a
+ * specific isolation level, so these transactions run at the database default — the JPA transaction manager rejects
+ * custom isolation levels.
  */
 @Component
 @RequiredArgsConstructor
@@ -64,7 +64,7 @@ public class CommandSourceService {
     private final FromJsonHelper fromApiJsonHelper;
 
     @NonNull
-    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.REPEATABLE_READ)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public CommandSource saveInitialNewTransaction(CommandWrapper wrapper, JsonCommand jsonCommand, AppUser maker, String idempotencyKey) {
         return saveInitial(wrapper, jsonCommand, maker, idempotencyKey);
     }
@@ -89,7 +89,7 @@ public class CommandSourceService {
         }
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.REPEATABLE_READ)
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public CommandSource saveResultNewTransaction(@NonNull CommandSource commandSource) {
         return saveResult(commandSource);
     }
