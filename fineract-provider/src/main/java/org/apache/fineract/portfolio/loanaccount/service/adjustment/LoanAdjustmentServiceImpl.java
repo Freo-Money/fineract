@@ -320,6 +320,23 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
                     errorMessage);
         }
 
+        // A repayment that parked excess can only be reversed while its parked amount is still available in the
+        // loan-level pool. Once the sweeper (REPAYMENT_FROM_EXCESS_AMOUNT) has consumed it against installments,
+        // reversing the funding transaction would double-spend: the replay clamps the pool at zero and the
+        // installments stay paid with money that was returned. The sweep transactions must be reversed first.
+        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            final MonetaryCurrency loanCurrency = loan.getCurrency();
+            final Money parkedByTransaction = transactionForAdjustment.getExcessPayment(loanCurrency);
+            if (parkedByTransaction.isGreaterThanZero()) {
+                final Money availableExcess = Money.of(loanCurrency, loan.getTotalExcessPaymentAmount());
+                if (parkedByTransaction.isGreaterThan(availableExcess)) {
+                    throw new InvalidLoanTransactionTypeException("transaction", "parked.excess.already.consumed",
+                            "The parked excess of this transaction has already been applied to installments. Reverse the "
+                                    + "'Repayment From Excess Amount' transaction(s) first.");
+                }
+            }
+        }
+
         loanChargeValidator.validateRepaymentTypeTransactionNotBeforeAChargeRefund(transactionForAdjustment.getLoan(),
                 transactionForAdjustment, "reversed");
         transactionForAdjustment.reverse(reversalExternalId);

@@ -154,6 +154,7 @@ public interface LoanProductConstants {
     // down-payment related
     String ENABLE_DOWN_PAYMENT = "enableDownPayment";
     String ENABLE_SCHEDULE_ARCHIVE = "enableScheduleArchive";
+    String ENABLE_EXCESS_PAYMENT_PARKING = "enableExcessPaymentParking";
     String DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT = "disbursedAmountPercentageForDownPayment";
     String ENABLE_AUTO_REPAYMENT_DOWN_PAYMENT = "enableAutoRepaymentForDownPayment";
     String REPAYMENT_START_DATE_TYPE = "repaymentStartDateType";
