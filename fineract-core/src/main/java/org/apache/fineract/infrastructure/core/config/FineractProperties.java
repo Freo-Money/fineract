@@ -236,6 +236,10 @@ public class FineractProperties {
     @Setter
     public static class FineractRemoteJobMessageHandlerSqsProperties {
 
+        public static final int DEFAULT_VISIBILITY_TIMEOUT_SECONDS = 3600;
+        // SQS hard cap for the ReceiveMessage VisibilityTimeout parameter is 43200 seconds (12h)
+        public static final int MAX_SQS_VISIBILITY_TIMEOUT_SECONDS = 43200;
+
         private boolean enabled;
         private String queueUrl;
         private String region;
@@ -245,10 +249,20 @@ public class FineractProperties {
         private Integer waitTimeSeconds;
         /**
          * Visibility timeout in seconds, applied per-receive on every ReceiveMessage call (overriding the queue's
-         * default attribute) and clamped to the SQS cap of 43200. Also drives the orphaned-partition takeover threshold
-         * (2x this value) in StepExecutionRequestHandler.
+         * default attribute) and clamped to the SQS cap of 43200. Also the fallback driver of the orphaned-partition
+         * takeover threshold (2x this value) in StepExecutionRequestHandler when
+         * {@link #orphanedPartitionThresholdSeconds} is not set.
          */
         private Integer visibilityTimeoutSeconds;
+        /**
+         * Staleness age in seconds after which a STARTED partition whose lastUpdated stopped advancing is considered
+         * orphaned and may be taken over by another worker. Decouples takeover speed from the visibility timeout: the
+         * visibility timeout sets how often the recovery message is redelivered, this sets how stale a partition must
+         * be before a redelivery is allowed to take it over. Must comfortably exceed the longest single chunk (the
+         * lastUpdated stamp advances at every chunk commit), or a live worker gets its partition stolen. Unset or
+         * non-positive falls back to 2x the effective visibility timeout.
+         */
+        private Integer orphanedPartitionThresholdSeconds;
         private Integer maxNumberOfMessages;
         /**
          * Number of concurrent consumer threads polling the queue. Default 1 (same as JMS single consumer).
@@ -270,6 +284,16 @@ public class FineractProperties {
          */
         public boolean isAccessKeyProtected() {
             return StringUtils.isNotBlank(accessKey) && StringUtils.isNotBlank(secretKey);
+        }
+
+        /**
+         * The visibility timeout actually in effect: the configured value clamped to the SQS cap, or the default when
+         * unset or non-positive. The single source of truth for both the per-receive request and the orphan-takeover
+         * threshold fallback, so redelivery cadence and takeover math can never disagree on the value.
+         */
+        public int getEffectiveVisibilityTimeoutSeconds() {
+            return visibilityTimeoutSeconds == null || visibilityTimeoutSeconds <= 0 ? DEFAULT_VISIBILITY_TIMEOUT_SECONDS
+                    : Math.min(visibilityTimeoutSeconds, MAX_SQS_VISIBILITY_TIMEOUT_SECONDS);
         }
     }
 

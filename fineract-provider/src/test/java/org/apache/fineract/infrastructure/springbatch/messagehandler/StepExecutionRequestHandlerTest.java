@@ -69,13 +69,7 @@ public class StepExecutionRequestHandlerTest {
 
     @BeforeEach
     public void setUp() {
-        FineractProperties fineractProperties = new FineractProperties();
-        FineractProperties.FineractRemoteJobMessageHandlerProperties remoteJobMessageHandler = new FineractProperties.FineractRemoteJobMessageHandlerProperties();
-        FineractProperties.FineractRemoteJobMessageHandlerSqsProperties sqs = new FineractProperties.FineractRemoteJobMessageHandlerSqsProperties();
-        sqs.setVisibilityTimeoutSeconds(VISIBILITY_TIMEOUT_SECONDS);
-        remoteJobMessageHandler.setSqs(sqs);
-        fineractProperties.setRemoteJobMessageHandler(remoteJobMessageHandler);
-        underTest = new StepExecutionRequestHandler(jobRepository, stepLocator, jobExplorer, fineractProperties);
+        underTest = handlerWith(VISIBILITY_TIMEOUT_SECONDS, null);
     }
 
     private StepExecutionRequest request() {
@@ -160,13 +154,7 @@ public class StepExecutionRequestHandlerTest {
 
     @Test
     public void whenVisibilityTimeoutExceedsSqsCapThenThresholdUsesTheClampedValue() throws Exception {
-        FineractProperties fineractProperties = new FineractProperties();
-        FineractProperties.FineractRemoteJobMessageHandlerProperties remoteJobMessageHandler = new FineractProperties.FineractRemoteJobMessageHandlerProperties();
-        FineractProperties.FineractRemoteJobMessageHandlerSqsProperties sqs = new FineractProperties.FineractRemoteJobMessageHandlerSqsProperties();
-        sqs.setVisibilityTimeoutSeconds(50000);
-        remoteJobMessageHandler.setSqs(sqs);
-        fineractProperties.setRemoteJobMessageHandler(remoteJobMessageHandler);
-        underTest = new StepExecutionRequestHandler(jobRepository, stepLocator, jobExplorer, fineractProperties);
+        underTest = handlerWith(50000, null);
         StepExecution stepExecution = stepExecution(BatchStatus.STARTED);
         // 2 x clamped 43200 = 86400; with the raw value the threshold would be 100000 and this would stay in flight
         stepExecution.setLastUpdated(LocalDateTime.now(ZoneId.systemDefault()).minusSeconds(86400 + 60));
@@ -175,6 +163,88 @@ public class StepExecutionRequestHandlerTest {
         assertEquals(HandleOutcome.PROCESSED, underTest.handle(request()));
 
         verify(step).execute(stepExecution);
+    }
+
+    private StepExecutionRequestHandler handlerWith(Integer visibilityTimeoutSeconds, Integer orphanedPartitionThresholdSeconds) {
+        FineractProperties fineractProperties = new FineractProperties();
+        FineractProperties.FineractRemoteJobMessageHandlerProperties remoteJobMessageHandler = new FineractProperties.FineractRemoteJobMessageHandlerProperties();
+        FineractProperties.FineractRemoteJobMessageHandlerSqsProperties sqs = new FineractProperties.FineractRemoteJobMessageHandlerSqsProperties();
+        sqs.setVisibilityTimeoutSeconds(visibilityTimeoutSeconds);
+        sqs.setOrphanedPartitionThresholdSeconds(orphanedPartitionThresholdSeconds);
+        remoteJobMessageHandler.setSqs(sqs);
+        fineractProperties.setRemoteJobMessageHandler(remoteJobMessageHandler);
+        return new StepExecutionRequestHandler(jobRepository, stepLocator, jobExplorer, fineractProperties);
+    }
+
+    @Test
+    public void whenDedicatedThresholdIsSetThenItOverridesTheVisibilityTimeoutCoupling() throws Exception {
+        underTest = handlerWith(VISIBILITY_TIMEOUT_SECONDS, 600);
+        StepExecution stepExecution = stepExecution(BatchStatus.STARTED);
+        // stale beyond the dedicated threshold but well within 2 x VT: without the override this stays in flight
+        stepExecution.setLastUpdated(LocalDateTime.now(ZoneId.systemDefault()).minusSeconds(600 + 60));
+        when(stepLocator.getStep(STEP_NAME)).thenReturn(step);
+
+        assertEquals(HandleOutcome.PROCESSED, underTest.handle(request()));
+
+        verify(step).execute(stepExecution);
+    }
+
+    @Test
+    public void whenDedicatedThresholdExceedsTwiceTheVisibilityTimeoutThenTakeoverWaitsForIt() {
+        underTest = handlerWith(VISIBILITY_TIMEOUT_SECONDS, 4 * VISIBILITY_TIMEOUT_SECONDS);
+        StepExecution stepExecution = stepExecution(BatchStatus.STARTED);
+        // stale beyond 2 x VT but within the dedicated threshold: must stay in flight
+        stepExecution.setLastUpdated(LocalDateTime.now(ZoneId.systemDefault()).minusSeconds(2L * VISIBILITY_TIMEOUT_SECONDS + 60));
+
+        assertEquals(HandleOutcome.IN_FLIGHT, underTest.handle(request()));
+
+        verifyNoInteractions(jobRepository, stepLocator);
+    }
+
+    @Test
+    public void whenDedicatedThresholdIsZeroThenTwiceTheVisibilityTimeoutStillGoverns() throws Exception {
+        underTest = handlerWith(VISIBILITY_TIMEOUT_SECONDS, 0);
+        StepExecution stepExecution = stepExecution(BatchStatus.STARTED);
+        // just under 2 x VT: any smaller fallback (0 taken literally, 1 x VT, ...) would take this over
+        stepExecution.setLastUpdated(LocalDateTime.now(ZoneId.systemDefault()).minusSeconds(2L * VISIBILITY_TIMEOUT_SECONDS - 300));
+
+        assertEquals(HandleOutcome.IN_FLIGHT, underTest.handle(request()));
+
+        // just past 2 x VT: any larger fallback would keep this in flight
+        stepExecution.setLastUpdated(LocalDateTime.now(ZoneId.systemDefault()).minusSeconds(2L * VISIBILITY_TIMEOUT_SECONDS + 60));
+        when(stepLocator.getStep(STEP_NAME)).thenReturn(step);
+
+        assertEquals(HandleOutcome.PROCESSED, underTest.handle(request()));
+
+        verify(step).execute(stepExecution);
+    }
+
+    @Test
+    public void whenDedicatedThresholdExceedsTheCapThenTheCapGoverns() throws Exception {
+        // 200000s looks like a units mistake; unclamped it would refuse takeover until the message dead-letters
+        underTest = handlerWith(VISIBILITY_TIMEOUT_SECONDS, 200000);
+        StepExecution stepExecution = stepExecution(BatchStatus.STARTED);
+        // past the cap (2 x 43200s SQS visibility cap) but far below the raw configured value
+        stepExecution.setLastUpdated(LocalDateTime.now(ZoneId.systemDefault()).minusSeconds(2L * 43200 + 60));
+        when(stepLocator.getStep(STEP_NAME)).thenReturn(step);
+
+        assertEquals(HandleOutcome.PROCESSED, underTest.handle(request()));
+
+        verify(step).execute(stepExecution);
+    }
+
+    @Test
+    public void warnOnRiskyConfigurationNeverThrowsForAnyConfiguration() {
+        // runs at @PostConstruct: a throw here would fail application startup
+        Integer[][] configs = { { null, null }, { null, 0 }, { 3600, -1 }, { 3600, 600 }, { 3600, 7200 }, { 3600, 43200 }, { 3600, 200000 },
+                { null, 600 }, { 0, 600 } };
+        for (Integer[] config : configs) {
+            StepExecutionRequestHandler handler = handlerWith(config[0], config[1]);
+            assertDoesNotThrow(handler::warnOnRiskyOrphanTakeoverConfiguration, "vt=" + config[0] + " threshold=" + config[1]);
+        }
+        FineractProperties emptyProperties = new FineractProperties();
+        StepExecutionRequestHandler bareHandler = new StepExecutionRequestHandler(jobRepository, stepLocator, jobExplorer, emptyProperties);
+        assertDoesNotThrow(bareHandler::warnOnRiskyOrphanTakeoverConfiguration, "no remote-job-message-handler config");
     }
 
     @Test

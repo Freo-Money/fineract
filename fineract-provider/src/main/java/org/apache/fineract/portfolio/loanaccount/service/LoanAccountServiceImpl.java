@@ -72,8 +72,7 @@ public class LoanAccountServiceImpl implements LoanAccountService {
         final Throwable realCause = e.getCause();
         final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
         final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan.transaction");
-        if (realCause.getMessage().toLowerCase().contains("external_id_unique") || realCause.getMessage()
-                .contains("duplicate key value violates unique constraint \"m_loan_transaction_external_id_key\"")) {
+        if (LoanUniqueConstraintViolationMatcher.isDuplicateLoanTransactionExternalId(realCause)) {
             baseDataValidator.reset().parameter("externalId").failWithCode("value.must.be.unique");
         }
         if (!dataValidationErrors.isEmpty()) {
