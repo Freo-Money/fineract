@@ -77,6 +77,7 @@ import org.apache.fineract.portfolio.loanaccount.rescheduleloan.exception.LoanRe
 import org.apache.fineract.portfolio.loanaccount.service.LoanAccrualsProcessingService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAssembler;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeService;
+import org.apache.fineract.portfolio.loanaccount.service.LoanUniqueConstraintViolationMatcher;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.loanaccount.service.ReprocessLoanTransactionsService;
 import org.apache.fineract.portfolio.loanaccount.service.schedule.LoanScheduleComponent;
@@ -485,7 +486,7 @@ public class LoanRescheduleRequestWritePlatformServiceImpl implements LoanResche
             final Throwable realCause = e.getCause();
             final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
             final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan.transaction");
-            if (realCause.getMessage().toLowerCase().contains("external_id_unique")) {
+            if (LoanUniqueConstraintViolationMatcher.isDuplicateLoanTransactionExternalId(realCause)) {
                 baseDataValidator.reset().parameter("externalId").failWithCode("value.must.be.unique");
             }
             if (!dataValidationErrors.isEmpty()) {

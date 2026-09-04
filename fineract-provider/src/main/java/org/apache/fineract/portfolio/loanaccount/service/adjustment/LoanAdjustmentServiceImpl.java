@@ -68,6 +68,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanAccrualsProcessingS
 import org.apache.fineract.portfolio.loanaccount.service.LoanBalanceService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanDownPaymentHandlerService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanJournalEntryPoster;
+import org.apache.fineract.portfolio.loanaccount.service.LoanUniqueConstraintViolationMatcher;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
 import org.apache.fineract.portfolio.loanaccount.service.ReprocessLoanTransactionsService;
 import org.apache.fineract.portfolio.note.domain.Note;
@@ -411,7 +412,7 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
             final Throwable realCause = e.getCause();
             final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
             final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan.transaction");
-            if (realCause.getMessage().toLowerCase().contains("external_id_unique")) {
+            if (LoanUniqueConstraintViolationMatcher.isDuplicateLoanTransactionExternalId(realCause)) {
                 baseDataValidator.reset().parameter(LoanApiConstants.externalIdParameterName).failWithCode("value.must.be.unique");
             }
             if (!dataValidationErrors.isEmpty()) {

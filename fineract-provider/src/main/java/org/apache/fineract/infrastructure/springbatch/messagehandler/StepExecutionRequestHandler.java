@@ -18,9 +18,11 @@
  */
 package org.apache.fineract.infrastructure.springbatch.messagehandler;
 
+import jakarta.annotation.PostConstruct;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.config.FineractProperties;
@@ -48,12 +50,14 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(value = "fineract.mode.batch-worker-enabled", havingValue = "true")
 public class StepExecutionRequestHandler {
 
-    private static final int DEFAULT_VISIBILITY_TIMEOUT_SECONDS = 3600;
-    // Must match the per-receive clamp in SqsBatchWorkerMessageListener: SQS caps visibility at 43200 seconds (12h)
-    private static final int MAX_SQS_VISIBILITY_TIMEOUT_SECONDS = 43200;
     // Takeover threshold is a multiple of the redelivery interval so one slow chunk on a live worker does not get its
     // partition stolen on the first redelivery (lastUpdated only advances at chunk commits)
     private static final int ORPHANED_PARTITION_THRESHOLD_MULTIPLIER = 2;
+    // Sanity bound: the largest threshold the pre-knob coupling could produce (2 x the SQS visibility cap). The cap
+    // alone does not guarantee takeover happens before the recovery message dead-letters — that depends on the actual
+    // visibility timeout and the queue's maxReceiveCount, which the receive-budget startup warning covers
+    private static final int MAX_ORPHANED_PARTITION_THRESHOLD_SECONDS = ORPHANED_PARTITION_THRESHOLD_MULTIPLIER
+            * FineractProperties.FineractRemoteJobMessageHandlerSqsProperties.MAX_SQS_VISIBILITY_TIMEOUT_SECONDS;
 
     /**
      * Outcome of a partition request, telling the caller what to do with the broker message.
@@ -171,14 +175,84 @@ public class StepExecutionRequestHandler {
     }
 
     private Duration orphanedPartitionThreshold() {
+        return Duration.ofSeconds(effectiveOrphanedPartitionThresholdSeconds());
+    }
+
+    /**
+     * The takeover threshold actually in effect: the configured dedicated threshold clamped to the cap, or 2x the
+     * effective visibility timeout when unset/non-positive. The single source for the takeover decision and the startup
+     * warnings, so a warning can never describe behavior the takeover path does not have.
+     */
+    private long effectiveOrphanedPartitionThresholdSeconds() {
+        FineractProperties.FineractRemoteJobMessageHandlerSqsProperties sqs = sqsProperties();
+        // A dedicated threshold decouples takeover speed from the redelivery interval; without it, one knob (the
+        // visibility timeout) has to trade fast orphan recovery against stealing a live worker's slow partition
+        Integer configuredThreshold = sqs.getOrphanedPartitionThresholdSeconds();
+        if (configuredThreshold != null && configuredThreshold > 0) {
+            return Math.min(configuredThreshold, MAX_ORPHANED_PARTITION_THRESHOLD_SECONDS);
+        }
+        return (long) ORPHANED_PARTITION_THRESHOLD_MULTIPLIER * sqs.getEffectiveVisibilityTimeoutSeconds();
+    }
+
+    /**
+     * Never null: a missing SQS config block yields an empty properties object whose getters resolve the same defaults
+     * as unset fields, so callers never re-implement the unset-default resolution.
+     */
+    private FineractProperties.FineractRemoteJobMessageHandlerSqsProperties sqsProperties() {
         FineractProperties.FineractRemoteJobMessageHandlerProperties remoteJobMessageHandler = fineractProperties
                 .getRemoteJobMessageHandler();
-        Integer visibilityTimeoutSeconds = remoteJobMessageHandler != null && remoteJobMessageHandler.getSqs() != null
-                ? remoteJobMessageHandler.getSqs().getVisibilityTimeoutSeconds()
+        FineractProperties.FineractRemoteJobMessageHandlerSqsProperties sqs = remoteJobMessageHandler != null
+                ? remoteJobMessageHandler.getSqs()
                 : null;
-        int effectiveVisibilityTimeout = visibilityTimeoutSeconds == null || visibilityTimeoutSeconds <= 0
-                ? DEFAULT_VISIBILITY_TIMEOUT_SECONDS
-                : Math.min(visibilityTimeoutSeconds, MAX_SQS_VISIBILITY_TIMEOUT_SECONDS);
-        return Duration.ofSeconds((long) ORPHANED_PARTITION_THRESHOLD_MULTIPLIER * effectiveVisibilityTimeout);
+        return sqs != null ? sqs : new FineractProperties.FineractRemoteJobMessageHandlerSqsProperties();
+    }
+
+    /**
+     * The takeover contract cannot be validated in code (the safe threshold floor is the longest single chunk, which
+     * only the operator's own runtime data can tell), so misconfiguration risks are surfaced at startup instead: a
+     * non-UTC system zone skews the cross-JVM staleness comparison; a threshold below the visibility timeout is a
+     * deliberate fast-recovery setting but steals live partitions whose current chunk outlives it; a threshold well
+     * above the visibility timeout needs more redeliveries — and therefore more SQS receives — before takeover is ever
+     * allowed, and the queue's maxReceiveCount must cover them or the recovery message dead-letters first; a threshold
+     * above the cap is almost certainly a units mistake.
+     */
+    @PostConstruct
+    void warnOnRiskyOrphanTakeoverConfiguration() {
+        ZoneId systemZone = ZoneId.systemDefault();
+        if (!ZoneOffset.UTC.equals(systemZone.normalized())) {
+            // Staleness compares LocalDateTime values written by other workers' JVMs in their system zones, so a zone
+            // mismatch between containers makes live partitions look hours stale (instant steals) or dead ones look
+            // fresh (no takeover). The production jib image pins UTC, so a non-UTC zone is always anomalous
+            log.warn("System timezone is {} (not UTC): orphan-partition staleness is compared across worker JVMs via zone-local "
+                    + "timestamps — a zone mismatch between workers causes live-partition steals or missed takeovers. Verify every "
+                    + "worker container runs the same timezone", systemZone);
+        }
+        FineractProperties.FineractRemoteJobMessageHandlerSqsProperties sqs = sqsProperties();
+        Integer configuredThreshold = sqs.getOrphanedPartitionThresholdSeconds();
+        if (configuredThreshold == null || configuredThreshold <= 0) {
+            return;
+        }
+        long effectiveThreshold = effectiveOrphanedPartitionThresholdSeconds();
+        long effectiveVisibilityTimeout = sqs.getEffectiveVisibilityTimeoutSeconds();
+        if (configuredThreshold > effectiveThreshold) {
+            log.warn("orphaned-partition-threshold-seconds ({}) exceeds the {}s cap (2x the SQS visibility maximum) and is "
+                    + "clamped to it — check for a units mistake", configuredThreshold, effectiveThreshold);
+        }
+        if (effectiveThreshold < effectiveVisibilityTimeout) {
+            log.warn("orphaned-partition-threshold-seconds ({}s effective) is below the effective visibility timeout ({}s): dead "
+                    + "partitions recover on the first redelivery, but a live partition whose current chunk outlives the "
+                    + "threshold WILL be stolen and executed concurrently. Verify the longest single chunk stays well under "
+                    + "the threshold", effectiveThreshold, effectiveVisibilityTimeout);
+        } else if (effectiveThreshold > ORPHANED_PARTITION_THRESHOLD_MULTIPLIER * effectiveVisibilityTimeout) {
+            // Takeover is only evaluated when SQS redelivers the recovery message (~every visibility timeout), and
+            // every refused redelivery burns a receive toward the queue redrive policy's maxReceiveCount
+            long receivesBeforeTakeover = (effectiveThreshold + effectiveVisibilityTimeout - 1) / effectiveVisibilityTimeout + 1;
+            log.warn(
+                    "orphaned-partition-threshold-seconds ({}s effective, visibility timeout {}s) allows takeover only after ~{} "
+                            + "receives of the recovery message; size the queue redrive policy's maxReceiveCount to at least {} "
+                            + "(takeover receives plus margin for deploy-wave releases and transient errors), or the message "
+                            + "dead-letters first and the partition stays STARTED until manual intervention",
+                    effectiveThreshold, effectiveVisibilityTimeout, receivesBeforeTakeover, receivesBeforeTakeover + 2);
+        }
     }
 }

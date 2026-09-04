@@ -696,7 +696,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final Throwable realCause = e.getCause();
             final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
             final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan.transaction");
-            if (realCause.getMessage().toLowerCase().contains("external_id_unique")) {
+            if (LoanUniqueConstraintViolationMatcher.isDuplicateLoanTransactionExternalId(realCause)) {
                 baseDataValidator.reset().parameter(LoanApiConstants.externalIdParameterName).failWithCode("value.must.be.unique");
             }
             if (!dataValidationErrors.isEmpty()) {
@@ -714,13 +714,16 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             final Throwable realCause = e.getCause();
             final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
             final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan.transaction");
-            if (realCause.getMessage().toLowerCase().contains("external_id_unique")) {
+            if (LoanUniqueConstraintViolationMatcher.isDuplicateLoanTransactionExternalId(realCause)) {
                 baseDataValidator.reset().parameter(LoanApiConstants.externalIdParameterName).failWithCode("value.must.be.unique");
             }
             if (!dataValidationErrors.isEmpty()) {
                 throw new PlatformApiDataValidationException("validation.msg.validation.errors.exist", "Validation errors exist.",
                         dataValidationErrors, e);
             }
+            // an unmatched violation must not be swallowed: the transaction is already rollback-only, and continuing
+            // silently would surface later as an unexplained UnexpectedRollbackException at commit
+            throw e;
         }
     }
 

@@ -67,8 +67,6 @@ public class SqsBatchWorkerMessageListener implements SmartLifecycle {
     // partition needs time to persist its batch status and finish an in-flight SQS delete/release. Effective reserve
     // is min(this, budget / 2) so small configured budgets still spend at least half their time actually draining
     private static final int FORCE_STOP_GRACE_SECONDS = 5;
-    // SQS hard cap for the ReceiveMessage VisibilityTimeout parameter is 43200 seconds (12h)
-    private static final int MAX_SQS_VISIBILITY_TIMEOUT_SECONDS = 43200;
     // Must fit inside both the default spring.lifecycle.timeout-per-shutdown-phase (30s, or the lifecycle processor
     // stops waiting for the drain) and default orchestrator stop windows (ECS/Kubernetes 30s). Deployments with longer
     // partitions must raise the env var together with FINERACT_TIMEOUT_PER_SHUTDOWN and the orchestrator stopTimeout
@@ -349,21 +347,17 @@ public class SqsBatchWorkerMessageListener implements SmartLifecycle {
     }
 
     /**
-     * Build receive request. The visibility timeout is applied per-receive so the configured visibility-timeout-seconds
-     * value is authoritative and does not silently fall back to the queue's default attribute. Values above the SQS
-     * hard cap of 43200 seconds (12h) are clamped.
+     * Build receive request. The effective visibility timeout is applied on every receive so the configured value (or
+     * its default when unset) is authoritative and never silently falls back to the queue's default attribute — the
+     * orphan-takeover threshold in StepExecutionRequestHandler assumes the same effective value, and redelivery cadence
+     * and takeover math must not disagree. Values above the SQS hard cap of 43200 seconds (12h) are clamped.
      */
     private ReceiveMessageRequest receiveMessageRequest() {
         FineractProperties.FineractRemoteJobMessageHandlerSqsProperties sqsProperties = fineractProperties.getRemoteJobMessageHandler()
                 .getSqs();
-        ReceiveMessageRequest.Builder builder = ReceiveMessageRequest.builder().queueUrl(queueUrl())
-                .waitTimeSeconds(defaultIfNull(sqsProperties.getWaitTimeSeconds(), 20))
-                .maxNumberOfMessages(defaultIfNull(sqsProperties.getMaxNumberOfMessages(), 1));
-        Integer visibilityTimeout = sqsProperties.getVisibilityTimeoutSeconds();
-        if (visibilityTimeout != null && visibilityTimeout > 0) {
-            builder.visibilityTimeout(Math.min(visibilityTimeout, MAX_SQS_VISIBILITY_TIMEOUT_SECONDS));
-        }
-        return builder.build();
+        return ReceiveMessageRequest.builder().queueUrl(queueUrl()).waitTimeSeconds(defaultIfNull(sqsProperties.getWaitTimeSeconds(), 20))
+                .maxNumberOfMessages(defaultIfNull(sqsProperties.getMaxNumberOfMessages(), 1))
+                .visibilityTimeout(sqsProperties.getEffectiveVisibilityTimeoutSeconds()).build();
     }
 
     private int defaultIfNull(Integer value, int defaultValue) {

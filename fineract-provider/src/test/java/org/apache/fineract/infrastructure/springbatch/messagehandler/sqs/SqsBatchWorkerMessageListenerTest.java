@@ -21,7 +21,6 @@ package org.apache.fineract.infrastructure.springbatch.messagehandler.sqs;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -109,17 +108,19 @@ public class SqsBatchWorkerMessageListenerTest {
     }
 
     @Test
-    public void whenVisibilityTimeoutIsNotConfiguredThenItIsOmitted() {
+    public void whenVisibilityTimeoutIsNotConfiguredThenTheDefaultIsAppliedPerReceive() {
+        // the effective default must be applied instead of falling back to the queue attribute: the orphan-takeover
+        // threshold in StepExecutionRequestHandler assumes the same effective value for its redelivery math
         sqsProperties.setVisibilityTimeoutSeconds(null);
 
-        assertNull(receiveMessageRequest().visibilityTimeout());
+        assertEquals(3600, receiveMessageRequest().visibilityTimeout());
     }
 
     @Test
-    public void whenVisibilityTimeoutIsNotPositiveThenItIsOmitted() {
+    public void whenVisibilityTimeoutIsNotPositiveThenTheDefaultIsAppliedPerReceive() {
         sqsProperties.setVisibilityTimeoutSeconds(0);
 
-        assertNull(receiveMessageRequest().visibilityTimeout());
+        assertEquals(3600, receiveMessageRequest().visibilityTimeout());
     }
 
     @Test
