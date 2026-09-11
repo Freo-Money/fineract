@@ -29,7 +29,6 @@ import org.quartz.JobExecutionContext;
 import org.quartz.JobKey;
 import org.quartz.Trigger;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
@@ -40,7 +39,7 @@ public class SchedulerVetoer {
     private final SchedularWritePlatformService schedularService;
     private final BusinessDateReadPlatformService businessDateReadPlatformService;
 
-    @Transactional(isolation = Isolation.READ_COMMITTED)
+    @Transactional
     public boolean veto(Trigger trigger, JobExecutionContext context) {
         String tenantIdentifier = trigger.getJobDataMap().getString(SchedulerServiceConstants.TENANT_IDENTIFIER);
         HashMap<BusinessDateType, LocalDate> businessDates = businessDateReadPlatformService.getBusinessDates();

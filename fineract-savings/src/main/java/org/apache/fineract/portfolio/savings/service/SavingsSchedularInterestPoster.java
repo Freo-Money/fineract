@@ -44,7 +44,6 @@ import org.apache.fineract.portfolio.savings.data.SavingsAccountSummaryData;
 import org.apache.fineract.portfolio.savings.data.SavingsAccountTransactionData;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
@@ -63,7 +62,11 @@ public class SavingsSchedularInterestPoster {
     private Collection<SavingsAccountData> savingAccounts;
     private boolean backdatedTxnsAllowedTill;
 
-    @Transactional(isolation = Isolation.READ_UNCOMMITTED, rollbackFor = Exception.class)
+    // Default isolation on the primary JPA manager: the callee SavingsAccountWritePlatformServiceJpaRepositoryImpl
+    // #postInterest is itself @Transactional on the JPA manager, so routing this outer transaction to
+    // jdbcTransactionManager would nest two managers on the same DataSource. The READ_UNCOMMITTED previously
+    // requested here behaves as READ_COMMITTED on PostgreSQL anyway.
+    @Transactional(rollbackFor = Exception.class)
     public void postInterest() throws JobExecutionException {
         if (!savingAccounts.isEmpty()) {
             List<Throwable> errors = new ArrayList<>();
