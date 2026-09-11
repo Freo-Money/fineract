@@ -51,6 +51,8 @@ import org.apache.fineract.portfolio.loanaccount.mapper.LoanTermVariationsMapper
 import org.apache.fineract.portfolio.loanproduct.calc.data.ProgressiveLoanInterestScheduleModel;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductRoundingModeService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.ObjectUtils;
@@ -65,6 +67,9 @@ public class LoanTransactionProcessingServiceImpl implements LoanTransactionProc
     private final LoanBalanceService loanBalanceService;
     private final LoanTransactionService loanTransactionService;
     private final LoanProductRoundingModeService loanProductRoundingModeService;
+    @Lazy
+    @Autowired(required = false)
+    private NpaTransactionProcessingStrategyResolver npaTransactionProcessingStrategyResolver;
 
     @Override
     public boolean canProcessLatestTransactionOnly(Loan loan, LoanTransaction loanTransaction,
@@ -125,6 +130,11 @@ public class LoanTransactionProcessingServiceImpl implements LoanTransactionProc
     @Override
     public ChangedTransactionDetail processLatestTransaction(String transactionProcessingStrategyCode, LoanTransaction loanTransaction,
             TransactionCtx ctx) {
+        final Loan loan = loanTransaction.getLoan();
+        if (npaTransactionProcessingStrategyResolver != null && loan != null) {
+            npaTransactionProcessingStrategyResolver.stampIfAbsent(loan, loanTransaction);
+            transactionProcessingStrategyCode = npaTransactionProcessingStrategyResolver.resolve(loan, loanTransaction);
+        }
         final LoanRepaymentScheduleTransactionProcessor loanRepaymentScheduleTransactionProcessor = getTransactionProcessor(
                 transactionProcessingStrategyCode);
         if (loanRepaymentScheduleTransactionProcessor instanceof AdvancedPaymentScheduleTransactionProcessor advancedProcessor

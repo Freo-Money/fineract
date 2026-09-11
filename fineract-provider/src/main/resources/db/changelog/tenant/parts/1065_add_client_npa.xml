@@ -1,0 +1,479 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+
+    <!-- fr_client_npa_status: current NPA state, one row per client -->
+    <changeSet author="fineract" id="1065-1-postgresql" context="postgresql">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="fr_client_npa_status"/>
+            </not>
+        </preConditions>
+        <createTable tableName="fr_client_npa_status">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="client_id" type="BIGINT">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uk_fr_client_npa_status_client"/>
+            </column>
+            <column name="is_npa" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="npa_start_date" type="DATE"/>
+            <column name="trigger_loan_id" type="BIGINT"/>
+            <column name="movement_type" type="VARCHAR(20)"/>
+            <column name="exit_strategy" type="VARCHAR(50)"/>
+            <column name="created_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_on_utc" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_on_utc" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_status" baseColumnNames="client_id"
+                                 referencedTableName="m_client" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_status_client"/>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_status" baseColumnNames="trigger_loan_id"
+                                 referencedTableName="m_loan" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_status_trigger_loan"/>
+        <createIndex tableName="fr_client_npa_status" indexName="idx_fr_client_npa_status_is_npa">
+            <column name="is_npa"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="fineract" id="1065-1-mysql" context="mysql">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="fr_client_npa_status"/>
+            </not>
+        </preConditions>
+        <createTable tableName="fr_client_npa_status">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="client_id" type="BIGINT">
+                <constraints nullable="false" unique="true" uniqueConstraintName="uk_fr_client_npa_status_client"/>
+            </column>
+            <column name="is_npa" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="npa_start_date" type="DATE"/>
+            <column name="trigger_loan_id" type="BIGINT"/>
+            <column name="movement_type" type="VARCHAR(20)"/>
+            <column name="exit_strategy" type="VARCHAR(50)"/>
+            <column name="created_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_on_utc" type="DATETIME(6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_on_utc" type="DATETIME(6)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_status" baseColumnNames="client_id"
+                                 referencedTableName="m_client" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_status_client"/>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_status" baseColumnNames="trigger_loan_id"
+                                 referencedTableName="m_loan" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_status_trigger_loan"/>
+        <createIndex tableName="fr_client_npa_status" indexName="idx_fr_client_npa_status_is_npa">
+            <column name="is_npa"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- fr_client_npa_history: client NPA episodes (entry/exit cycles) -->
+    <changeSet author="fineract" id="1065-2-postgresql" context="postgresql">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="fr_client_npa_history"/>
+            </not>
+        </preConditions>
+        <createTable tableName="fr_client_npa_history">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="client_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="start_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="end_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="trigger_loan_id" type="BIGINT"/>
+            <column name="movement_type" type="VARCHAR(20)"/>
+            <column name="exit_reason" type="VARCHAR(100)"/>
+            <column name="created_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_on_utc" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_on_utc" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_history" baseColumnNames="client_id"
+                                 referencedTableName="m_client" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_history_client"/>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_history" baseColumnNames="trigger_loan_id"
+                                 referencedTableName="m_loan" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_history_trigger_loan"/>
+        <createIndex tableName="fr_client_npa_history" indexName="idx_fr_client_npa_history_client">
+            <column name="client_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="fineract" id="1065-2-mysql" context="mysql">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="fr_client_npa_history"/>
+            </not>
+        </preConditions>
+        <createTable tableName="fr_client_npa_history">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="client_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="start_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="end_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="trigger_loan_id" type="BIGINT"/>
+            <column name="movement_type" type="VARCHAR(20)"/>
+            <column name="exit_reason" type="VARCHAR(100)"/>
+            <column name="created_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_on_utc" type="DATETIME(6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_on_utc" type="DATETIME(6)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_history" baseColumnNames="client_id"
+                                 referencedTableName="m_client" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_history_client"/>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_history" baseColumnNames="trigger_loan_id"
+                                 referencedTableName="m_loan" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_history_trigger_loan"/>
+        <createIndex tableName="fr_client_npa_history" indexName="idx_fr_client_npa_history_client">
+            <column name="client_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- fr_client_npa_loan_mapping: loans currently flagged under a client's NPA (contagion) -->
+    <changeSet author="fineract" id="1065-3-postgresql" context="postgresql">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="fr_client_npa_loan_mapping"/>
+            </not>
+        </preConditions>
+        <createTable tableName="fr_client_npa_loan_mapping">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="client_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="start_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="accounting_type" type="INT"/>
+            <column name="created_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_on_utc" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_on_utc" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint tableName="fr_client_npa_loan_mapping" columnNames="client_id, loan_id" constraintName="uk_fr_client_npa_loan_mapping"/>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_loan_mapping" baseColumnNames="client_id"
+                                 referencedTableName="m_client" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_loan_mapping_client"/>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_loan_mapping" baseColumnNames="loan_id"
+                                 referencedTableName="m_loan" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_loan_mapping_loan"/>
+        <createIndex tableName="fr_client_npa_loan_mapping" indexName="idx_fr_client_npa_loan_mapping_loan">
+            <column name="loan_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="fineract" id="1065-3-mysql" context="mysql">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="fr_client_npa_loan_mapping"/>
+            </not>
+        </preConditions>
+        <createTable tableName="fr_client_npa_loan_mapping">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="client_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="start_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="accounting_type" type="INT"/>
+            <column name="created_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_on_utc" type="DATETIME(6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_on_utc" type="DATETIME(6)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addUniqueConstraint tableName="fr_client_npa_loan_mapping" columnNames="client_id, loan_id" constraintName="uk_fr_client_npa_loan_mapping"/>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_loan_mapping" baseColumnNames="client_id"
+                                 referencedTableName="m_client" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_loan_mapping_client"/>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_loan_mapping" baseColumnNames="loan_id"
+                                 referencedTableName="m_loan" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_loan_mapping_loan"/>
+        <createIndex tableName="fr_client_npa_loan_mapping" indexName="idx_fr_client_npa_loan_mapping_loan">
+            <column name="loan_id"/>
+        </createIndex>
+    </changeSet>
+
+    <!-- fr_client_npa_loan_history: per-loan contagion episodes -->
+    <changeSet author="fineract" id="1065-4-postgresql" context="postgresql">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="fr_client_npa_loan_history"/>
+            </not>
+        </preConditions>
+        <createTable tableName="fr_client_npa_loan_history">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="client_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="start_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="end_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="accounting_type" type="INT"/>
+            <column name="created_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_on_utc" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_on_utc" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_loan_history" baseColumnNames="client_id"
+                                 referencedTableName="m_client" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_loan_hist_client"/>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_loan_history" baseColumnNames="loan_id"
+                                 referencedTableName="m_loan" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_loan_hist_loan"/>
+        <createIndex tableName="fr_client_npa_loan_history" indexName="idx_fr_client_npa_loan_hist_client">
+            <column name="client_id"/>
+        </createIndex>
+        <createIndex tableName="fr_client_npa_loan_history" indexName="idx_fr_client_npa_loan_hist_loan">
+            <column name="loan_id"/>
+        </createIndex>
+    </changeSet>
+    <changeSet author="fineract" id="1065-4-mysql" context="mysql">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <tableExists tableName="fr_client_npa_loan_history"/>
+            </not>
+        </preConditions>
+        <createTable tableName="fr_client_npa_loan_history">
+            <column autoIncrement="true" name="id" type="BIGINT">
+                <constraints nullable="false" primaryKey="true"/>
+            </column>
+            <column name="client_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="loan_id" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="start_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="end_date" type="DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="accounting_type" type="INT"/>
+            <column name="created_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_on_utc" type="DATETIME(6)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_by" type="BIGINT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_modified_on_utc" type="DATETIME(6)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_loan_history" baseColumnNames="client_id"
+                                 referencedTableName="m_client" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_loan_hist_client"/>
+        <addForeignKeyConstraint baseTableName="fr_client_npa_loan_history" baseColumnNames="loan_id"
+                                 referencedTableName="m_loan" referencedColumnNames="id"
+                                 constraintName="fk_fr_client_npa_loan_hist_loan"/>
+        <createIndex tableName="fr_client_npa_loan_history" indexName="idx_fr_client_npa_loan_hist_client">
+            <column name="client_id"/>
+        </createIndex>
+        <createIndex tableName="fr_client_npa_loan_history" indexName="idx_fr_client_npa_loan_hist_loan">
+            <column name="loan_id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet author="fineract" id="1065-7" context="postgresql">
+        <sql>
+            SELECT SETVAL('c_configuration_id_seq', COALESCE(MAX(id), 0)+1, false ) FROM c_configuration;
+        </sql>
+    </changeSet>
+    <changeSet author="fineract" id="1065-8">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">select count(1) from c_configuration where name = 'enable-client-npa'</sqlCheck>
+        </preConditions>
+        <insert tableName="c_configuration">
+            <column name="name" value="enable-client-npa"/>
+            <column name="value"/>
+            <column name="date_value"/>
+            <column name="string_value"/>
+            <column name="enabled" valueBoolean="false"/>
+            <column name="is_trap_door" valueBoolean="false"/>
+            <column name="description"
+                    value="When enabled: automatic client-NPA entry/exit/re-mapping (nightly UPDATE_NPA job reconcile + close/disburse-triggered re-eval; the per-loan COB step stays loan-level only). Contagion sets loan.is_npa on all active client loans. When disabled: no auto entry/exit/re-map, but stored fr_client_npa_status.is_npa stays effective (loan flags kept; new disbursements still sync; no exit until re-enabled)."/>
+        </insert>
+    </changeSet>
+    <changeSet author="fineract" id="1065-9">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">select count(1) from c_configuration where name = 'client-npa-exit-strategy'</sqlCheck>
+        </preConditions>
+        <insert tableName="c_configuration">
+            <column name="name" value="client-npa-exit-strategy"/>
+            <column name="value"/>
+            <column name="date_value"/>
+            <column name="string_value" value="ANY_NPA_LOAN_EXISTS"/>
+            <column name="enabled" valueBoolean="true"/>
+            <column name="is_trap_door" valueBoolean="false"/>
+            <column name="description"
+                    value="Auto-exit strategy when enable-client-npa is on. ANY_NPA_LOAN_EXISTS=exit when no active loan is independently NPA (arrears below threshold may remain). ALL_ARREARS_CLEARED=exit only when no active loan has arrears aging. STAY_NPA=never auto-exit."/>
+        </insert>
+    </changeSet>
+
+    <changeSet author="fineract" id="1065-10">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">select count(1) from c_configuration where name = 'npa-transaction-processing-strategy'</sqlCheck>
+        </preConditions>
+        <insert tableName="c_configuration">
+            <column name="name" value="npa-transaction-processing-strategy"/>
+            <column name="value"/>
+            <column name="date_value"/>
+            <column name="string_value" value="mifos-standard-strategy"/>
+            <column name="enabled" valueBoolean="false"/>
+            <column name="is_trap_door" valueBoolean="false"/>
+            <column name="description"
+                    value="Repayment transaction processing strategy code (ref_loan_transaction_processing_strategy) used when loan.is_npa is true at posting time (covers loan-level NPA and client-NPA contagion). Independent of enable-client-npa."/>
+        </insert>
+    </changeSet>
+
+    <!-- Config rows are mandatory: with external events enabled, posting an event type that has no
+         m_external_event_configuration row throws ExternalEventConfigurationNotFoundException.
+         One changeset per row: the PK is `type`, so a shared precondition would either PK-violate or
+         MARK_RAN-skip the other rows on a database that already carries some of them. -->
+    <changeSet author="fineract" id="1065-12">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">select count(1) from m_external_event_configuration where type = 'ClientEnteredNpaBusinessEvent'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_external_event_configuration">
+            <column name="type" value="ClientEnteredNpaBusinessEvent"/>
+            <column name="enabled" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet author="fineract" id="1065-13">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">select count(1) from m_external_event_configuration where type = 'ClientExitedNpaBusinessEvent'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_external_event_configuration">
+            <column name="type" value="ClientExitedNpaBusinessEvent"/>
+            <column name="enabled" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+    <changeSet author="fineract" id="1065-14">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">select count(1) from m_external_event_configuration where type = 'ClientTriggerLoanChangedBusinessEvent'</sqlCheck>
+        </preConditions>
+        <insert tableName="m_external_event_configuration">
+            <column name="type" value="ClientTriggerLoanChangedBusinessEvent"/>
+            <column name="enabled" valueBoolean="false"/>
+        </insert>
+    </changeSet>
+</databaseChangeLog>

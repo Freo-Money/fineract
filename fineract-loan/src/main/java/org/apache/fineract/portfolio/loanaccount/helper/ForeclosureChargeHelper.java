@@ -43,6 +43,7 @@ import org.apache.fineract.portfolio.charge.domain.ChargeRepositoryWrapper;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.charge.service.ChargeReadPlatformService;
 import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionSubType;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
@@ -309,8 +310,7 @@ public class ForeclosureChargeHelper {
         }
 
         LoanTransaction payment = LoanTransaction.repayment(loan.getOffice(), totalPaymentAmount, null, foreClosureDate, externalId);
-        TransactionMetaData transactionMetaData = new TransactionMetaData("FORECLOSURE");
-        payment.updateTransactionMetaData(transactionMetaData.serialize());
+        TransactionMetaData.mergeSubType(payment, TransactionSubType.FORECLOSURE);
         return payment;
     }
 
