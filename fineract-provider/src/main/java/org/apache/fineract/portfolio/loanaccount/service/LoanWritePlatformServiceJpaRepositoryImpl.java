@@ -1297,6 +1297,14 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                             + " chargeback not allowed for loan transaction type, its type is " + loanTransaction.getTypeOf().getCode(),
                     transactionId);
         }
+        // Part of this repayment sits in the parked-excess pool; the chargeback processor only knows installments, so
+        // it would return the money while leaving the pool (and the parking liability) inflated. Reverse it instead.
+        if (loanTransaction.getExcessPayment(loanTransaction.getLoan().getCurrency()).isGreaterThanZero()) {
+            throw new PlatformServiceUnavailableException("error.msg.loan.chargeback.not.allowed.on.parked.repayment",
+                    "Loan transaction:" + transactionId + " chargeback not allowed because part of it is parked as excess payment;"
+                            + " reverse the transaction instead",
+                    transactionId);
+        }
 
         Loan loan = this.loanAssembler.assembleFrom(loanId);
         if (this.accountTransfersReadPlatformService.isAccountTransfer(transactionId, PortfolioAccountType.LOAN)) {
@@ -3361,6 +3369,9 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             }
         }
         loan.getLoanTransactions().retainAll(retainTransactions);
+        // No replay follows this reversal, so the parked-excess pool must be rebuilt here (it would otherwise keep
+        // funding sweeps with money whose parking entries have just been reversed).
+        loan.recomputeTotalExcessPaymentAmountFromTransactions();
     }
 
     private Optional<LoanTransaction> closeAsWrittenOff(final Loan loan, final JsonCommand command, final Map<String, Object> changes,
@@ -3662,6 +3673,7 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                 journalEntryPoster.postJournalEntriesForLoanTransaction(transaction, false, false);
             });
         }
+        loan.recomputeTotalExcessPaymentAmountFromTransactions();
     }
 
     public void closeAsMarkedForReschedule(final Loan loan, final JsonCommand command, final Map<String, Object> changes) {

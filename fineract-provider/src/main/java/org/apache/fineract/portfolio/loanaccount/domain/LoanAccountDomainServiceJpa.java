@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.domain;
 
 import jakarta.annotation.Nullable;
+import jakarta.persistence.FlushModeType;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -36,6 +37,7 @@ import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuild
 import org.apache.fineract.infrastructure.core.domain.AbstractPersistableCustom;
 import org.apache.fineract.infrastructure.core.domain.ExternalId;
 import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
+import org.apache.fineract.infrastructure.core.persistence.FlushModeHandler;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
@@ -92,6 +94,7 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRefundRequestData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleDelinquencyData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.MoneyHolder;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.TransactionCtx;
 import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
@@ -145,6 +148,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final DelinquencyWritePlatformService delinquencyWritePlatformService;
     private final LoanLifecycleStateMachine loanLifecycleStateMachine;
     private final ExternalIdFactory externalIdFactory;
+    private final FlushModeHandler flushModeHandler;
     private final DelinquencyEffectivePauseHelper delinquencyEffectivePauseHelper;
     private final DelinquencyReadPlatformService delinquencyReadPlatformService;
     private final LoanAccrualsProcessingService loanAccrualsProcessingService;
@@ -313,6 +317,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         // disable all active standing orders linked to this loan if status
         // changes to closed
         disableStandingInstructionsLinkedToClosedLoan(loan);
+
+        reclassifyParkedExcessOnPayoff(loan, newRepaymentTransaction, holidayDetailDto);
 
         if (loan.getLoanType().isIndividualAccount()) {
             // Mark Post Dated Check as paid.
@@ -842,15 +848,13 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
         Money payPrincipal = foreCloseDetail.getPrincipal(currency);
 
-        // Apply excess to reduce the foreclosure payment amount.
-        // The excess transaction is NOT processed here (to avoid premature loan state transition);
-        // it will be processed during reprocessing in handleForeClosureTransactions.
-        applyExcessToForeclosureDetail(loan, foreClosureDate, foreCloseDetail, currency, newTransactions, transactionsToJournal);
-
-        // Persist excess transactions before reprocessing so they are in the loan exactly once
-        if (!newTransactions.isEmpty()) {
-            persistLoanTransactions(loan, newTransactions, null, transactionsToJournal);
-            newTransactions.clear();
+        // Consume the parked-excess pool first so the foreclosure payment covers only the remainder. The excess
+        // transaction is attached to the loan unsaved, exactly like the foreclosure payment: the foreclosure
+        // reprocess then processes it as a new transaction (no reverse-and-replay of a persisted copy) and it is
+        // persisted together with the payment afterwards.
+        final LoanTransaction excessRepayment = applyExcessToForeclosureDetail(loan, foreClosureDate, foreCloseDetail, currency);
+        if (excessRepayment != null) {
+            newTransactions.add(excessRepayment);
         }
 
         LoanTransaction payment = foreclosureChargeHelper.createForeclosurePaymentTransaction(loan, foreCloseDetail, foreClosureDate,
@@ -861,24 +865,43 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             loanForeclosureValidator.validateExpectedForeclosureAmount(loan, expectedForeclosureAmount, actualForeclosureAmount);
         }
 
-        if (payment != null && foreclosureFee.isGreaterThanZero()) {
+        // When the pool covers the whole payable there is no foreclosure payment; the excess transaction then takes
+        // its place for fee sync, charge linking, validation, the note and the post event.
+        final LoanTransaction settlingTransaction = payment != null ? payment : excessRepayment;
+        if (payment == null && excessRepayment != null) {
+            // Consumers identify the closing transaction by this tag; keep that contract when the pool covers it all.
+            excessRepayment.updateTransactionMetaData(new TransactionMetaData("FORECLOSURE").serialize());
+        }
+
+        if (settlingTransaction != null && foreclosureFee.isGreaterThanZero()) {
             foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
         }
 
-        if (payment != null) {
-            foreclosureChargeHelper.linkForeclosureChargesToPaymentTransactionAndMarkAsPaid(loan, payment);
-            loanForeclosureValidator.validateForForeclosure(loan, payment.getTransactionDate());
+        if (settlingTransaction != null) {
+            foreclosureChargeHelper.linkForeclosureChargesToPaymentTransactionAndMarkAsPaid(loan, settlingTransaction);
+            loanForeclosureValidator.validateForForeclosure(loan, settlingTransaction.getTransactionDate());
         }
         if (payment != null) {
             payment.updateLoan(loan);
             newTransactions.add(payment);
         }
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_FORECLOSURE);
-        handleForeClosureTransactions(loan, payment, scheduleGeneratorDTO);
+        // The excess transaction and the payment must stay out of the database until the foreclosure replay has
+        // processed them: any query issued while they hang off the loan (the handler's chronology check, the
+        // rounding-mode lookup inside the processor) would auto-flush them with empty portions, and the replay
+        // would then treat them as existing transactions to reverse and replace (ghost rows, lost metadata).
+        final LoanTransaction foreclosurePayment = payment;
+        final Loan foreclosingLoan = loan;
+        flushModeHandler.withFlushMode(FlushModeType.COMMIT, () -> {
+            if (excessRepayment != null) {
+                foreclosingLoan.addLoanTransaction(excessRepayment);
+            }
+            handleForeClosureTransactions(foreclosingLoan, foreclosurePayment, scheduleGeneratorDTO);
+        });
 
         LoanTransaction savedPayment = null;
         if (!newTransactions.isEmpty()) {
-            savedPayment = persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal, payment);
+            savedPayment = persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal, settlingTransaction);
             newTransactions.clear();
         }
         if (savedPayment != null) {
@@ -913,15 +936,20 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         return payment;
     }
 
-    private void applyExcessToForeclosureDetail(final Loan loan, final LocalDate foreClosureDate,
-            final LoanRepaymentScheduleInstallment foreCloseDetail, final MonetaryCurrency currency,
-            final List<LoanTransaction> newTransactions, final List<LoanTransaction> transactionsToJournal) {
+    /**
+     * Builds the REPAYMENT_FROM_EXCESS_AMOUNT that consumes the parked pool on foreclosure and reduces the foreclosure
+     * detail by the same amount (principal, interest, fees, penalties order). The transaction is returned unprocessed
+     * and unsaved: the caller attaches it to the loan so the foreclosure reprocess allocates it at installment level
+     * and rebuilds the (then zero) pool from the replay. Returns null when there is nothing to apply.
+     */
+    private LoanTransaction applyExcessToForeclosureDetail(final Loan loan, final LocalDate foreClosureDate,
+            final LoanRepaymentScheduleInstallment foreCloseDetail, final MonetaryCurrency currency) {
         if (!loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
-            return;
+            return null;
         }
         final BigDecimal totalExcess = loan.getTotalExcessPaymentAmount();
         if (totalExcess == null || totalExcess.compareTo(BigDecimal.ZERO) <= 0) {
-            return;
+            return null;
         }
 
         final Money foreclosureTotal = foreCloseDetail.getPrincipal(currency).plus(foreCloseDetail.getInterestCharged(currency))
@@ -938,16 +966,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
         final Money excessToApply = excessMoney;
 
-        if (!excessToApply.isGreaterThanZero()) {
-            return;
-        }
-
         // Create REPAYMENT_FROM_EXCESS_AMOUNT transaction (actual processing deferred to reprocessing).
         final LoanTransaction excessRepayment = LoanTransaction.repaymentType(LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT,
                 loan.getOffice(), excessToApply, null, foreClosureDate, externalIdFactory.create(), null);
         excessRepayment.updateLoan(loan);
-        newTransactions.add(excessRepayment);
-        transactionsToJournal.add(excessRepayment);
 
         // Reduce foreCloseDetail so the foreclosure payment covers only the remainder.
         // Allocation order: principal, interest, fees, penalties.
@@ -983,8 +1005,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
 
         // The whole pool is consumed by the excess repayment (surplus beyond the payable is rejected above);
-        // reprocessing rebuilds the (now zero) pool from the transaction replay.
-        loan.setTotalExcessPaymentAmount(null);
+        // the foreclosure reprocess resets the pool and rebuilds it (to zero) from the transaction replay.
+        return excessRepayment;
     }
 
     private LoanTransaction persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,
@@ -992,7 +1014,11 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         LoanTransaction savedReference = null;
         for (LoanTransaction transaction : transactions) {
             LoanTransaction savedTransaction = loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(transaction);
-            loan.addLoanTransaction(savedTransaction);
+            // Transactions attached to the loan before reprocessing (foreclosure payment, excess repayment) must not be
+            // added a second time.
+            if (!loan.getLoanTransactions().contains(savedTransaction)) {
+                loan.addLoanTransaction(savedTransaction);
+            }
             if (transactionsToJournal != null) {
                 transactionsToJournal.add(savedTransaction);
             }
@@ -1276,6 +1302,36 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     }
 
     @SuppressWarnings("null")
+    /**
+     * When a repayment settles every installment while a parked-excess pool is still outstanding, the pool has nothing
+     * left to settle and must become overpayment. The reclassification is posted as a REPAYMENT_FROM_EXCESS_AMOUNT for
+     * the whole pool: the transaction processor finds no open installment, returns the full amount as the sweep's
+     * overpayment portion, and the ledger moves the parking liability to the overpayment liability. Loan state must
+     * never drop the pool without such a transaction.
+     */
+    private void reclassifyParkedExcessOnPayoff(final Loan loan, final LoanTransaction repaymentTransaction,
+            final HolidayDetailDTO holidayDetailDto) {
+        if (repaymentTransaction.isRepaymentFromExcessAmount() || repaymentTransaction.isRecoveryRepayment() || loan.isClosedWrittenOff()
+                || !loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            // A recovery repayment on a written-off loan is not a payoff; a written-off loan cannot take a sweep
+            // (status validation) and its pool is reported by the nightly job for manual handling instead.
+            return;
+        }
+        final BigDecimal parkedPool = loan.getTotalExcessPaymentAmount();
+        if (parkedPool == null || parkedPool.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        final boolean fullyPaidOff = !loan.getRepaymentScheduleInstallments().isEmpty()
+                && loan.getRepaymentScheduleInstallments().stream().noneMatch(LoanRepaymentScheduleInstallment::isNotFullyPaidOff);
+        if (!fullyPaidOff) {
+            return;
+        }
+        log.info("Loan [id={}] paid off with parked excess {} outstanding; reclassifying it to overpayment.", loan.getId(), parkedPool);
+        makeRepayment(LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT, loan, repaymentTransaction.getTransactionDate(), parkedPool, null,
+                "Parked excess reclassified to overpayment on payoff", externalIdFactory.create(), false, null, false, holidayDetailDto,
+                true, false);
+    }
+
     private void makeRepayment(final Loan loan, final LoanTransaction repaymentTransaction,
             final ScheduleGeneratorDTO scheduleGeneratorDTO) {
         loanChargeValidator.validateRepaymentTypeTransactionNotBeforeAChargeRefund(loan, repaymentTransaction, "created");

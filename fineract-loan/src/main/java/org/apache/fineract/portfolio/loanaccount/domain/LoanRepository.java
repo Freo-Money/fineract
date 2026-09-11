@@ -118,12 +118,19 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
 
     String FIND_LOAN_BY_EXTERNAL_ID = "SELECT loan FROM Loan loan WHERE loan.externalId = :externalId";
 
-    String FIND_LOANS_WITH_EXCESS_AMOUNT = "select loan from Loan loan where loan.totalExcessPaymentAmount > 0 "
-            + "and exists (select inst.id from LoanRepaymentScheduleInstallment inst " + "where inst.loan.id = loan.id "
-            + "and inst.dueDate <= :currentDate " + "and inst.obligationsMet = false)";
+    // Loans whose parked pool has something to do tonight: either an unpaid installment is due (sweep), or every
+    // installment is already met so the leftover pool must be reclassified to overpayment (safety net for closure
+    // routes that do not post the reclassification themselves).
+    String FIND_LOANS_WITH_EXCESS_AMOUNT = "select loan.id from Loan loan where loan.totalExcessPaymentAmount > 0 "
+            + "and loan.loanStatus in :loanStatuses "
+            + "and (exists (select inst.id from LoanRepaymentScheduleInstallment inst where inst.loan.id = loan.id "
+            + "and inst.dueDate <= :currentDate and inst.obligationsMet = false) "
+            + "or not exists (select inst2.id from LoanRepaymentScheduleInstallment inst2 where inst2.loan.id = loan.id "
+            + "and inst2.obligationsMet = false))";
 
     @Query(FIND_LOANS_WITH_EXCESS_AMOUNT)
-    List<Loan> getLoansWithExcessAmount(@Param("currentDate") LocalDate currentDate);
+    List<Long> getLoanIdsWithExcessAmount(@Param("currentDate") LocalDate currentDate,
+            @Param("loanStatuses") Collection<LoanStatus> loanStatuses);
 
     @Query(FIND_GROUP_LOANS_DISBURSED_AFTER)
     List<Loan> getGroupLoansDisbursedAfter(@Param("disbursementDate") LocalDate disbursementDate, @Param("groupId") Long groupId,

@@ -114,6 +114,12 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
         String noteText = parameter.getNoteText();
 
         final Money transactionAmountAsMoney = Money.of(loan.getCurrency(), transactionAmount);
+        // A sweep from the parked-excess pool is system generated and funded only by that pool; a user-supplied
+        // replacement amount would draw money that was never parked. It can only be reversed.
+        if (transactionToAdjust.isRepaymentFromExcessAmount() && transactionAmountAsMoney.isGreaterThanZero()) {
+            throw new InvalidLoanTransactionTypeException("transaction", "excess.repayment.adjustment.not.allowed",
+                    "A 'Repayment From Excess Amount' transaction can only be reversed, not adjusted to a different amount.");
+        }
         LoanTransaction newTransactionDetail = LoanTransaction.repaymentType(transactionToAdjust.getTypeOf(), loan.getOffice(),
                 transactionAmountAsMoney, paymentDetail, transactionDate, txnExternalId, transactionToAdjust.getChargeRefundChargeType());
         if (transactionToAdjust.isInterestWaiver()) {

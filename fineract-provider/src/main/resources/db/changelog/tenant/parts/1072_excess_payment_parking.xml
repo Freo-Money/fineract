@@ -24,19 +24,35 @@
                    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.1.xsd">
     <property name="current_datetime" value="NOW()"/>
 
+    <!-- Column changesets are guarded so a tenant that already ran the pre-merge PR #120 part files starts cleanly. -->
     <changeSet author="fineract" id="1">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan_transaction" columnName="excess_payment_portion"/>
+            </not>
+        </preConditions>
         <addColumn tableName="m_loan_transaction">
             <column defaultValueComputed="NULL" name="excess_payment_portion" type="DECIMAL(19, 6)"/>
         </addColumn>
     </changeSet>
 
     <changeSet author="fineract" id="2">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan" columnName="total_excess_payment_amount"/>
+            </not>
+        </preConditions>
         <addColumn tableName="m_loan">
             <column defaultValueComputed="NULL" name="total_excess_payment_amount" type="DECIMAL(19, 6)"/>
         </addColumn>
     </changeSet>
 
     <changeSet author="fineract" id="3">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_product_loan" columnName="enable_excess_payment_parking"/>
+            </not>
+        </preConditions>
         <addColumn tableName="m_product_loan">
             <column name="enable_excess_payment_parking" type="boolean" defaultValueBoolean="false">
                 <constraints nullable="false"/>
@@ -45,6 +61,11 @@
     </changeSet>
 
     <changeSet author="fineract" id="4">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <columnExists tableName="m_loan" columnName="enable_excess_payment_parking"/>
+            </not>
+        </preConditions>
         <addColumn tableName="m_loan">
             <column name="enable_excess_payment_parking" type="boolean" defaultValueBoolean="false">
                 <constraints nullable="false"/>
@@ -78,6 +99,18 @@
             <column name="is_mismatched_job" valueBoolean="true"/>
             <column name="short_name" value="LPFEA"/>
         </insert>
+    </changeSet>
+
+    <!-- The nightly sweep selects loans by pool; without this the query scans m_loan every night. -->
+    <changeSet author="fineract" id="6">
+        <preConditions onFail="MARK_RAN">
+            <not>
+                <indexExists tableName="m_loan" indexName="INX_m_loan_total_excess_payment_amount"/>
+            </not>
+        </preConditions>
+        <createIndex tableName="m_loan" indexName="INX_m_loan_total_excess_payment_amount">
+            <column name="total_excess_payment_amount"/>
+        </createIndex>
     </changeSet>
 
 </databaseChangeLog>
