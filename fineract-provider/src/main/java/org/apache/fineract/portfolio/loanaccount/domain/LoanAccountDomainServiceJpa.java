@@ -26,6 +26,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -92,14 +93,17 @@ import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidByData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanRefundRequestData;
 import org.apache.fineract.portfolio.loanaccount.data.LoanScheduleDelinquencyData;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.MoneyHolder;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.TransactionCtx;
 import org.apache.fineract.portfolio.loanaccount.helper.ForeclosureChargeHelper;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.service.LoanScheduleHistoryWritePlatformService;
+import org.apache.fineract.portfolio.loanaccount.repository.LoanConfigMappingRepository;
 import org.apache.fineract.portfolio.loanaccount.rescheduleloan.domain.LoanRescheduleRequest;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanForeclosureValidator;
+import org.apache.fineract.portfolio.loanaccount.serialization.LoanPartPaymentValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.service.InterestRefundService;
 import org.apache.fineract.portfolio.loanaccount.service.InterestRefundServiceDelegate;
@@ -114,8 +118,13 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanScheduleService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionProcessingService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
+import org.apache.fineract.portfolio.loanaccount.service.PartPaymentScheduleReamortizer;
 import org.apache.fineract.portfolio.loanaccount.service.ReprocessLoanTransactionsService;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigDTO;
+import org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigMapping;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanSupportedInterestRefundTypes;
+import org.apache.fineract.portfolio.loanproduct.domain.PartPaymentRecalculationStrategy;
+import org.apache.fineract.portfolio.loanproduct.repository.LoanProductConfigMappingRepository;
 import org.apache.fineract.portfolio.note.domain.Note;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
@@ -166,6 +175,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanJournalEntryPoster journalEntryPoster;
     private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
     private final ForeclosureChargeHelper foreclosureChargeHelper;
+    private final LoanPartPaymentValidator loanPartPaymentValidator;
+    private final PartPaymentScheduleReamortizer partPaymentScheduleReamortizer;
+    private final LoanConfigMappingRepository loanConfigMappingRepository;
+    private final LoanProductConfigMappingRepository loanProductConfigMappingRepository;
 
     @Transactional
     @Override
@@ -891,6 +904,109 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanForeClosurePostBusinessEvent(payment));
         return payment;
+    }
+
+    @Override
+    @Transactional
+    public LoanTransaction partPayLoan(Loan loan, final LocalDate transactionDate, final BigDecimal transactionAmount,
+            final PaymentDetail paymentDetail, final String noteText, final ExternalId externalId, final Map<String, Object> changes) {
+
+        if (!loan.isCumulativeSchedule()) {
+            return null;
+        }
+
+        loanPartPaymentValidator.validatePreConditions(loan, transactionDate, transactionAmount);
+
+        if (loan.isChargedOff() && DateUtils.isBefore(transactionDate, loan.getChargedOffOnDate())) {
+            throw new GeneralPlatformDomainRuleException("error.msg.transaction.date.cannot.be.earlier.than.charge.off.date", "Loan: "
+                    + loan.getId()
+                    + " backdated transaction is not allowed. Transaction date cannot be earlier than the charge-off date of the loan",
+                    loan.getId());
+        }
+
+        loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
+
+        final ScheduleGeneratorDTO scheduleGeneratorDTO = this.loanUtilService.buildScheduleGeneratorDTO(loan, null, transactionDate, null);
+        // A part-payment has to sit strictly between the interest accrued to the payment date and a full payoff of the
+        // principal outstanding on that date. Checked here, ahead of the pre business event and before any transaction
+        // is built or the summary is touched, so a rejected request leaves the loan exactly as it was rather than
+        // relying on the rollback to undo half-applied work. Both figures come from the re-amortiser, so the amounts
+        // quoted in the errors are the ones the rewritten schedule would have carried.
+        partPaymentScheduleReamortizer.validatePartPaymentAmount(loan, scheduleGeneratorDTO, transactionDate, transactionAmount);
+
+        businessEventNotifierService.notifyPreBusinessEvent(new LoanTransactionMakeRepaymentPreBusinessEvent(loan, transactionDate));
+
+        loanBalanceService.updateLoanSummaryDerivedFields(loan);
+
+        final PartPaymentRecalculationStrategy strategy = resolvePartPaymentStrategy(loan);
+
+        final Money repaymentAmount = Money.of(loan.getCurrency(), transactionAmount);
+
+        LoanTransaction repaymentTransaction = LoanTransaction.repayment(loan.getOffice(), repaymentAmount, paymentDetail, transactionDate,
+                externalId);
+        final TransactionMetaData transactionMetaData = new TransactionMetaData("PART_PAYMENT");
+        repaymentTransaction.updateTransactionMetaData(transactionMetaData.serialize());
+
+        loanChargeValidator.validateRepaymentTypeTransactionNotBeforeAChargeRefund(loan, repaymentTransaction, "created");
+
+        loan.addLoanTransaction(repaymentTransaction);
+
+        // Re-amortise the remaining schedule around the prepaid principal, then reprocess so the payment is
+        // attached to the (new) installments. The re-amortisation deliberately does not go through the
+        // interest-recalculation machinery - see PartPaymentScheduleReamortizer for why that path cannot
+        // deliver a part-payment.
+        partPaymentScheduleReamortizer.reamortize(loan, scheduleGeneratorDTO, transactionDate, transactionAmount, strategy);
+        reprocessLoanTransactionsService.reprocessTransactions(loan);
+
+        loanLifecycleStateMachine.determineAndTransition(loan, transactionDate);
+
+        if (loan.isInterestBearingAndInterestRecalculationEnabled()) {
+            loanAccrualsProcessingService.reprocessExistingAccruals(loan, true);
+            loanAccrualsProcessingService.processIncomePostingAndAccruals(loan, true);
+        }
+
+        loanAccountService.saveLoanTransactionWithDataIntegrityViolationChecks(repaymentTransaction);
+        loan = loanAccountService.saveAndFlushLoanWithDataIntegrityViolationChecks(loan);
+
+        changes.put("transactionId", repaymentTransaction.getId());
+
+        if (StringUtils.isNotBlank(noteText)) {
+            final Note note = Note.loanTransactionNote(loan, repaymentTransaction, noteText);
+            this.noteRepository.save(note);
+        }
+
+        setLoanDelinquencyTag(loan, transactionDate);
+
+        journalEntryPoster.postJournalEntriesForLoanTransaction(repaymentTransaction, false, false);
+
+        businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
+        businessEventNotifierService.notifyPostBusinessEvent(new LoanTransactionMakeRepaymentPostBusinessEvent(repaymentTransaction));
+
+        disableStandingInstructionsLinkedToClosedLoan(loan);
+
+        return repaymentTransaction;
+    }
+
+    /**
+     * Resolves the strategy a part-payment re-amortises with: the loan's own override first, then its product's, then
+     * the product-wide default ({@link PartPaymentRecalculationStrategy#DEFAULT}) when neither names one.
+     */
+    private PartPaymentRecalculationStrategy resolvePartPaymentStrategy(Loan loan) {
+        Optional<LoanConfigMapping> loanConfig = loanConfigMappingRepository.findByLoanId(loan.getId());
+        if (loanConfig.isPresent()) {
+            PartPaymentConfigDTO config = loanConfig.get().getPartPaymentConfig();
+            if (config != null && config.getStrategy() != null) {
+                return config.getStrategy();
+            }
+        }
+        Optional<LoanProductConfigMapping> productConfig = loanProductConfigMappingRepository.findByLoanProduct(loan.loanProduct());
+        if (productConfig.isPresent()) {
+            PartPaymentConfigDTO config = productConfig.get().getPartPaymentConfig();
+            if (config != null && config.getStrategy() != null) {
+                return config.getStrategy();
+            }
+        }
+        return PartPaymentRecalculationStrategy.DEFAULT;
     }
 
     private LoanTransaction persistLoanTransactions(Loan loan, List<LoanTransaction> transactions, List<Long> transactionIds,

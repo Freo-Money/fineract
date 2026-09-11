@@ -179,6 +179,7 @@ import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
 import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
+import org.apache.fineract.portfolio.loanproduct.domain.PartPaymentRecalculationStrategy;
 import org.apache.fineract.portfolio.loanproduct.service.LoanDropdownReadPlatformService;
 import org.apache.fineract.portfolio.loanproduct.service.LoanProductReadPlatformService;
 import org.apache.fineract.portfolio.note.data.NoteData;
@@ -271,7 +272,8 @@ public class LoansApiResource {
             LoanApiConstants.clientActiveLoanOptions, LoanApiConstants.datatables, LoanProductConstants.RATES_PARAM_NAME,
             LoanApiConstants.MULTIDISBURSE_DETAILS_PARAMNAME, LoanApiConstants.EMI_AMOUNT_VARIATIONS_PARAMNAME,
             LoanApiConstants.COLLECTION_PARAMNAME, LoanApiConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE,
-            LoanApiConstants.daysInYearCustomStrategyParameterName));
+            LoanApiConstants.daysInYearCustomStrategyParameterName, LoanApiConstants.PART_PAYMENT_CONFIG,
+            "partPaymentRecalculationStrategyOptions"));
 
     private static final Set<String> LOAN_APPROVAL_DATA_PARAMETERS = new HashSet<>(Arrays.asList("approvalDate", "approvalAmount"));
     private static final Set<String> GLIM_ACCOUNTS_DATA_PARAMETERS = new HashSet<>(Arrays.asList("glimId", "groupId", "clientId",
@@ -1294,6 +1296,13 @@ public class LoansApiResource {
                 ApiFacingEnum.getValuesAsStringEnumOptionDataList(LoanBuyDownFeeCalculationType.class),
                 ApiFacingEnum.getValuesAsStringEnumOptionDataList(LoanBuyDownFeeStrategy.class),
                 ApiFacingEnum.getValuesAsStringEnumOptionDataList(LoanBuyDownFeeIncomeType.class), brokenPeriodInterestStrategyOptions);
+
+        if (template) {
+            // Options for the loan-level part-payment strategy override, so the loan screen can offer the same choice
+            // the loan product screen does.
+            loanAccount.setPartPaymentRecalculationStrategyOptions(
+                    ApiFacingEnum.getValuesAsStringEnumOptionDataList(PartPaymentRecalculationStrategy.class));
+        }
 
         final ApiRequestJsonSerializationSettings settings = this.apiRequestParameterHelper.process(uriInfo.getQueryParameters(),
                 mandatoryResponseParameters);

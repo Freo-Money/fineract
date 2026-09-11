@@ -158,6 +158,14 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
         this.transactionMetaData = transactionMetaData;
     }
 
+    public String getTransactionMetaData() {
+        return this.transactionMetaData;
+    }
+
+    public boolean isPartPayment() {
+        return this.transactionMetaData != null && this.transactionMetaData.contains("PART_PAYMENT");
+    }
+
     protected LoanTransaction() {}
 
     public static LoanTransaction incomePosting(final Loan loan, final Office office, final LocalDate dateOf, final BigDecimal amount,

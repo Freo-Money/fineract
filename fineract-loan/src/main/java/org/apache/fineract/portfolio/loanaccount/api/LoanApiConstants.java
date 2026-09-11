@@ -147,6 +147,9 @@ public interface LoanApiConstants {
     String foreclosureChargePercentageMapParamName = "foreclosureChargePercentageMap";
     String expectedForeclosureAmountParamName = "expectedForeclosureAmount";
 
+    // part payment constants
+    String PART_PAYMENT_COMMAND = "partPayment";
+
     String canUseForTopup = "canUseForTopup";
     String clientActiveLoanOptions = "clientActiveLoanOptions";
     String isTopup = "isTopup";
@@ -197,6 +200,10 @@ public interface LoanApiConstants {
     String BROKEN_PERIOD_DAYS_IN_YEAR = "brokenPeriodDaysInYear";
     String BROKEN_PERIOD_DAYS_IN_MONTH = "brokenPeriodDaysInMonth";
     String IS_BPI_COLLECTED_AT_DISBURSEMENT = "isBpiCollectedAtDisbursement";
+
+    // Part Payment Configuration Parameters
+    String PART_PAYMENT_RECALCULATION_STRATEGY = "partPaymentRecalculationStrategy";
+    String PART_PAYMENT_CONFIG = "partPaymentConfig";
 
     // Loan Summary Transaction Types
     List<LoanTransactionType> LOAN_SUMMARY_TRANSACTION_TYPES = List.of(LoanTransactionType.CHARGE_ADJUSTMENT, //

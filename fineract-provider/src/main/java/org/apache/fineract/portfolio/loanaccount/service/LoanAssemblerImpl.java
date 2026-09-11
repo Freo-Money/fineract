@@ -97,6 +97,9 @@ import org.apache.fineract.portfolio.loanaccount.service.schedule.LoanScheduleCo
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
+import org.apache.fineract.portfolio.loanproduct.data.LoanProductConfigurationWrapper;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigDTO;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigHelper;
 import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
@@ -301,6 +304,10 @@ public class LoanAssemblerImpl implements LoanAssembler {
             // Copy BPI configuration from product to loan if not explicitly provided
             copyBpiConfigFromProductToLoan(loanProduct, loanApplication);
         }
+
+        // Handle part-payment configuration. Runs after the BPI block on purpose: both configuration types share the
+        // single config_json envelope of one row per loan, so this merges into whatever that block left behind.
+        applyPartPaymentConfig(element, loanProduct, loanApplication);
 
         // Handle isBpiCollectedAtDisbursement flag - only applicable with ADD_TO_FIRST_INSTALLMENT_WITH_PRINCIPAL_GRACE
         // strategy
@@ -945,6 +952,35 @@ public class LoanAssemblerImpl implements LoanAssembler {
         actualChanges.put(Loan.REJECTED_ON_DATE, rejectedOn.format(fmt));
         actualChanges.put(Loan.CLOSED_ON_DATE, rejectedOn.format(fmt));
         return actualChanges;
+    }
+
+    /**
+     * Resolves the part-payment strategy for a new loan and records it on the loan's configuration row.
+     * <p>
+     * An explicit strategy in the loan payload wins; otherwise the product's strategy is <em>snapshotted</em> onto the
+     * loan. Taking a snapshot rather than reading the product at part-payment time means a later edit to the product
+     * cannot change how an existing loan re-amortises - the same guarantee the BPI copy gives.
+     * <p>
+     * Only the {@code partPaymentConfig} slice of the envelope is written, so a broken-period configuration already
+     * placed on the loan by the block above survives untouched.
+     */
+    private void applyPartPaymentConfig(final JsonElement element, final LoanProduct loanProduct, final Loan loanApplication) {
+        PartPaymentConfigDTO partPaymentConfig = PartPaymentConfigHelper.extractFromJsonElement(element, fromApiJsonHelper);
+        if (partPaymentConfig == null && loanProduct.getBpiConfig() != null) {
+            partPaymentConfig = loanProduct.getBpiConfig().getPartPaymentConfig();
+        }
+        if (partPaymentConfig == null) {
+            // Neither an override nor a product default - the loan carries no part-payment configuration and the
+            // runtime default applies.
+            return;
+        }
+        LoanConfigMapping loanConfigMapping = loanApplication.getBpiConfig();
+        if (loanConfigMapping == null) {
+            loanConfigMapping = new LoanConfigMapping(loanApplication, new LoanProductConfigurationWrapper());
+            loanConfigMapping.updateMetadata(loanProduct.getShortName());
+            loanApplication.setBpiConfig(loanConfigMapping);
+        }
+        loanConfigMapping.updatePartPaymentConfig(partPaymentConfig);
     }
 
     /**

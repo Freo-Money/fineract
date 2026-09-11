@@ -97,6 +97,9 @@ import org.apache.fineract.portfolio.loanaccount.serialization.LoanDownPaymentTr
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
+import org.apache.fineract.portfolio.loanproduct.data.LoanProductConfigurationWrapper;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigDTO;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigHelper;
 import org.apache.fineract.portfolio.loanproduct.domain.BrokenPeriodInterestStrategy;
 import org.apache.fineract.portfolio.loanproduct.domain.RecalculationFrequencyType;
 import org.apache.fineract.portfolio.loanproduct.service.LoanEnumerations;
@@ -299,6 +302,12 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 createAndPersistCalendarInstanceForInterestRecalculation(loan);
             }
 
+            // The part-payment configuration shares the single config_json envelope with the broken-period one, and
+            // the broken-period block below deletes the whole row when the strategy is cleared. Capture what is
+            // stored now so it can be re-applied afterwards, leaving broken-period behaviour exactly as it is.
+            final PartPaymentConfigDTO storedPartPaymentConfig = loanConfigMappingRepository.findByLoanId(loanId)
+                    .map(LoanConfigMapping::getPartPaymentConfig).orElse(null);
+
             // Handle Broken Period Interest Configuration update (upsert logic)
             // Note: validation already ensures loan is in submittedAndPendingApproval state
             // Days-in-year / days-in-month are inherited from the product's (main) day conventions when the loan
@@ -341,6 +350,30 @@ public class LoanApplicationWritePlatformServiceJpaRepositoryImpl implements Loa
                 loan.setBpiConfig(configMapping);
                 bpiConfig = configMapping.getBrokenPeriodConfig();
                 changes.put("brokenPeriodConfig", "copied_from_product");
+            }
+
+            // Apply the part-payment configuration after the broken-period block so it merges into whatever row that
+            // block left behind - and so a previously stored strategy is restored when the block removed the row.
+            // An explicit strategy in the payload wins; otherwise the stored one is kept, falling back to the
+            // product's when the loan has none yet.
+            final PartPaymentConfigDTO requestedPartPaymentConfig = PartPaymentConfigHelper.extractFromCommand(command, fromApiJsonHelper);
+            PartPaymentConfigDTO partPaymentConfigToPersist = requestedPartPaymentConfig != null ? requestedPartPaymentConfig
+                    : storedPartPaymentConfig;
+            if (partPaymentConfigToPersist == null && loan.getLoanProduct().getBpiConfig() != null) {
+                partPaymentConfigToPersist = loan.getLoanProduct().getBpiConfig().getPartPaymentConfig();
+            }
+            if (partPaymentConfigToPersist != null) {
+                LoanConfigMapping configMapping = loanConfigMappingRepository.findByLoanId(loanId).orElse(null);
+                if (configMapping == null) {
+                    configMapping = new LoanConfigMapping(loan, new LoanProductConfigurationWrapper());
+                }
+                configMapping.updateMetadata(loan.getLoanProduct().getShortName());
+                configMapping.updatePartPaymentConfig(partPaymentConfigToPersist);
+                loanConfigMappingRepository.saveAndFlush(configMapping);
+                loan.setBpiConfig(configMapping);
+                if (requestedPartPaymentConfig != null) {
+                    changes.put(LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY, requestedPartPaymentConfig.getStrategy().name());
+                }
             }
 
             // Handle isBpiCollectedAtDisbursement flag
