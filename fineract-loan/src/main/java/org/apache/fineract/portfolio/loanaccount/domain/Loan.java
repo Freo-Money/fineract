@@ -1237,6 +1237,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     }
 
     public boolean isUserTransaction(LoanTransaction transaction) {
+        // Sweeps from the parked-excess pool deliberately count here: a user transaction back-dated before a sweep
+        // would make the sweep replay against nothing (surfacing as overpayment), so the sweep has to be reversed
+        // first.
         return !(transaction.isReversed() || transaction.isAccrualRelated() || transaction.isIncomePosting());
     }
 
@@ -1372,6 +1375,26 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         }
         this.totalExcessPaymentAmount = MathUtil
                 .zeroToNull(MathUtil.subtractToZero(this.totalExcessPaymentAmount, MathUtil.toBigDecimal(amount)));
+    }
+
+    /**
+     * The pool is only ever moved by processing; paths that reverse transactions without a replay (undo disbursal) must
+     * rebuild it from what is left: parked markers of live repayments minus live sweeps.
+     */
+    public void recomputeTotalExcessPaymentAmountFromTransactions() {
+        BigDecimal parked = BigDecimal.ZERO;
+        BigDecimal swept = BigDecimal.ZERO;
+        for (final LoanTransaction transaction : this.loanTransactions) {
+            if (transaction.isReversed()) {
+                continue;
+            }
+            if (transaction.isRepaymentFromExcessAmount()) {
+                swept = swept.add(MathUtil.nullToZero(transaction.getAmount()));
+            } else {
+                parked = parked.add(MathUtil.nullToZero(transaction.getExcessPayment(getCurrency()).getAmount()));
+            }
+        }
+        this.totalExcessPaymentAmount = MathUtil.zeroToNull(MathUtil.subtractToZero(parked, swept));
     }
 
     public BigDecimal getTotalExcessPaymentAmount() {

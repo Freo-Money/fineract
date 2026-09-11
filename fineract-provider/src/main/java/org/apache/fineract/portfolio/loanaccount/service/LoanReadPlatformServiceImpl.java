@@ -2813,9 +2813,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             final BigDecimal totalExcess = loan.getTotalExcessPaymentAmount();
             if (totalExcess != null && totalExcess.compareTo(BigDecimal.ZERO) > 0) {
                 final Money excessMoney = Money.of(currency, totalExcess);
-                final Money applicableExcess = excessMoney.isGreaterThan(outStandingAmount) ? outStandingAmount : excessMoney;
-                excessPaymentPortion = applicableExcess.getAmount();
-                outStandingAmount = outStandingAmount.minus(applicableExcess);
+                // Same rule as the foreclosure itself (LoanAccountDomainServiceJpa#applyExcessToForeclosureDetail), so
+                // a
+                // client learns at template time rather than from a rejected foreclosure.
+                if (excessMoney.isGreaterThan(outStandingAmount)) {
+                    throw new GeneralPlatformDomainRuleException("error.msg.loan.foreclosure.parked.excess.exceeds.payable",
+                            "The parked excess amount " + excessMoney.getAmount() + " exceeds the foreclosure payable amount "
+                                    + outStandingAmount.getAmount() + ". Refund the surplus excess before foreclosing the loan.",
+                            excessMoney.getAmount(), outStandingAmount.getAmount());
+                }
+                excessPaymentPortion = excessMoney.getAmount();
+                outStandingAmount = outStandingAmount.minus(excessMoney);
             }
         }
 
