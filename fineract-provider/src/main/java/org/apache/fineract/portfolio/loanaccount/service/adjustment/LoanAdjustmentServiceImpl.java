@@ -114,6 +114,12 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
         String noteText = parameter.getNoteText();
 
         final Money transactionAmountAsMoney = Money.of(loan.getCurrency(), transactionAmount);
+        // A sweep from the parked-excess pool is system generated and funded only by that pool; a user-supplied
+        // replacement amount would draw money that was never parked. It can only be reversed.
+        if (transactionToAdjust.isRepaymentFromExcessAmount() && transactionAmountAsMoney.isGreaterThanZero()) {
+            throw new InvalidLoanTransactionTypeException("transaction", "excess.repayment.adjustment.not.allowed",
+                    "A 'Repayment From Excess Amount' transaction can only be reversed, not adjusted to a different amount.");
+        }
         LoanTransaction newTransactionDetail = LoanTransaction.repaymentType(transactionToAdjust.getTypeOf(), loan.getOffice(),
                 transactionAmountAsMoney, paymentDetail, transactionDate, txnExternalId, transactionToAdjust.getChargeRefundChargeType());
         if (transactionToAdjust.isInterestWaiver()) {
@@ -319,6 +325,23 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
             throw new InvalidLoanTransactionTypeException("transaction",
                     "adjustment.is.only.allowed.to.repayment.or.waiver.or.creditbalancerefund.or.capitalizedIncome.or.capitalizedIncomeAdjustment.or.buyDownFee.or.buyDownFeeAdjustment.transactions",
                     errorMessage);
+        }
+
+        // A repayment that parked excess can only be reversed while its parked amount is still available in the
+        // loan-level pool. Once the sweeper (REPAYMENT_FROM_EXCESS_AMOUNT) has consumed it against installments,
+        // reversing the funding transaction would double-spend: the replay clamps the pool at zero and the
+        // installments stay paid with money that was returned. The sweep transactions must be reversed first.
+        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            final MonetaryCurrency loanCurrency = loan.getCurrency();
+            final Money parkedByTransaction = transactionForAdjustment.getExcessPayment(loanCurrency);
+            if (parkedByTransaction.isGreaterThanZero()) {
+                final Money availableExcess = Money.of(loanCurrency, loan.getTotalExcessPaymentAmount());
+                if (parkedByTransaction.isGreaterThan(availableExcess)) {
+                    throw new InvalidLoanTransactionTypeException("transaction", "parked.excess.already.consumed",
+                            "The parked excess of this transaction has already been applied to installments. Reverse the "
+                                    + "'Repayment From Excess Amount' transaction(s) first.");
+                }
+            }
         }
 
         loanChargeValidator.validateRepaymentTypeTransactionNotBeforeAChargeRefund(transactionForAdjustment.getLoan(),
