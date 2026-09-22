@@ -48,6 +48,15 @@ public class LoanRepaymentScheduleTransactionProcessorFactory {
         }
     }
 
+    /**
+     * Whether a repayment transaction processor is registered for the given strategy code. Used to decide whether a
+     * configured NPA transaction processing strategy is usable before it is stamped/applied; when it is not registered
+     * the caller falls back to the loan product strategy instead of the global default processor.
+     */
+    public boolean isRegisteredStrategy(final String transactionProcessingStrategy) {
+        return transactionProcessingStrategy != null && processors.stream().anyMatch(p -> p.accept(transactionProcessingStrategy));
+    }
+
     public List<TransactionProcessingStrategyData> getStrategies() {
         return processors.stream().map(p -> new TransactionProcessingStrategyData(null, p.getCode(), p.getName())).toList();
     }

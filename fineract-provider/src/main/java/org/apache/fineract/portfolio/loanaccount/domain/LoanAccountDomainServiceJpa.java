@@ -79,6 +79,7 @@ import org.apache.fineract.portfolio.account.domain.StandingInstructionRepositor
 import org.apache.fineract.portfolio.account.domain.StandingInstructionStatus;
 import org.apache.fineract.portfolio.client.domain.Client;
 import org.apache.fineract.portfolio.client.exception.ClientNotActiveException;
+import org.apache.fineract.portfolio.client.npa.service.ClientNpaWritePlatformService;
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagement;
 import org.apache.fineract.portfolio.delinquency.domain.LoanDelinquencyAction;
 import org.apache.fineract.portfolio.delinquency.helper.DelinquencyEffectivePauseHelper;
@@ -114,6 +115,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanScheduleService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionProcessingService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanUtilService;
+import org.apache.fineract.portfolio.loanaccount.service.NpaTransactionProcessingStrategyResolver;
 import org.apache.fineract.portfolio.loanaccount.service.ReprocessLoanTransactionsService;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanSupportedInterestRefundTypes;
 import org.apache.fineract.portfolio.note.domain.Note;
@@ -166,6 +168,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanJournalEntryPoster journalEntryPoster;
     private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
     private final ForeclosureChargeHelper foreclosureChargeHelper;
+    private final ClientNpaWritePlatformService clientNpaWritePlatformService;
+    private final NpaTransactionProcessingStrategyResolver npaTransactionProcessingStrategyResolver;
 
     @Transactional
     @Override
@@ -224,6 +228,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             HolidayDetailDTO holidayDetailDto, Boolean isHolidayValidationDone, final boolean isLoanToLoanTransfer) {
         checkClientOrGroupActive(loan);
         loanTransactionValidator.validateTransactionDateNotBeforeLastUserTransactionDate(loan, transactionDate, null);
+        clientNpaWritePlatformService.validateTransactionNotBeforeClientNpaStart(loan, transactionDate);
 
         LoanBusinessEvent repaymentEvent = getLoanRepaymentTypeBusinessEvent(repaymentTransactionType, isRecoveryRepayment, loan,
                 transactionDate);
@@ -273,9 +278,13 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         loanDownPaymentTransactionValidator.validateRepaymentTypeAccountStatus(loan, newRepaymentTransaction, event);
         loanTransactionValidator.validateActivityNotBeforeClientOrGroupTransferDate(loan, event,
                 newRepaymentTransaction.getTransactionDate());
+        // Stamp the NPA processing strategy before allocation so backdated/interest-recalc repayments (which reprocess
+        // instead of taking the process-latest path) are still processed and frozen under the NPA strategy.
+        npaTransactionProcessingStrategyResolver.stampIfAbsent(loan, newRepaymentTransaction);
         makeRepayment(loan, newRepaymentTransaction, scheduleGeneratorDTO);
 
-        // For NPA loans, create ACCRUAL_SUSPENSE_REVERSE transactions for interest/fee/penalty portions paid
+        // For NPA loans (loan-level or client-level), create ACCRUAL_SUSPENSE_REVERSE for interest/fee/penalty portions
+        // paid
         if (loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
             LoanTransaction suspenseReverseTransaction = createAccrualSuspenseReverseForRepayment(loan, newRepaymentTransaction);
             if (suspenseReverseTransaction != null) {
@@ -313,6 +322,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         // disable all active standing orders linked to this loan if status
         // changes to closed
         disableStandingInstructionsLinkedToClosedLoan(loan);
+
+        if (loan.isClosed()) {
+            clientNpaWritePlatformService.onLoanClosed(loan);
+        }
 
         if (loan.getLoanType().isIndividualAccount()) {
             // Mark Post Dated Check as paid.
@@ -409,6 +422,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                     + " backdated transaction is not allowed. Transaction date cannot be earlier than the charge-off date of the loan",
                     loan.getId());
         }
+        clientNpaWritePlatformService.validateTransactionNotBeforeClientNpaStart(loan, transactionDate);
         businessEventNotifierService.notifyPreBusinessEvent(new LoanChargePaymentPreBusinessEvent(loan, transactionDate));
 
         final Money paymentAmout = Money.of(loan.getCurrency(), transactionAmount);
@@ -416,6 +430,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
 
         final LoanTransaction newPaymentTransaction = LoanTransaction.loanPayment(null, loan.getOffice(), paymentAmout, paymentDetail,
                 transactionDate, txnExternalId, loanTransactionType);
+        npaTransactionProcessingStrategyResolver.stampIfAbsent(loan, newPaymentTransaction);
 
         if (loanTransactionType.isRepaymentAtDisbursement()) {
             handlePayDisbursementTransaction(loan, chargeId, newPaymentTransaction);
@@ -463,6 +478,11 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         journalEntryPoster.postJournalEntriesForLoanTransaction(newPaymentTransaction, isAccountTransfer, false);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanChargePaymentPostBusinessEvent(newPaymentTransaction));
+        // A charge payment can settle the last outstanding amount and close the loan without passing through
+        // makeRepayment's close hook
+        if (loan.isClosed()) {
+            clientNpaWritePlatformService.onLoanClosed(loan);
+        }
         return newPaymentTransaction;
     }
 
@@ -482,9 +502,11 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         // The LoanChargePaymentPreBusinessEvent (which reconciles overdue penalties) is fired by the caller
         // (payByChargeId) BEFORE the allocations are built, so the allocations reflect any newly-applied penalty.
 
+        clientNpaWritePlatformService.validateTransactionNotBeforeClientNpaStart(loan, transactionDate);
         final Money paymentAmount = Money.of(loan.getCurrency(), totalTransactionAmount);
         final LoanTransaction newPaymentTransaction = LoanTransaction.loanPayment(null, loan.getOffice(), paymentAmount, paymentDetail,
                 transactionDate, txnExternalId, LoanTransactionType.CHARGE_PAYMENT);
+        npaTransactionProcessingStrategyResolver.stampIfAbsent(loan, newPaymentTransaction);
 
         final boolean allowTransactionsOnHoliday = this.configurationDomainService.allowTransactionsOnHolidayEnabled();
         final List<Holiday> holidays = this.holidayRepository.findByOfficeIdAndGreaterThanDate(loan.getOfficeId(), transactionDate,
@@ -529,6 +551,11 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         journalEntryPoster.postJournalEntriesForLoanTransaction(newPaymentTransaction, isAccountTransfer, false);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanChargePaymentPostBusinessEvent(newPaymentTransaction));
+        // A charge payment can settle the last outstanding amount and close the loan without passing through
+        // makeRepayment's close hook
+        if (loan.isClosed()) {
+            clientNpaWritePlatformService.onLoanClosed(loan);
+        }
         return newPaymentTransaction;
     }
 
@@ -580,6 +607,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
         businessEventNotifierService.notifyPreBusinessEvent(new LoanRefundPreBusinessEvent(loan));
 
+        clientNpaWritePlatformService.validateTransactionNotBeforeClientNpaStart(loan, transactionDate);
         final Money refundAmount = Money.of(loan.getCurrency(), transactionAmount);
         final LoanTransaction newRefundTransaction = LoanTransaction.refund(loan.getOffice(), refundAmount, paymentDetail, transactionDate,
                 txnExternalId);
@@ -757,6 +785,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                     + " backdated transaction is not allowed. Transaction date cannot be earlier than the charge-off date of the loan",
                     loan.getId());
         }
+        clientNpaWritePlatformService.validateTransactionNotBeforeClientNpaStart(loan, transactionDate);
         final LoanTransaction newRefundTransaction = LoanTransaction.refundForActiveLoan(loan.getOffice(), refundAmount, paymentDetail,
                 transactionDate, txnExternalId);
         loanTransactionValidator.validateRefundDateIsAfterLastRepayment(loan, newRefundTransaction.getTransactionDate());
@@ -854,10 +883,17 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
         if (payment != null) {
             payment.updateLoan(loan);
+            npaTransactionProcessingStrategyResolver.stampIfAbsent(loan, payment);
             newTransactions.add(payment);
         }
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_FORECLOSURE);
         handleForeClosureTransactions(loan, payment, scheduleGeneratorDTO);
+        if (payment != null && loan.isNpa() && loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            LoanTransaction suspenseReverseTransaction = createAccrualSuspenseReverseForRepayment(loan, payment);
+            if (suspenseReverseTransaction != null) {
+                loanTransactionValidator.validateAccrualSuspenseReverseForRepayment(loan, suspenseReverseTransaction, payment);
+            }
+        }
         LoanTransaction savedPayment = null;
         if (!newTransactions.isEmpty()) {
             savedPayment = persistLoanTransactions(loan, newTransactions, transactionIds, transactionsToJournal, payment);
@@ -890,6 +926,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         postJournalEntriesForTransactions(transactionsToJournal);
         businessEventNotifierService.notifyPostBusinessEvent(new LoanBalanceChangedBusinessEvent(loan));
         businessEventNotifierService.notifyPostBusinessEvent(new LoanForeClosurePostBusinessEvent(payment));
+        clientNpaWritePlatformService.onLoanClosed(loan);
         return payment;
     }
 
@@ -974,8 +1011,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             default ->
                 throw new UnsupportedOperationException(String.format("Not configured loan transaction type: %s!", loanTransactionType));
         }
+        clientNpaWritePlatformService.validateTransactionNotBeforeClientNpaStart(loan, transactionDate);
         LoanTransaction refundTransaction = LoanTransaction.refund(loan, loanTransactionType, transactionAmount, paymentDetail,
                 transactionDate, txnExternalId);
+        npaTransactionProcessingStrategyResolver.stampIfAbsent(loan, refundTransaction);
 
         final boolean isTransactionChronologicallyLatest = loanTransactionService.isChronologicallyLatestRepaymentOrWaiver(loan,
                 refundTransaction);
@@ -989,6 +1028,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         if (shouldCreateInterestRefundTransaction) {
             interestRefundTransaction = createInterestRefundLoanTransaction(loan, refundTransaction);
             if (interestRefundTransaction != null) {
+                npaTransactionProcessingStrategyResolver.stampIfAbsent(loan, interestRefundTransaction);
                 interestRefundTransaction.getLoanTransactionRelations().add(LoanTransactionRelation
                         .linkToTransaction(interestRefundTransaction, refundTransaction, LoanTransactionRelationTypeEnum.RELATED));
             }
@@ -1186,6 +1226,17 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             final ScheduleGeneratorDTO scheduleGeneratorDTO) {
         loanChargeValidator.validateRepaymentTypeTransactionNotBeforeAChargeRefund(loan, repaymentTransaction, "created");
         loanDownPaymentHandlerService.handleRepaymentOrRecoveryOrWaiverTransaction(loan, repaymentTransaction, null, scheduleGeneratorDTO);
+    }
+
+    @Override
+    public void createAccrualSuspenseReverseForNpaRepaymentIfApplicable(final Loan loan, final LoanTransaction repaymentTransaction) {
+        if (loan == null || repaymentTransaction == null) {
+            return;
+        }
+        if (!loan.isNpa() || !loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            return;
+        }
+        createAccrualSuspenseReverseForRepayment(loan, repaymentTransaction);
     }
 
     /**
