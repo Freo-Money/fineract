@@ -423,6 +423,14 @@ public class LoanProductUpdateUtil {
             loanProduct.setPrecloseEmiRounding(newValue);
         }
 
+        if (command.isChangeInBooleanParameterNamed(LoanProductConstants.VALIDATE_FORECLOSURE_EXPECTED_AMOUNT_PARAM_NAME,
+                loanProduct.isValidateForeclosureExpectedAmount())) {
+            final boolean newValue = command
+                    .booleanPrimitiveValueOfParameterNamed(LoanProductConstants.VALIDATE_FORECLOSURE_EXPECTED_AMOUNT_PARAM_NAME);
+            actualChanges.put(LoanProductConstants.VALIDATE_FORECLOSURE_EXPECTED_AMOUNT_PARAM_NAME, newValue);
+            loanProduct.setValidateForeclosureExpectedAmount(newValue);
+        }
+
         if (command.isChangeInIntegerParameterNamedWithNullCheck(LoanProductConstants.installmentAmountInMultiplesOfParamName,
                 loanProduct.getLoanProductRelatedDetail().getInstallmentAmountInMultiplesOf())) {
             final Integer newValue = command.integerValueOfParameterNamed(LoanProductConstants.installmentAmountInMultiplesOfParamName);

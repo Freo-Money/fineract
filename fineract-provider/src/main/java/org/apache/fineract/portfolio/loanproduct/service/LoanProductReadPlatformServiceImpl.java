@@ -261,7 +261,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.allow_multiple_disbursals as multiDisburseLoan, lp.max_disbursals as maxTrancheCount, lp.max_outstanding_loan_balance as outstandingLoanBalance, "
                     + "lp.disallow_expected_disbursements as disallowExpectedDisbursements, lp.allow_approved_disbursed_amounts_over_applied as allowApprovedDisbursedAmountsOverApplied, lp.over_applied_calculation_type as overAppliedCalculationType, over_applied_number as overAppliedNumber, "
                     + "lp.days_in_month_enum as daysInMonth, lp.days_in_year_enum as daysInYear, lp.interest_recalculation_enabled as isInterestRecalculationEnabled, "
-                    + "lp.can_define_fixed_emi_amount as canDefineInstallmentAmount, lp.adjust_interest_for_rounding as adjustInterestForRounding, lp.preclose_emi_rounding as precloseEmiRounding, "
+                    + "lp.can_define_fixed_emi_amount as canDefineInstallmentAmount, lp.adjust_interest_for_rounding as adjustInterestForRounding, lp.preclose_emi_rounding as precloseEmiRounding, lp.validate_foreclosure_expected_amount as validateForeclosureExpectedAmount, "
                     + "lp.installment_amount_in_multiples_of as installmentAmountInMultiplesOf, "
                     + "lp.due_days_for_repayment_event as dueDaysForRepaymentEvent, lp.overdue_days_for_repayment_event as overDueDaysForRepaymentEvent, lp.enable_down_payment as enableDownPayment, lp.disbursed_amount_percentage_for_down_payment as disbursedAmountPercentageForDownPayment, lp.enable_auto_repayment_for_down_payment as enableAutoRepaymentForDownPayment, lp.repayment_start_date_type_enum as repaymentStartDateType, "
                     + "lp.enable_installment_level_delinquency as enableInstallmentLevelDelinquency, "
@@ -458,6 +458,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
             final boolean canDefineInstallmentAmount = rs.getBoolean("canDefineInstallmentAmount");
             final boolean adjustInterestForRounding = rs.getBoolean("adjustInterestForRounding");
             final boolean precloseEmiRounding = rs.getBoolean("precloseEmiRounding");
+            final boolean validateForeclosureExpectedAmount = rs.getBoolean("validateForeclosureExpectedAmount");
             final boolean isInterestRecalculationEnabled = rs.getBoolean("isInterestRecalculationEnabled");
 
             LoanProductInterestRecalculationData interestRecalculationData = null;
@@ -623,15 +624,16 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     graceOnArrearsAgeing, overdueDaysForNPA, daysInMonthType, daysInYearType, isInterestRecalculationEnabled,
                     interestRecalculationData, minimumDaysBetweenDisbursalAndFirstRepayment, holdGuaranteeFunds, loanProductGuaranteeData,
                     principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion, canDefineInstallmentAmount,
-                    adjustInterestForRounding, precloseEmiRounding, installmentAmountInMultiplesOf, allowAttributeOverrides,
-                    isLinkedToFloatingInterestRates, floatingRateId, floatingRateName, interestRateDifferential, minDifferentialLendingRate,
-                    defaultDifferentialLendingRate, maxDifferentialLendingRate, isFloatingInterestRateCalculationAllowed,
-                    isVariableIntallmentsAllowed, minimumGap, maximumGap, syncExpectedWithDisbursementDate, canUseForTopup,
-                    isEqualAmortization, rateOptions, this.rates, isRatesEnabled, fixedPrincipalPercentagePerInstallment,
-                    delinquencyBucketOptions, delinquencyBucket, dueDaysForRepaymentEvent, overDueDaysForRepaymentEvent, enableDownPayment,
-                    disbursedAmountPercentageForDownPayment, enableAutoRepaymentForDownPayment, advancedPaymentData, creditAllocationData,
-                    repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType.asEnumOptionData(),
-                    loanScheduleProcessingType.asEnumOptionData(), fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes,
+                    adjustInterestForRounding, precloseEmiRounding, validateForeclosureExpectedAmount, installmentAmountInMultiplesOf,
+                    allowAttributeOverrides, isLinkedToFloatingInterestRates, floatingRateId, floatingRateName, interestRateDifferential,
+                    minDifferentialLendingRate, defaultDifferentialLendingRate, maxDifferentialLendingRate,
+                    isFloatingInterestRateCalculationAllowed, isVariableIntallmentsAllowed, minimumGap, maximumGap,
+                    syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, rateOptions, this.rates, isRatesEnabled,
+                    fixedPrincipalPercentagePerInstallment, delinquencyBucketOptions, delinquencyBucket, dueDaysForRepaymentEvent,
+                    overDueDaysForRepaymentEvent, enableDownPayment, disbursedAmountPercentageForDownPayment,
+                    enableAutoRepaymentForDownPayment, advancedPaymentData, creditAllocationData, repaymentStartDateType,
+                    enableInstallmentLevelDelinquency, loanScheduleType.asEnumOptionData(), loanScheduleProcessingType.asEnumOptionData(),
+                    fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes,
                     loanChargeOffBehaviour.getValueAsStringEnumOptionData(), interestRecognitionOnDisbursementDate,
                     daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                     capitalizedIncome, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,

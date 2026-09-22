@@ -357,6 +357,12 @@ public class LoanProductAssembler {
             precloseEmiRounding = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.PRECLOSE_EMI_ROUNDING_PARAM_NAME);
         }
 
+        boolean validateForeclosureExpectedAmount = false;
+        if (command.parameterExists(LoanProductConstants.VALIDATE_FORECLOSURE_EXPECTED_AMOUNT_PARAM_NAME)) {
+            validateForeclosureExpectedAmount = command
+                    .booleanPrimitiveValueOfParameterNamed(LoanProductConstants.VALIDATE_FORECLOSURE_EXPECTED_AMOUNT_PARAM_NAME);
+        }
+
         return new LoanProduct(fund, loanTransactionProcessingStrategy, loanProductPaymentAllocationRules, loanProductCreditAllocationRules,
                 name, shortName, description, currency, principal, minPrincipal, maxPrincipal, interestRatePerPeriod,
                 minInterestRatePerPeriod, maxInterestRatePerPeriod, interestFrequencyType, annualInterestRate, interestMethod,
@@ -368,9 +374,9 @@ public class LoanProductAssembler {
                 graceOnArrearsAgeing, overdueDaysForNPA, daysInMonthType, daysInYearType, isInterestRecalculationEnabled,
                 interestRecalculationSettings, minimumDaysBetweenDisbursalAndFirstRepayment, holdGuarantorFunds,
                 loanProductGuaranteeDetails, principalThresholdForLastInstallment, accountMovesOutOfNPAOnlyOnArrearsCompletion,
-                canDefineEmiAmount, adjustInterestForRounding, precloseEmiRounding, installmentAmountInMultiplesOf,
-                loanConfigurableAttributes, isLinkedToFloatingInterestRates, floatingRate, interestRateDifferential,
-                minDifferentialLendingRate, maxDifferentialLendingRate, defaultDifferentialLendingRate,
+                canDefineEmiAmount, adjustInterestForRounding, precloseEmiRounding, validateForeclosureExpectedAmount,
+                installmentAmountInMultiplesOf, loanConfigurableAttributes, isLinkedToFloatingInterestRates, floatingRate,
+                interestRateDifferential, minDifferentialLendingRate, maxDifferentialLendingRate, defaultDifferentialLendingRate,
                 isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed, minimumGapBetweenInstallments,
                 maximumGapBetweenInstallments, syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, productRates,
                 fixedPrincipalPercentagePerInstallment, disallowExpectedDisbursements, allowApprovedDisbursedAmountsOverApplied,
