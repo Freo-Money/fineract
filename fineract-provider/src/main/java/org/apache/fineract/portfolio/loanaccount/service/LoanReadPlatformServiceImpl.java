@@ -1146,7 +1146,10 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " cobu.username as chargedOffByUsername, cobu.firstname as chargedOffByFirstname, cobu.lastname as chargedOffByLastname, l.loan_schedule_type as loanScheduleType, l.loan_schedule_processing_type as loanScheduleProcessingType, "
                     + " l.broken_period_interest as brokenPeriodInterest,"
                     + " l.charge_off_behaviour as chargeOffBehaviour, l.interest_recognition_on_disbursement_date as interestRecognitionOnDisbursementDate, " //
-                    + " lcm.config_json as loanBpiConfigJson " //
+                    + " lcm.config_json as loanBpiConfigJson, " //
+                    // Product-level configuration, so the effective part-payment strategy can be reported for loans
+                    // that predate the loan-level snapshot - the same loan-then-product precedence the runtime uses.
+                    + " lpcm.config_json as productConfigJson " //
                     + " from m_loan l" //
                     + " join m_product_loan lp on lp.id = l.product_id" //
                     + " left join m_loan_recalculation_details lir on lir.loan_id = l.id join m_currency rc on rc."
@@ -1167,7 +1170,8 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     + " left join m_product_loan_variable_installment_config lpvi on lpvi.loan_product_id = l.product_id"
                     + " left join m_loan_topup as topup on l.id = topup.loan_id"
                     + " left join m_loan as topuploan on topuploan.id = topup.closure_loan_id "
-                    + " left join fr_loan_config_mapping as lcm on lcm.loan_id = l.id";
+                    + " left join fr_loan_config_mapping as lcm on lcm.loan_id = l.id"
+                    + " left join fr_loan_product_config_mapping as lpcm on lpcm.loan_product_id = l.product_id";
 
         }
 
@@ -1300,6 +1304,17 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
                     // Failed to parse BPI configuration - skip it
                 }
             }
+
+            // Effective part-payment configuration: the loan's own snapshot wins, falling back to the product's, which
+            // mirrors the precedence LoanAccountDomainServiceJpa#resolvePartPaymentStrategy applies at payment time.
+            org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigDTO partPaymentConfigDto = org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigHelper
+                    .fromConfigJson(loanBpiConfigJson);
+            if (partPaymentConfigDto == null) {
+                partPaymentConfigDto = org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigHelper
+                        .fromConfigJson(rs.getString("productConfigJson"));
+            }
+            final org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigData partPaymentConfig = org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigData
+                    .fromDomainDTO(partPaymentConfigDto);
 
             final BigDecimal approvedPrincipal = rs.getBigDecimal("approvedPrincipal");
             final BigDecimal proposedPrincipal = rs.getBigDecimal("proposedPrincipal");
@@ -1589,6 +1604,7 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
             loanAccountData.setBrokenPeriodMethodType(bpiMethodType);
             loanAccountData.setCustomScheduleDefined(customScheduleDefined);
             loanAccountData.setBpiCollectedAtDisbursement(bpiCollectedAtDisbursement);
+            loanAccountData.setPartPaymentConfig(partPaymentConfig);
 
             return loanAccountData;
         }

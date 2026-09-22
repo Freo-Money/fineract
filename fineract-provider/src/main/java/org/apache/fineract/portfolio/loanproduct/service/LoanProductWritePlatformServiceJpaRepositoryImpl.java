@@ -63,6 +63,9 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanProductUpdateUtil;
 import org.apache.fineract.portfolio.loanproduct.LoanProductConstants;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigHelper;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
+import org.apache.fineract.portfolio.loanproduct.data.LoanProductConfigurationWrapper;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigDTO;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigHelper;
 import org.apache.fineract.portfolio.loanproduct.domain.AdvancedPaymentAllocationsJsonParser;
 import org.apache.fineract.portfolio.loanproduct.domain.CreditAllocationsJsonParser;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
@@ -169,6 +172,11 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
                 loanProductConfigMappingRepository.saveAndFlush(configMapping);
             }
 
+            // Save the part-payment configuration if provided. This runs after the broken-period block on purpose:
+            // both configuration types share the single config_json envelope of one row per product, so this merges
+            // into whatever row the block above left behind instead of replacing it.
+            persistPartPaymentConfig(loanProduct, command);
+
             businessEventNotifierService.notifyPostBusinessEvent(new LoanProductCreateBusinessEvent(loanProduct));
 
             return new CommandProcessingResultBuilder() //
@@ -185,6 +193,33 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
             return CommandProcessingResult.empty();
         }
 
+    }
+
+    /**
+     * Persists the part-payment strategy carried by the payload, if any. A payload that says nothing about part-payment
+     * leaves the stored configuration untouched.
+     */
+    private void persistPartPaymentConfig(final LoanProduct loanProduct, final JsonCommand command) {
+        final PartPaymentConfigDTO partPaymentConfig = PartPaymentConfigHelper.extractFromCommand(command, fromApiJsonHelper);
+        if (partPaymentConfig != null) {
+            persistPartPaymentConfig(loanProduct, partPaymentConfig);
+        }
+    }
+
+    /**
+     * Upserts the part-payment strategy into the product's configuration row, creating the row when the product has
+     * none. Only the {@code partPaymentConfig} slice of the envelope is touched, so any broken-period configuration
+     * already stored on the row survives.
+     * <p>
+     * The lookup here deliberately re-reads through the repository rather than reusing an entity fetched earlier: the
+     * query forces a flush of any pending delete issued by the broken-period handling, so re-creating the row cannot
+     * collide with the {@code unq_loan_product_bpi_config} unique constraint.
+     */
+    private void persistPartPaymentConfig(final LoanProduct loanProduct, final PartPaymentConfigDTO partPaymentConfig) {
+        final LoanProductConfigMapping configMapping = loanProductConfigMappingRepository.findByLoanProductId(loanProduct.getId())
+                .orElseGet(() -> new LoanProductConfigMapping(loanProduct, new LoanProductConfigurationWrapper()));
+        configMapping.updatePartPaymentConfig(partPaymentConfig);
+        loanProductConfigMappingRepository.saveAndFlush(configMapping);
     }
 
     private Fund findFundByIdIfProvided(final Long fundId) {
@@ -318,6 +353,12 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
                         command.enumValueOfParameterNamed(LoanProductConstants.CHARGE_OFF_BEHAVIOUR, LoanChargeOffBehaviour.class));
             }
 
+            // The part-payment configuration shares the single config_json envelope with the broken-period one, and
+            // the broken-period block below deletes the whole row when the strategy is cleared. Capture what is
+            // stored now so it can be re-applied afterwards, leaving broken-period behaviour exactly as it is.
+            final PartPaymentConfigDTO storedPartPaymentConfig = loanProductConfigMappingRepository.findByLoanProductId(loanProductId)
+                    .map(LoanProductConfigMapping::getPartPaymentConfig).orElse(null);
+
             // Handle Broken Period Interest Configuration update (upsert logic). When the payload omits the
             // broken-period days-in-year / days-in-month, inherit them from the product's (main) day conventions.
             final var existingConfig = loanProductConfigMappingRepository.findByLoanProductId(loanProductId);
@@ -346,6 +387,18 @@ public class LoanProductWritePlatformServiceJpaRepositoryImpl implements LoanPro
                     product.getLoanProductRelatedDetail().setBpiCollectedAtDisbursement(false);
                 }
                 changes.put(LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT, false);
+            }
+
+            // Apply the part-payment configuration after the broken-period block so it merges into whatever row that
+            // block left behind - and so a previously stored strategy is restored when the block removed the row.
+            final PartPaymentConfigDTO requestedPartPaymentConfig = PartPaymentConfigHelper.extractFromCommand(command, fromApiJsonHelper);
+            final PartPaymentConfigDTO partPaymentConfigToPersist = requestedPartPaymentConfig != null ? requestedPartPaymentConfig
+                    : storedPartPaymentConfig;
+            if (partPaymentConfigToPersist != null) {
+                persistPartPaymentConfig(product, partPaymentConfigToPersist);
+                if (requestedPartPaymentConfig != null) {
+                    changes.put(LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY, requestedPartPaymentConfig.getStrategy().name());
+                }
             }
 
             if (!changes.isEmpty()) {

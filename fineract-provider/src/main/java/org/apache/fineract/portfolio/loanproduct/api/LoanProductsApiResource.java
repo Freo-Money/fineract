@@ -145,7 +145,8 @@ public class LoanProductsApiResource {
             LoanProductConstants.ENABLE_BUY_DOWN_FEE_PARAM_NAME, LoanProductConstants.BUY_DOWN_FEE_CALCULATION_TYPE_PARAM_NAME,
             LoanProductConstants.BUY_DOWN_FEE_STRATEGY_PARAM_NAME, LoanProductConstants.BUY_DOWN_FEE_INCOME_TYPE_PARAM_NAME,
             "brokenPeriodConfig", LoanProductConstants.INSTALLMENT_INTEREST_CALCULATION_TYPE,
-            LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME));
+            LoanProductConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT_PARAM_NAME, LoanApiConstants.PART_PAYMENT_CONFIG,
+            "partPaymentRecalculationStrategyOptions"));
 
     private static final Set<String> PRODUCT_MIX_DATA_PARAMETERS = new HashSet<>(
             Arrays.asList("productId", "productName", "restrictedProducts", "allowedProducts", "productOptions"));
