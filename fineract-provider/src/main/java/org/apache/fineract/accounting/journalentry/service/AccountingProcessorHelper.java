@@ -129,6 +129,7 @@ public class AccountingProcessorHelper {
             final BigDecimal fees = loanTxnDto.getFeeChargesPortion();
             final BigDecimal penalties = loanTxnDto.getPenaltyChargesPortion();
             final BigDecimal overPayments = loanTxnDto.getOverPaymentPortion();
+            final BigDecimal excessPayment = loanTxnDto.getExcessPaymentPortion();
             final boolean reversed = loanTxnDto.isReversed();
             final Long paymentTypeId = loanTxnDto.getPaymentTypeId();
             final String chargeRefundChargeType = loanTxnDto.getChargeRefundChargeType();
@@ -193,7 +194,7 @@ public class AccountingProcessorHelper {
             BigDecimal penaltyPaid = loanTxnDto.getPenaltyPaid();
 
             final LoanTransactionDTO transaction = new LoanTransactionDTO(transactionOfficeId, paymentTypeId, transactionId,
-                    transactionDate, transactionType, amount, principal, interest, fees, penalties, overPayments, reversed,
+                    transactionDate, transactionType, amount, principal, interest, fees, penalties, overPayments, excessPayment, reversed,
                     penaltyPaymentDetails, feePaymentDetails, localIsAccountTransfer, chargeRefundChargeType, loanChargeData, principalPaid,
                     feePaid, penaltyPaid, taxPaymentDetails);
 

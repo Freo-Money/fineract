@@ -118,7 +118,8 @@ public final class AccountingConstants {
         INCOME_FROM_BUY_DOWN(25), //
         NPA_INTEREST_SUSPENSE(52), //
         NPA_FEES_SUSPENSE(53), //
-        NPA_PENALTIES_SUSPENSE(54);
+        NPA_PENALTIES_SUSPENSE(54), //
+        EXCESS_PAYMENT_PARKING(55);
 
         private final Integer value;
 
@@ -196,7 +197,8 @@ public final class AccountingConstants {
         CLASSIFICATION_CODE_VALUE_ID("classificationCodeValueId"), //
         NPA_INTEREST_SUSPENSE("npaInterestSuspenseAccountId"), //
         NPA_FEES_SUSPENSE("npaFeesSuspenseAccountId"), //
-        NPA_PENALTIES_SUSPENSE("npaPenaltiesSuspenseAccountId");
+        NPA_PENALTIES_SUSPENSE("npaPenaltiesSuspenseAccountId"), //
+        EXCESS_PAYMENT_PARKING("excessPaymentParkingAccountId");
 
         private final String value;
 
@@ -246,6 +248,7 @@ public final class AccountingConstants {
         NPA_INTEREST_SUSPENSE("npaInterestSuspenseAccount"), //
         NPA_FEES_SUSPENSE("npaFeesSuspenseAccount"), //
         NPA_PENALTIES_SUSPENSE("npaPenaltiesSuspenseAccount"), //
+        EXCESS_PAYMENT_PARKING("excessPaymentParkingLiabilityAccount"), //
         ;
 
         private final String value;
