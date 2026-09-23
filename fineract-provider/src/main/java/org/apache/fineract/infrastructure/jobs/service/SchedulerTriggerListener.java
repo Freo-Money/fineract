@@ -62,6 +62,14 @@ public class SchedulerTriggerListener implements TriggerListener {
                 ThreadLocalContextUtil.setActionContext(ActionContext.DEFAULT);
             }
             return schedulerVetoer.veto(trigger, context);
+        } catch (Exception e) { // NOSONAR - must not propagate, see below
+            // Fail closed. If a TriggerListener throws, Quartz logs "Trigger and Job will NOT be fired" and
+            // returns WITHOUT completing the trigger in the job store. For a @DisallowConcurrentExecution job
+            // (all Fineract jobs: setConcurrent(false)) RAMJobStore then leaves the job key in blockedJobs and
+            // this node never fires the job again until restart. A veto goes through the normal completion path.
+            log.error("vetoJobExecution() failed; vetoing this trigger fire to fail closed. tenant={}, trigger={}", tenantIdentifier,
+                    trigger.getKey(), e);
+            return true;
         } finally {
             if (contextInitialized) {
                 ThreadLocalContextUtil.reset();
