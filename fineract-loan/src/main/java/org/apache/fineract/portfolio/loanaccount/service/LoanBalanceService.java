@@ -94,6 +94,16 @@ public class LoanBalanceService {
                         .isEmpty()) {
                     totalPaidInRepayments = totalPaidInRepayments.minus(loanTransaction.getOverPaymentPortion(currency));
                 }
+            } else if (loanTransaction.isChargePayment()) {
+                // A charge payment settles installment fee/penalty components exactly like a repayment does, but it is
+                // not "repayment-like" (isRepaymentLikeType drives the allocation loops and must stay narrow), so
+                // getTotalPaidInRepayments leaves it out. The installment side of this formula already counts what it
+                // paid, so it has to be counted on the paid side too; otherwise every charge payment shows up as a
+                // phantom shortfall that masks a genuine overpayment and the loan closes instead of going OVERPAID.
+                // The full amount is used (not just the fee/penalty portions): a charge payment whose target
+                // installment was already settled has its remainder stamped as an overpayment portion by the
+                // processor, and that remainder must surface here as well.
+                totalPaidInRepayments = totalPaidInRepayments.plus(loanTransaction.getAmount(currency));
             }
         }
 
