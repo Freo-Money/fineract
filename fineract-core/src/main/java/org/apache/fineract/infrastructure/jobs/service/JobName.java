@@ -34,6 +34,7 @@ public enum JobName {
     UPDATE_DEPOSITS_ACCOUNT_MATURITY_DETAILS("Update Deposit Accounts Maturity details"), //
     TRANSFER_INTEREST_TO_SAVINGS("Transfer Interest To Savings"), //
     ADD_PERIODIC_ACCRUAL_ENTRIES("Add Periodic Accrual Transactions"), //
+    ADD_PERIODIC_ACCRUAL_ENTRIES_FOR_CLOSED_LOANS("Add Periodic Accrual Transactions For Closed Loans"), //
     RECALCULATE_INTEREST_FOR_LOAN("Recalculate Interest For Loans"), //
     GENERATE_RD_SCEHDULE("Generate Mandatory Savings Schedule"), //
     GENERATE_LOANLOSS_PROVISIONING("Generate Loan Loss Provisioning"), //

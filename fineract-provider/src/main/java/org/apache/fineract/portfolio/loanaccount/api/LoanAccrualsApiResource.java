@@ -57,7 +57,8 @@ public class LoanAccrualsApiResource {
     @Consumes({ MediaType.APPLICATION_JSON })
     @Produces({ MediaType.APPLICATION_JSON })
     @Operation(summary = "Post accruals till date for a single loan", description = "Posts periodic accrual accounting entries for the given loan up to the specified tillDate. "
-            + "Same logic as the batch API POST /runaccruals but for one loan. The loan product must have periodic accrual accounting enabled. tillDate must not be in the future.")
+            + "Same logic as the batch API POST /runaccruals but for one loan, including loans closed or overpaid by repayment. "
+            + "The loan product must have periodic accrual accounting enabled. tillDate must not be in the future.")
     @RequestBody(required = true, content = @Content(schema = @Schema(implementation = LoanAccrualsApiResourceSwagger.PostLoansLoanIdAccrualsPostTillDateRequest.class)))
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "OK", content = @Content(schema = @Schema(implementation = LoanAccrualsApiResourceSwagger.PostLoansLoanIdAccrualsPostTillDateResponse.class))) })

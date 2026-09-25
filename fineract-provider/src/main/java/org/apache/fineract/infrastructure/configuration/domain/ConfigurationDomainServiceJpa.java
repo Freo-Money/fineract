@@ -585,6 +585,13 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     }
 
     @Override
+    public Long retrieveAccrueClosedLoansMaturityLookbackDays() {
+        final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(
+                GlobalConfigurationConstants.ACCRUE_CLOSED_LOANS_MATURITY_LOOKBACK_DAYS);
+        return property.isEnabled() ? property.getValue() : null;
+    }
+
+    @Override
     public String getAssetOwnerTransferOustandingInterestStrategy() {
         return getGlobalConfigurationPropertyData(
                 GlobalConfigurationConstants.ASSET_OWNER_TRANSFER_OUTSTANDING_INTEREST_CALCULATION_STRATEGY).getStringValue();

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to the Apache Software Foundation (ASF) under one
+    or more contributor license agreements. See the NOTICE file
+    distributed with this work for additional information
+    regarding copyright ownership. The ASF licenses this file
+    to you under the Apache License, Version 2.0 (the
+    "License"); you may not use this file except in compliance
+    with the License. You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied. See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
+    <property name="current_datetime" value="NOW()"/>
+    <!-- Registers the "Add Periodic Accrual Transactions For Closed Loans" job. Inactive by default: enable it and set
+         the cron so it runs after COB, once accrual on closed loans has been validated. -->
+    <changeSet id="1" author="fineract">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">select count(1) from job where short_name = 'ACCR_CLS'</sqlCheck>
+        </preConditions>
+        <insert tableName="job">
+            <column name="name" value="Add Periodic Accrual Transactions For Closed Loans"/>
+            <column name="display_name" value="Add Periodic Accrual Transactions For Closed Loans"/>
+            <column name="cron_expression" value="0 30 2 * * ?"/>
+            <column name="create_time" valueDate="${current_datetime}"/>
+            <column name="task_priority" valueNumeric="5"/>
+            <column name="group_name"/>
+            <column name="previous_run_start_time"/>
+            <column name="job_key" value="Add Periodic Accrual Transactions For Closed Loans _ DEFAULT"/>
+            <column name="initializing_errorlog"/>
+            <column name="is_active" valueBoolean="false"/>
+            <column name="currently_running" valueBoolean="false"/>
+            <column name="updates_allowed" valueBoolean="true"/>
+            <column name="scheduler_group" valueNumeric="0"/>
+            <column name="is_misfired" valueBoolean="false"/>
+            <column name="node_id" valueNumeric="1"/>
+            <column name="is_mismatched_job" valueBoolean="true"/>
+            <column name="short_name" value="ACCR_CLS"/>
+        </insert>
+    </changeSet>
+    <!-- Lookback for the job: only loans closed / overpaid by repayment whose maturity date is on/after
+         (business date - value days) are accrued, i.e. loans still inside their residual tenor plus a small window for
+         missed runs. Disabled or empty means the job does nothing. Default value 30 days; the switch is 'enabled'. -->
+    <changeSet author="fineract" id="2">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">select count(1) from c_configuration where name = 'accrue-closed-loans-maturity-lookback-days'</sqlCheck>
+        </preConditions>
+        <insert tableName="c_configuration">
+            <column name="name" value="accrue-closed-loans-maturity-lookback-days"/>
+            <column name="value" valueNumeric="30"/>
+            <column name="date_value"/>
+            <column name="string_value"/>
+            <column name="enabled" valueBoolean="false"/>
+            <column name="is_trap_door" valueBoolean="false"/>
+            <column name="description"
+                    value="Job 'Add Periodic Accrual Transactions For Closed Loans' accrues closed/overpaid loans whose maturity date is on/after (business date - value days). Disabled: the job does nothing."/>
+        </insert>
+    </changeSet>
+</databaseChangeLog>
