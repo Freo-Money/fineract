@@ -825,11 +825,6 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         final LoanRepaymentScheduleInstallment foreCloseDetail = loanBalanceService.fetchLoanForeclosureDetail(loan, foreClosureDate,
                 mergedChargePercentages, updateCharges);
         Money foreclosureFee = foreclosureChargeHelper.sumActiveForeclosureChargeAmounts(loan);
-        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate, newTransactions, mergedChargePercentages);
-        if (!newTransactions.isEmpty()) {
-            persistLoanTransactions(loan, newTransactions, null, transactionsToJournal);
-            newTransactions.clear();
-        }
 
         updateInstallmentsPostDate(loan, foreClosureDate);
         loanBalanceService.updateLoanSummaryDerivedFields(loan);
@@ -847,6 +842,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         if (payment != null && foreclosureFee.isGreaterThanZero()) {
             foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
         }
+
+        // the schedule is final now (truncated to the foreclosure date, rounded, foreclosure fee applied): accrue up to
+        // the foreclosure date before the payment is applied, so the payment settles what was accrued
+        loanAccrualsProcessingService.processAccrualsOnLoanForeClosure(loan, foreClosureDate);
 
         if (payment != null) {
             foreclosureChargeHelper.linkForeclosureChargesToPaymentTransactionAndMarkAsPaid(loan, payment);
