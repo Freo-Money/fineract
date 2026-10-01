@@ -187,4 +187,12 @@ public interface ConfigurationDomainService {
      * @return the last imported loan ID, or null if not configured
      */
     Long retrieveMigrationLastImportedLoanId();
+
+    boolean isClientNpaEnabled();
+
+    String retrieveClientNpaExitStrategy();
+
+    boolean isNpaTransactionProcessingStrategyEnabled();
+
+    String retrieveNpaTransactionProcessingStrategy();
 }

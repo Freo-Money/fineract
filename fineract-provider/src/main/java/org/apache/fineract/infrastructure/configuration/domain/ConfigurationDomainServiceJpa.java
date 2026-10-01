@@ -585,6 +585,30 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     }
 
     @Override
+    public boolean isClientNpaEnabled() {
+        return getGlobalConfigurationPropertyData(GlobalConfigurationConstants.ENABLE_CLIENT_NPA).isEnabled();
+    }
+
+    @Override
+    public String retrieveClientNpaExitStrategy() {
+        final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(
+                GlobalConfigurationConstants.CLIENT_NPA_EXIT_STRATEGY);
+        return property.getStringValue() != null ? property.getStringValue() : "ANY_NPA_LOAN_EXISTS";
+    }
+
+    @Override
+    public boolean isNpaTransactionProcessingStrategyEnabled() {
+        return getGlobalConfigurationPropertyData(GlobalConfigurationConstants.NPA_TRANSACTION_PROCESSING_STRATEGY).isEnabled();
+    }
+
+    @Override
+    public String retrieveNpaTransactionProcessingStrategy() {
+        final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(
+                GlobalConfigurationConstants.NPA_TRANSACTION_PROCESSING_STRATEGY);
+        return property.getStringValue();
+    }
+
+    @Override
     public String getAssetOwnerTransferOustandingInterestStrategy() {
         return getGlobalConfigurationPropertyData(
                 GlobalConfigurationConstants.ASSET_OWNER_TRANSFER_OUTSTANDING_INTEREST_CALCULATION_STRATEGY).getStringValue();
