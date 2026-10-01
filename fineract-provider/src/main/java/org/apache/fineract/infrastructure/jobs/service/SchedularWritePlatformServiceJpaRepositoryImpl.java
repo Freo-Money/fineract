@@ -22,6 +22,7 @@ import io.github.resilience4j.retry.annotation.Retry;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
@@ -35,8 +36,10 @@ import org.apache.fineract.infrastructure.jobs.domain.SchedulerDetailRepository;
 import org.apache.fineract.infrastructure.jobs.exception.JobNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 public class SchedularWritePlatformServiceJpaRepositoryImpl implements SchedularWritePlatformService {
 
@@ -132,7 +135,10 @@ public class SchedularWritePlatformServiceJpaRepositoryImpl implements Schedular
 
     }
 
-    @Transactional
+    // REQUIRES_NEW so that each @Retry attempt runs in a fresh transaction (a transient lock timeout or
+    // connection failure on attempt N must not poison attempt N+1) and the PESSIMISTIC_WRITE job-claim lock is
+    // held only for the duration of this method. The caller (SchedulerVetoer#veto) must stay non-transactional.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     @Override
     @Retry(name = "processJobDetailForExecution", fallbackMethod = "fallbackProcessJobDetailForExecution")
     public boolean processJobDetailForExecution(final String jobKey, final String triggerType) {
@@ -156,7 +162,14 @@ public class SchedularWritePlatformServiceJpaRepositoryImpl implements Schedular
 
     @SuppressWarnings("unused")
     public boolean fallbackProcessJobDetailForExecution(Exception e) {
-        return false;
+        // Fail CLOSED: every ECS task fires the same Quartz trigger (in-memory job store, no node affinity), and
+        // the pessimistic job-claim above is the only thing preventing duplicate execution. If the claim cannot
+        // be completed after retries, vetoing this fire is safe — the next cron fire retries, and the stuck-job
+        // threshold covers persistent failures — whereas running unclaimed risks the same job executing twice.
+        // Returning (rather than throwing) matters: a veto reaches Quartz through the normal veto path, which
+        // completes the trigger in the job store; an exception from the trigger listener does not.
+        log.error("Job claim (processJobDetailForExecution) failed after retries; vetoing this trigger fire", e);
+        return true;
     }
 
 }
