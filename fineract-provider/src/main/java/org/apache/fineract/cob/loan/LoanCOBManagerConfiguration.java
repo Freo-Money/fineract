@@ -55,6 +55,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 @Conditional(BatchManagerCondition.class)
 public class LoanCOBManagerConfiguration {
 
+    /** Restart flag of the partitioned step; shared by the manager step and its splitter (see loanCOBStep). */
+    static final boolean LOAN_COB_ALLOW_START_IF_COMPLETE = false;
+
     @Autowired
     private JobRepository jobRepository;
     @Autowired
@@ -89,8 +92,17 @@ public class LoanCOBManagerConfiguration {
 
     @Bean
     public Step loanCOBStep() {
+        // partitioner(...) is still required: it gives the remote partition handler the worker step name.
+        // splitter(...) replaces the default splitter so partitions are dispatched in ascending page (loan id) order;
+        // PartitionStepBuilder uses the explicit splitter when one is set. The default splitter would take
+        // allowStartIfComplete from the builder; with an explicit splitter it must be passed here, so the step and the
+        // splitter share LOAN_COB_ALLOW_START_IF_COMPLETE. Change both together if the step ever needs the flag.
+        LoanCOBPartitioner partitioner = partitioner();
         return stepBuilderFactory.get(LoanCOBConstant.LOAN_COB_PARTITIONER_STEP)
-                .partitioner(LoanCOBConstant.LOAN_COB_WORKER_STEP, partitioner()).pollInterval(propertyService.getPollInterval(JOB_NAME))
+                .partitioner(LoanCOBConstant.LOAN_COB_WORKER_STEP, partitioner)
+                .splitter(new PageOrderedStepExecutionSplitter(jobRepository, LOAN_COB_ALLOW_START_IF_COMPLETE,
+                        LoanCOBConstant.LOAN_COB_WORKER_STEP, partitioner))
+                .pollInterval(propertyService.getPollInterval(JOB_NAME))
                 .listener(new JobExecutionContextCopyListener(List.of("BusinessDate", "IS_CATCH_UP"))).outputChannel(outboundRequests)
                 .build();
     }

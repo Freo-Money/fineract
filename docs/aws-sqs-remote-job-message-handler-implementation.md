@@ -134,6 +134,24 @@ New nested class (e.g. in `FineractProperties`):
 - **SqsClient bean:** Create a dedicated SQS client bean (or reuse a shared AWS config). Prefer building `SqsClient` in an `SqsClientConfiguration` (or similar) conditional on `sqs.enabled`, using the same credential logic as Content S3: if `accessKey`/`secretKey` set then `StaticCredentialsProvider`, else `DefaultCredentialsProvider`. Region from `fineract.remote-job-message-handler.sqs.region`.
 - **ECS production guidance:** Keep `accessKey` and `secretKey` blank in production and rely on task role credentials from `DefaultCredentialsProvider`.
 
+#### 3.4.1 Partition dispatch order (LOAN_COB)
+
+- The partition query (`RetrieveAllNonClosedLoanIdServiceImpl`) numbers pages in ascending loan-id order (0-based); the partition keys are `partition_N`.
+- `LoanCOBManagerConfiguration.loanCOBStep()` installs `PageOrderedStepExecutionSplitter`, which sorts the partitioner's entries by the numeric suffix of the key **before** the step executions are created and persisted. Consequences: `step_execution_id`s of `loanCOBWorkerStep:partition_N` rows ascend with N (so `ORDER BY step_execution_id` reads naturally), and the manager sends the SQS messages in that order (one synchronous `SendMessage` per partition through the `DirectChannel`). Keying on the name rather than on a context entry keeps the order correct on a restart, where Spring Batch swaps in the previous run's context.
+- This is best effort: a standard queue is only approximately FIFO, consumers pull concurrently (12 tasks x 2), and a redelivered/orphaned partition re-enters the queue late. It is a deterministic progress marker (`lowest incomplete partition_N`), not an ordering guarantee.
+- On a restart, only the partitions that were not COMPLETED in the earlier execution are re-created, again in page order; COMPLETED ones get no new step rows.
+- Progress query (Postgres). Scope on the **job instance**, not a single job execution, for the reason above. `lowest_open` is the progress marker; `highest_completed` is informational only (24 concurrent consumers complete out of order, so it is not "done up to"). Pages are 0-based, the no-loan dummy partition is page 1, and a FAILED/orphaned partition pins `lowest_open`:
+  ```sql
+  select max(cast(substring(se.step_name from ':partition_(\d+)') as int)) filter (where se.status = 'COMPLETED') as highest_completed,
+         min(cast(substring(se.step_name from ':partition_(\d+)') as int)) filter (where se.status <> 'COMPLETED') as lowest_open
+    from batch_step_execution se
+    join batch_job_execution je on je.job_execution_id = se.job_execution_id
+   where je.job_instance_id = :job_instance_id
+     and se.step_name like 'loanCOBWorkerStep:partition_%';
+  ```
+  MySQL 8: replace the cast with `CAST(REGEXP_SUBSTR(se.step_name, '[0-9]+$') AS UNSIGNED)` and use `MAX(CASE WHEN ... END)` / `MIN(CASE WHEN ... END)` instead of `FILTER`.
+- Config caveat (pre-existing): `sqs.enabled` and `spring-events.enabled` are not mutually exclusive in the condition classes. If both were true, both flows would subscribe to `outboundRequests` and the `DirectChannel` would round-robin partitions across the two transports. Always set `spring-events.enabled=false` when SQS is on.
+
 ### 3.5 Worker: SQS consumer and handler
 
 - **New config class:** `SqsWorkerConfig` (condition: `SqsWorkerCondition` = batch-worker-enabled and sqs.enabled).
