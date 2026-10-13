@@ -108,4 +108,10 @@ public interface LoanAccountDomainService {
             PaymentDetail paymentDetail, ExternalId txnExternalId);
 
     void createAndSaveLoanScheduleArchive(Loan loan);
+
+    /**
+     * For effectively NPA loans with periodic accrual, posts ACCRUAL_SUSPENSE_REVERSE for interest/fee/penalty portions
+     * paid by the repayment-like transaction (no-op otherwise).
+     */
+    void createAccrualSuspenseReverseForNpaRepaymentIfApplicable(Loan loan, LoanTransaction repaymentTransaction);
 }

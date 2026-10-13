@@ -263,4 +263,5 @@
     <include file="parts/1064_add_loan_reprocessed_external_event.xml" relativeToChangelogFile="true" />
     <include file="parts/1065_add_per_day_interest_rate_frequency_enum_value.xml" relativeToChangelogFile="true" />
     <include file="parts/1071_add_validate_foreclosure_expected_amount_configuration.xml" relativeToChangelogFile="true" />
+    <include file="parts/1065_add_client_npa.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

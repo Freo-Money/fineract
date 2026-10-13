@@ -365,18 +365,13 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
     private void addAccruals(@NonNull final Loan loan, @NonNull LocalDate tillDate, final boolean periodic, final boolean isFinal,
             final boolean addJournal, final boolean chargeOnDueDate) {
-        // For non-final accruals: only process if loan is open
-        // For final accruals: skip if loan is already closed/overpaid (prevents duplicate accruals after repayment
-        // closure)
-        // Exception: processIncomeAndAccrualTransactionOnLoanClosure handles non-NPA closed loans separately
+        // For non-final accruals: only process if loan is open. Final accruals (loan closure) are allowed to run on a
+        // closed/overpaid loan on purpose: closure is reached via repayment, and the final accrual for the remaining
+        // (un-accrued) amount must be booked on the closure/repayment date. Duplicates are prevented downstream because
+        // each period only books the delta (accruable minus already-accrued), so a re-run adds nothing. NPA loans never
+        // reach here (processAccrualsOnLoanClosure short-circuits them before calling addAccruals).
         if ((!isFinal && !loan.isOpen()) || loan.isChargedOff() || !loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()
                 || loan.isContractTermination()) {
-            return;
-        }
-        // Additional check for final accruals: skip if loan is closed/overpaid (to prevent duplicates after repayment)
-        // This prevents creating accruals when processAccrualsOnLoanClosure is called after loan is already closed via
-        // repayment
-        if (isFinal && (loan.isClosed() || loan.getStatus().isOverpaid())) {
             return;
         }
 
@@ -721,7 +716,7 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         if (!MathUtil.isGreaterThanZero(amount)) {
             return null;
         }
-        // For NPA loans, create both ACCRUAL_SUSPENSE and ACCRUAL transactions
+        // For NPA loans (loan-level or client-level), create both ACCRUAL_SUSPENSE and ACCRUAL transactions
         final boolean isNpa = loan.isNpa();
         LoanTransaction transaction = adjustment
                 ? accrualAdjustment(loan, loan.getOffice(), transactionDate, amount, interest, fee, penalty, externalIdFactory.create())
@@ -1300,6 +1295,21 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
                 attachChargeToAccrual(accrualTransaction, loanCharge, accrualCharges, outstanding);
             }
         }
+        if (loan.isNpa()) {
+            LoanTransaction suspenseTransaction = LoanTransaction.accrueSuspenseTransaction(loan, loan.getOffice(), foreClosureDate,
+                    total.getAmount(), interestPortion.getAmount(), feePortion.getAmount(), penaltyPortion.getAmount(),
+                    externalIdFactory.create());
+            if (accrualTransaction.getLoanChargesPaid() != null && !accrualTransaction.getLoanChargesPaid().isEmpty()) {
+                final RoundingMode taxRoundingMode = configurationDomainService.getTaxRoundingMode();
+                List<LoanChargePaidBy> suspenseCharges = new ArrayList<>();
+                for (LoanChargePaidBy chargePaidBy : accrualTransaction.getLoanChargesPaid()) {
+                    suspenseCharges.add(new LoanChargePaidBy(suspenseTransaction, chargePaidBy.getLoanCharge(), chargePaidBy.getAmount(),
+                            chargePaidBy.getInstallmentNumber(), taxRoundingMode));
+                }
+                suspenseTransaction.updateLoanChargePaidMappings(suspenseCharges, taxRoundingMode);
+            }
+            newAccrualTransactions.add(suspenseTransaction);
+        }
     }
 
     private void ensureAccrualTransactionMappings(final Loan loan, final boolean chargeOnDueDate) {
@@ -1450,23 +1460,33 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
     @Override
     public void convertAccrualToSuspenseForNpaLoans(@NonNull List<Long> loanIds) {
+        final boolean useIsolatedTransaction = ThreadLocalContextUtil.getActionContext() != ActionContext.COB;
+        convertAccrualToSuspenseForLoans(loanIds, true, useIsolatedTransaction);
+    }
+
+    @Override
+    public void convertAccrualToSuspenseForAlreadyNpaLoans(@NonNull List<Long> loanIds) {
+        // Join caller transaction and fail fast so client NPA state and suspense stay atomic
+        convertAccrualToSuspenseForLoans(loanIds, false, false);
+    }
+
+    private void convertAccrualToSuspenseForLoans(@NonNull List<Long> loanIds, final boolean updateLoanNpaFlag,
+            final boolean useIsolatedTransaction) {
         if (loanIds == null || loanIds.isEmpty()) {
             return;
         }
 
         List<Throwable> errors = new ArrayList<>();
 
-        // Process each loan in its own isolated transaction
-        // This ensures that if one loan fails, others can still be processed
-        boolean useIsolatedTransaction = ThreadLocalContextUtil.getActionContext() != ActionContext.COB;
-
         for (Long loanId : loanIds) {
             if (useIsolatedTransaction) {
-                executeInIsolatedTransaction(() -> convertAccrualToSuspenseForNpaLoan(loanId),
+                executeInIsolatedTransaction(() -> convertAccrualToSuspenseForNpaLoan(loanId, updateLoanNpaFlag),
                         e -> log.error("Failed to convert ACCRUAL to ACCRUAL_SUSPENSE for loan {}", loanId, e), errors);
+            } else if (!updateLoanNpaFlag) {
+                convertAccrualToSuspenseForNpaLoan(loanId, updateLoanNpaFlag);
             } else {
                 try {
-                    convertAccrualToSuspenseForNpaLoan(loanId);
+                    convertAccrualToSuspenseForNpaLoan(loanId, updateLoanNpaFlag);
                 } catch (Exception e) {
                     log.error("Failed to convert ACCRUAL to ACCRUAL_SUSPENSE for loan {}", loanId, e);
                     errors.add(e);
@@ -1479,20 +1499,20 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         }
     }
 
-    @Transactional
-    private void convertAccrualToSuspenseForNpaLoan(@NonNull Long loanId) {
+    // No @Transactional: private + self-invoked, so Spring's proxy could never honor it anyway. Transactionality is
+    // the caller's responsibility — either isolated per loan via executeInIsolatedTransaction (REQUIRES_NEW
+    // TransactionTemplate) or deliberately joined to the caller's transaction (client-NPA entry, COB).
+    private void convertAccrualToSuspenseForNpaLoan(@NonNull Long loanId, final boolean updateLoanNpaFlag) {
         try {
             Loan loan = loanRepositoryWrapper.findOneWithNotFoundDetection(loanId);
 
-            // Set NPA flag to true and save the loan
-            loan.setNpa(true);
-            loanRepositoryWrapper.saveAndFlush(loan);
+            if (updateLoanNpaFlag) {
+                loan.setNpa(true);
+                loanRepositoryWrapper.saveAndFlush(loan);
+            }
 
-            // Check if ACCRUAL_SUSPENSE already exists for this loan (to avoid duplicates)
-            List<LoanTransaction> existingSuspenseTransactions = loanTransactionRepository.findNonReversedByLoanAndTypes(loan,
-                    Set.of(LoanTransactionType.ACCRUAL_SUSPENSE));
-            if (!existingSuspenseTransactions.isEmpty()) {
-                log.debug("ACCRUAL_SUSPENSE transactions already exist for loan {}, skipping", loanId);
+            if (hasNetAccrualSuspenseBalance(loan)) {
+                log.debug("Net ACCRUAL_SUSPENSE balance remains for loan {}, skipping conversion", loanId);
                 return;
             }
 
@@ -1615,9 +1635,6 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
 
         log.info("Starting to reverse ACCRUAL_SUSPENSE for {} loans", loanIds.size());
         List<Throwable> errors = new ArrayList<>();
-
-        // Process each loan in its own isolated transaction
-        // This ensures that if one loan fails, others can still be processed
         boolean useIsolatedTransaction = ThreadLocalContextUtil.getActionContext() != ActionContext.COB;
 
         for (Long loanId : loanIds) {
@@ -1640,32 +1657,30 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         log.info("Completed reversing ACCRUAL_SUSPENSE for {} loans", loanIds.size());
     }
 
-    @Transactional
+    @Override
+    public void reverseAccrualSuspenseForAlreadyNonNpaLoans(@NonNull List<Long> loanIds) {
+        if (loanIds == null || loanIds.isEmpty()) {
+            return;
+        }
+        // Join caller transaction and fail fast so the caller's loan state and the suspense reversal stay atomic
+        for (Long loanId : loanIds) {
+            reverseAccrualSuspenseForNonNpaLoan(loanId);
+        }
+    }
+
+    // No @Transactional: private + self-invoked, so Spring's proxy could never honor it anyway. Transactionality is
+    // the caller's responsibility — either isolated per loan via executeInIsolatedTransaction (REQUIRES_NEW
+    // TransactionTemplate) or deliberately joined to the caller's transaction (client-NPA exit).
     private void reverseAccrualSuspenseForNonNpaLoan(@NonNull Long loanId) {
         Loan loan = loanRepositoryWrapper.findOneWithNotFoundDetection(loanId);
 
-        // Set NPA flag to false and save the loan
         loan.setNpa(false);
         loanRepositoryWrapper.saveAndFlush(loan);
         // Calculate net ACCRUAL_SUSPENSE balance (ACCRUAL_SUSPENSE - ACCRUAL_SUSPENSE_REVERSE)
-        BigDecimal netSuspenseInterest = BigDecimal.ZERO;
-        BigDecimal netSuspenseFee = BigDecimal.ZERO;
-        BigDecimal netSuspensePenalty = BigDecimal.ZERO;
-
-        for (LoanTransaction transaction : loan.getLoanTransactions()) {
-            if (transaction.isNotReversed()) {
-                LoanTransactionType type = transaction.getTypeOf();
-                if (type.equals(ACCRUAL_SUSPENSE)) {
-                    netSuspenseInterest = netSuspenseInterest.add(MathUtil.nullToZero(transaction.getInterestPortion()));
-                    netSuspenseFee = netSuspenseFee.add(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
-                    netSuspensePenalty = netSuspensePenalty.add(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
-                } else if (type.equals(ACCRUAL_SUSPENSE_REVERSE)) {
-                    netSuspenseInterest = netSuspenseInterest.subtract(MathUtil.nullToZero(transaction.getInterestPortion()));
-                    netSuspenseFee = netSuspenseFee.subtract(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
-                    netSuspensePenalty = netSuspensePenalty.subtract(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
-                }
-            }
-        }
+        final AccrualSuspenseBalance netSuspenseBalance = calculateNetAccrualSuspenseBalance(loan);
+        BigDecimal netSuspenseInterest = netSuspenseBalance.interest();
+        BigDecimal netSuspenseFee = netSuspenseBalance.fee();
+        BigDecimal netSuspensePenalty = netSuspenseBalance.penalty();
 
         // Only create reverse transaction if there's a remaining balance
         if (MathUtil.isGreaterThanZero(netSuspenseInterest) || MathUtil.isGreaterThanZero(netSuspenseFee)
@@ -1690,6 +1705,37 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
         } else {
             log.debug("No remaining ACCRUAL_SUSPENSE balance to reverse for loan {}", loanId);
         }
+    }
+
+    private boolean hasNetAccrualSuspenseBalance(final Loan loan) {
+        final AccrualSuspenseBalance balance = calculateNetAccrualSuspenseBalance(loan);
+        return MathUtil.isGreaterThanZero(balance.interest()) || MathUtil.isGreaterThanZero(balance.fee())
+                || MathUtil.isGreaterThanZero(balance.penalty());
+    }
+
+    private AccrualSuspenseBalance calculateNetAccrualSuspenseBalance(final Loan loan) {
+        BigDecimal netSuspenseInterest = BigDecimal.ZERO;
+        BigDecimal netSuspenseFee = BigDecimal.ZERO;
+        BigDecimal netSuspensePenalty = BigDecimal.ZERO;
+
+        for (LoanTransaction transaction : loan.getLoanTransactions()) {
+            if (transaction.isNotReversed()) {
+                LoanTransactionType type = transaction.getTypeOf();
+                if (type.equals(ACCRUAL_SUSPENSE)) {
+                    netSuspenseInterest = netSuspenseInterest.add(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    netSuspenseFee = netSuspenseFee.add(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    netSuspensePenalty = netSuspensePenalty.add(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                } else if (type.equals(ACCRUAL_SUSPENSE_REVERSE)) {
+                    netSuspenseInterest = netSuspenseInterest.subtract(MathUtil.nullToZero(transaction.getInterestPortion()));
+                    netSuspenseFee = netSuspenseFee.subtract(MathUtil.nullToZero(transaction.getFeeChargesPortion()));
+                    netSuspensePenalty = netSuspensePenalty.subtract(MathUtil.nullToZero(transaction.getPenaltyChargesPortion()));
+                }
+            }
+        }
+        return new AccrualSuspenseBalance(netSuspenseInterest, netSuspenseFee, netSuspensePenalty);
+    }
+
+    private record AccrualSuspenseBalance(BigDecimal interest, BigDecimal fee, BigDecimal penalty) {
     }
 
     /**

@@ -54,6 +54,8 @@ import org.apache.fineract.portfolio.client.domain.ClientRepositoryWrapper;
 import org.apache.fineract.portfolio.client.domain.ClientStatus;
 import org.apache.fineract.portfolio.client.exception.ClientNotFoundException;
 import org.apache.fineract.portfolio.client.mapper.ClientMapper;
+import org.apache.fineract.portfolio.client.npa.domain.ClientNpa;
+import org.apache.fineract.portfolio.client.npa.domain.ClientNpaRepository;
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagement;
 import org.apache.fineract.portfolio.collateralmanagement.domain.ClientCollateralManagementRepositoryWrapper;
 import org.apache.fineract.portfolio.group.data.GroupGeneralData;
@@ -82,6 +84,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
     private final ClientCollateralManagementRepositoryWrapper clientCollateralManagementRepositoryWrapper;
     private final ClientRepositoryWrapper clientRepositoryWrapper;
     private final ClientMapper clientMapper;
+    private final ClientNpaRepository clientNpaRepository;
 
     @Override
     public Page<ClientData> retrieveAll(final SearchParameters searchParameters) {
@@ -214,6 +217,7 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
 
             final Client client = clientRepositoryWrapper.getClientByClientIdAndHierarchy(clientId, hierarchySearchString);
             final ClientData clientData = clientMapper.map(client);
+            clientData.setIsNpa(resolveClientNpaStatus(clientId));
 
             // Get client collaterals
             final Collection<ClientCollateralManagement> clientCollateralManagements = this.clientCollateralManagementRepositoryWrapper
@@ -610,6 +614,11 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
         return clientRepositoryWrapper.findIdByExternalId(externalId);
     }
 
+    private boolean resolveClientNpaStatus(final Long clientId) {
+        // Stored fr_client_npa_status.is_npa — remains true while client is in NPA even if enable-client-npa is off
+        return clientNpaRepository.findByClientId(clientId).map(ClientNpa::isNpa).orElse(false);
+    }
+
     private static final class ClientToDataMapper implements RowMapper<ClientData> {
 
         private final String schema;
@@ -664,9 +673,11 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
             builder.append("c.activation_date as activationDate, c.image_id as imageId, ");
             builder.append("c.staff_id as staffId, s.display_name as staffName, ");
             builder.append("c.default_savings_product as savingsProductId, sp.name as savingsProductName, ");
-            builder.append("c.default_savings_account as savingsAccountId ");
+            builder.append("c.default_savings_account as savingsAccountId, ");
+            builder.append("COALESCE(cnpa.is_npa, false) as isNpa ");
             builder.append("from m_client c ");
             builder.append("join m_office o on o.id = c.office_id ");
+            builder.append("left join fr_client_npa_status cnpa on cnpa.client_id = c.id ");
             builder.append("left join m_client_non_person cnp on cnp.client_id = c.id ");
             builder.append("left join m_staff s on s.id = c.staff_id ");
             builder.append("left join m_savings_product sp on sp.id = c.default_savings_product ");
@@ -782,10 +793,12 @@ public class ClientReadPlatformServiceImpl implements ClientReadPlatformService 
                     submittedByLastname, activationDate, activatedByUsername, activatedByFirstname, activatedByLastname, closedOnDate,
                     closedByUsername, closedByFirstname, closedByLastname);
 
-            return ClientData.instance(accountNo, status, subStatus, officeId, officeName, transferToOfficeId, transferToOfficeName, id,
-                    firstname, middlename, lastname, fullname, displayName, externalId, mobileNo, emailAddress, dateOfBirth, gender,
-                    activationDate, imageId, staffId, staffName, timeline, savingsProductId, savingsProductName, savingsAccountId,
-                    clienttype, classification, legalForm, clientNonPerson, isStaff, maritalStatus);
+            final ClientData clientData = ClientData.instance(accountNo, status, subStatus, officeId, officeName, transferToOfficeId,
+                    transferToOfficeName, id, firstname, middlename, lastname, fullname, displayName, externalId, mobileNo, emailAddress,
+                    dateOfBirth, gender, activationDate, imageId, staffId, staffName, timeline, savingsProductId, savingsProductName,
+                    savingsAccountId, clienttype, classification, legalForm, clientNonPerson, isStaff, maritalStatus);
+            clientData.setIsNpa(rs.getBoolean("isNpa"));
+            return clientData;
 
         }
     }
