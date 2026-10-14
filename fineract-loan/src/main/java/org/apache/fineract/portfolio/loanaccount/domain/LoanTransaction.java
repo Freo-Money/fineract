@@ -688,6 +688,17 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
         return this.reversed;
     }
 
+    /** Sum of the stored charge-payment receipts of this transaction. */
+    public Money getLoanChargesPaidTotal(final MonetaryCurrency currency) {
+        // Summed at the column's own precision (scale 6) and converted once: rounding each receipt to the currency's
+        // decimal places first would invent a gap on migrated payments whose receipts carry sub-paisa amounts.
+        BigDecimal total = BigDecimal.ZERO;
+        for (final LoanChargePaidBy chargePaidBy : this.loanChargesPaid) {
+            total = MathUtil.add(total, chargePaidBy.getAmount());
+        }
+        return Money.of(currency, total);
+    }
+
     public boolean isNotReversed() {
         return !isReversed();
     }

@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.data;
 
 import org.apache.fineract.organisation.monetary.domain.Money;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleInstallment;
 
 public class LoanChargePaidDetail {
@@ -26,11 +27,21 @@ public class LoanChargePaidDetail {
     private final Money amount;
     private final LoanRepaymentScheduleInstallment installment;
     private final boolean isFeeCharge;
+    /**
+     * The stored receipt this allocation replays, when the allocation was built from one. Null on the legacy
+     * single-receipt path and on live posting, where allocations are derived rather than replayed.
+     */
+    private final LoanChargePaidBy receipt;
 
     public LoanChargePaidDetail(Money amount, LoanRepaymentScheduleInstallment installment, boolean isFeeCharge) {
+        this(amount, installment, isFeeCharge, null);
+    }
+
+    public LoanChargePaidDetail(Money amount, LoanRepaymentScheduleInstallment installment, boolean isFeeCharge, LoanChargePaidBy receipt) {
         this.amount = amount;
         this.installment = installment;
         this.isFeeCharge = isFeeCharge;
+        this.receipt = receipt;
     }
 
     public Money getAmount() {
@@ -43,5 +54,9 @@ public class LoanChargePaidDetail {
 
     public boolean isFeeCharge() {
         return this.isFeeCharge;
+    }
+
+    public LoanChargePaidBy getReceipt() {
+        return this.receipt;
     }
 }

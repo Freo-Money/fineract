@@ -88,5 +88,7 @@ public final class GlobalConfigurationConstants {
 
     public static final String VALIDATE_FORECLOSURE_EXPECTED_AMOUNT = "validate-foreclosure-expected-amount";
 
+    public static final String CHARGE_PAYMENT_CHARGE_SET_ALLOCATION = "charge-payment-charge-set-allocation";
+
     private GlobalConfigurationConstants() {}
 }
