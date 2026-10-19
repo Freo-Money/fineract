@@ -86,7 +86,5 @@ public final class GlobalConfigurationConstants {
     public static final String TAX_ROUNDING_MODE = "tax-rounding-mode";
     public static final String ALLOW_REFUND_ON_CLOSED_LOANS = "allow-refund-on-closed-loans";
 
-    public static final String VALIDATE_FORECLOSURE_EXPECTED_AMOUNT = "validate-foreclosure-expected-amount";
-
     private GlobalConfigurationConstants() {}
 }
