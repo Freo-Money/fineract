@@ -87,6 +87,7 @@ public final class GlobalConfigurationConstants {
     public static final String ALLOW_REFUND_ON_CLOSED_LOANS = "allow-refund-on-closed-loans";
 
     public static final String VALIDATE_FORECLOSURE_EXPECTED_AMOUNT = "validate-foreclosure-expected-amount";
+    public static final String ACCRUE_CLOSED_LOANS_MATURITY_LOOKBACK_DAYS = "accrue-closed-loans-maturity-lookback-days";
 
     private GlobalConfigurationConstants() {}
 }
