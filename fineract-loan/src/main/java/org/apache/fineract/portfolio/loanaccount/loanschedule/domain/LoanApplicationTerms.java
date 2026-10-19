@@ -2105,6 +2105,10 @@ public final class LoanApplicationTerms {
         return this.rescheduleStrategyMethod;
     }
 
+    public void setRescheduleStrategyMethod(final LoanRescheduleStrategyMethod rescheduleStrategyMethod) {
+        this.rescheduleStrategyMethod = rescheduleStrategyMethod;
+    }
+
     public InterestRecalculationCompoundingMethod getInterestRecalculationCompoundingMethod() {
         return this.interestRecalculationCompoundingMethod;
     }

@@ -124,6 +124,7 @@ import org.apache.fineract.portfolio.loanproduct.domain.InterestMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductPaymentAllocationRule;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRepository;
+import org.apache.fineract.portfolio.loanproduct.domain.PartPaymentRecalculationStrategy;
 import org.apache.fineract.portfolio.loanproduct.exception.EqualAmortizationUnsupportedFeatureException;
 import org.apache.fineract.portfolio.loanproduct.exception.LoanProductNotFoundException;
 import org.apache.fineract.portfolio.loanproduct.serialization.LoanProductDataValidator;
@@ -179,7 +180,7 @@ public final class LoanApplicationValidator {
             LoanApiConstants.INTEREST_RECOGNITION_ON_DISBURSEMENT_DATE, LoanApiConstants.daysInYearCustomStrategyParameterName,
             LoanApiConstants.BROKEN_PERIOD_METHOD_TYPE, LoanApiConstants.BROKEN_PERIOD_DAYS_IN_YEAR,
             LoanApiConstants.BROKEN_PERIOD_DAYS_IN_MONTH, LoanApiConstants.repeatsOnDayOfMonthParameterName,
-            LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT));
+            LoanApiConstants.IS_BPI_COLLECTED_AT_DISBURSEMENT, LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY));
     public static final String LOANAPPLICATION_UNDO = "loanapplication.undo";
 
     private final FromJsonHelper fromApiJsonHelper;
@@ -815,6 +816,8 @@ public final class LoanApplicationValidator {
             }
 
             validateBrokenPeriodInterest(element, baseDataValidator);
+
+            validatePartPaymentConfig(element, baseDataValidator);
         });
 
         validateSubmittedOnDate(element, null, null, loanProduct);
@@ -1521,6 +1524,8 @@ public final class LoanApplicationValidator {
                 }
             }
             validateBrokenPeriodInterest(element, baseDataValidator);
+
+            validatePartPaymentConfig(element, baseDataValidator);
         });
     }
 
@@ -2306,6 +2311,21 @@ public final class LoanApplicationValidator {
             firstDisbursalAmount = loan.getLoanRepaymentScheduleDetail().getPrincipal().getAmount();
         }
         return firstDisbursalAmount;
+    }
+
+    /**
+     * Validates the loan-level part-payment recalculation strategy override. Optional: when absent the loan inherits
+     * the product's strategy. When present it has to name one of the {@link PartPaymentRecalculationStrategy}
+     * constants, so a typo is rejected rather than silently coerced to
+     * {@link PartPaymentRecalculationStrategy#DEFAULT}.
+     */
+    private void validatePartPaymentConfig(JsonElement element, DataValidatorBuilder baseDataValidator) {
+        if (this.fromApiJsonHelper.parameterExists(LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY, element)) {
+            final String partPaymentRecalculationStrategy = this.fromApiJsonHelper
+                    .extractStringNamed(LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY, element);
+            baseDataValidator.reset().parameter(LoanApiConstants.PART_PAYMENT_RECALCULATION_STRATEGY)
+                    .value(partPaymentRecalculationStrategy).ignoreIfNull().isOneOfEnumValues(PartPaymentRecalculationStrategy.class);
+        }
     }
 
     private void validateBrokenPeriodInterest(JsonElement element, DataValidatorBuilder baseDataValidator) {

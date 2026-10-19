@@ -53,6 +53,7 @@ import org.apache.fineract.portfolio.loanaccount.loanschedule.data.LoanScheduleD
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodConfigData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductBorrowerCycleVariationData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigData;
 import org.apache.fineract.portfolio.loanproduct.data.TransactionProcessingStrategyData;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductValueConditionType;
 import org.apache.fineract.portfolio.note.data.NoteData;
@@ -100,6 +101,9 @@ public class LoanAccountData {
     private BigDecimal principal;
     private BigDecimal brokenPeriodInterest;
     private BrokenPeriodConfigData brokenPeriodConfig;
+    // Part-payment recalculation strategy in force for this loan: the loan's own snapshot when it has one, otherwise
+    // the product's. Read-only projection of what resolvePartPaymentStrategy would pick at part-payment time.
+    private PartPaymentConfigData partPaymentConfig;
     private BigDecimal approvedPrincipal;
     private BigDecimal proposedPrincipal;
     private BigDecimal netDisbursalAmount;
@@ -168,6 +172,7 @@ public class LoanAccountData {
     private Collection<EnumOptionData> interestTypeOptions;
     private Collection<EnumOptionData> interestCalculationPeriodTypeOptions;
     private List<EnumOptionData> brokenPeriodInterestStrategyOptions;
+    private List<StringEnumOptionData> partPaymentRecalculationStrategyOptions;
     private Collection<TransactionProcessingStrategyData> transactionProcessingStrategyOptions;
     private Collection<ChargeData> chargeOptions;
     private Collection<CodeValueData> loanCollateralOptions;

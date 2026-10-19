@@ -83,6 +83,9 @@ public interface LoanAccountDomainService {
     LoanTransaction foreCloseLoan(Loan loan, LocalDate foreClourseDate, String noteText, ExternalId externalId,
             Map<Long, BigDecimal> foreclosureChargePercentageMap, Map<String, Object> changes, BigDecimal expectedForeclosureAmount);
 
+    LoanTransaction partPayLoan(Loan loan, LocalDate transactionDate, BigDecimal transactionAmount, PaymentDetail paymentDetail,
+            String noteText, ExternalId externalId, Map<String, Object> changes);
+
     /**
      * Disables all standing instructions linked to a closed loan
      *

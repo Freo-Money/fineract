@@ -588,6 +588,8 @@ public class LoanTransactionsApiResource {
             commandRequest = builder.refundLoanTransactionByCash(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, "foreclosure")) {
             commandRequest = builder.loanForeclosure(resolvedLoanId).build();
+        } else if (CommandParameterUtil.is(commandParam, LoanApiConstants.PART_PAYMENT_COMMAND)) {
+            commandRequest = builder.loanPartPaymentTransaction(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, "creditBalanceRefund")) {
             commandRequest = builder.creditBalanceRefund(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, CHARGE_OFF_COMMAND_VALUE)) {
@@ -721,6 +723,16 @@ public class LoanTransactionsApiResource {
                     LoanTransactionType.BUY_DOWN_FEE_ADJUSTMENT, transactionId);
         } else if (CommandParameterUtil.is(commandParam, INTEREST_REFUND_COMMAND_VALUE)) {
             transactionData = this.loanReadPlatformService.retrieveManualInterestRefundTemplate(resolvedLoanId, transactionId);
+        } else if (CommandParameterUtil.is(commandParam, LoanApiConstants.PART_PAYMENT_COMMAND)) {
+            // A part-payment needs the same context a repayment does - payment types, currency and the transaction
+            // date. It deliberately reuses the repayment template rather than introducing one of its own; the amount
+            // it suggests is the amount due, which the part-payment screen ignores because the whole point is for the
+            // user to enter an arbitrary prepayment.
+            LocalDate transactionDate = DateUtils.getBusinessLocalDate();
+            if (transactionDateParam != null) {
+                transactionDate = transactionDateParam.getDate("transactionDate", dateFormat, locale);
+            }
+            transactionData = this.loanReadPlatformService.retrieveLoanTransactionTemplate(resolvedLoanId, transactionDate);
         } else {
             throw new UnrecognizedQueryParamException("command", commandParam);
         }

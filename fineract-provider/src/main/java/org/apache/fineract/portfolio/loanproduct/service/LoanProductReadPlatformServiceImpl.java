@@ -65,6 +65,8 @@ import org.apache.fineract.portfolio.loanproduct.data.LoanProductConfigurationWr
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductGuaranteeData;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductInterestRecalculationData;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigData;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigHelper;
 import org.apache.fineract.portfolio.loanproduct.domain.InterestCalculationPeriodMethod;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProduct;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigurableAttributes;
@@ -610,6 +612,10 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                 }
             }
 
+            // Extract and parse the part-payment configuration, which shares the same config_json envelope
+            final PartPaymentConfigData partPaymentConfig = PartPaymentConfigData
+                    .fromDomainDTO(PartPaymentConfigHelper.fromConfigJson(bpiConfigJson));
+
             return new LoanProductData(id, name, shortName, description, currency, principal, minPrincipal, maxPrincipal, tolerance,
                     numberOfRepayments, minNumberOfRepayments, maxNumberOfRepayments, repaymentEvery, interestRatePerPeriod,
                     minInterestRatePerPeriod, maxInterestRatePerPeriod, annualInterestRate, repaymentFrequencyType,
@@ -635,7 +641,8 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     loanChargeOffBehaviour.getValueAsStringEnumOptionData(), interestRecognitionOnDisbursementDate,
                     daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                     capitalizedIncome, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
-                    merchantBuyDownFee, null, null, brokenPeriodConfig, installmentInterestCalculationType, bpiCollectedAtDisbursement);
+                    merchantBuyDownFee, null, null, brokenPeriodConfig, installmentInterestCalculationType, bpiCollectedAtDisbursement)
+                    .setPartPaymentConfig(partPaymentConfig);
         }
     }
 
