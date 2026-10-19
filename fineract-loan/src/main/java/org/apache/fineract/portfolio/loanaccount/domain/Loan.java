@@ -290,6 +290,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     @Column(name = "loan_product_counter")
     private Integer loanProductCounter;
 
+    @Column(name = "total_excess_payment_amount", scale = 6, precision = 19)
+    private BigDecimal totalExcessPaymentAmount;
+
     @Setter
     @OneToMany(cascade = CascadeType.ALL, mappedBy = "loan", orphanRemoval = true, fetch = FetchType.LAZY)
     private Set<LoanCharge> charges = new HashSet<>();
@@ -1032,7 +1035,7 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
         Money cumulativePaid = Money.zero(getCurrency());
 
         for (final LoanTransaction repayment : this.loanTransactions) {
-            if (repayment.isRepaymentLikeType() && !repayment.isReversed()) {
+            if (repayment.isRepaymentLikeType() && !repayment.isReversed() && !repayment.isRepaymentFromExcessAmount()) {
                 cumulativePaid = cumulativePaid.plus(repayment.getAmount(getCurrency()));
             }
         }
@@ -1234,6 +1237,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     }
 
     public boolean isUserTransaction(LoanTransaction transaction) {
+        // Sweeps from the parked-excess pool deliberately count here: a user transaction back-dated before a sweep
+        // would make the sweep replay against nothing (surfacing as overpayment), so the sweep has to be reversed
+        // first.
         return !(transaction.isReversed() || transaction.isAccrualRelated() || transaction.isIncomePosting());
     }
 
@@ -1357,6 +1363,46 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     public Money getTotalOverpaidAsMoney() {
         return Money.of(this.getLoanProductRelatedDetail().getCurrency(), this.totalOverpaid);
+    }
+
+    public void addToTotalExcessPaymentAmount(final Money amount) {
+        this.totalExcessPaymentAmount = MathUtil.zeroToNull(MathUtil.add(this.totalExcessPaymentAmount, MathUtil.toBigDecimal(amount)));
+    }
+
+    public void subtractFromTotalExcessPaymentAmount(final Money amount) {
+        if (amount == null || amount.isZero()) {
+            return;
+        }
+        this.totalExcessPaymentAmount = MathUtil
+                .zeroToNull(MathUtil.subtractToZero(this.totalExcessPaymentAmount, MathUtil.toBigDecimal(amount)));
+    }
+
+    /**
+     * The pool is only ever moved by processing; paths that reverse transactions without a replay (undo disbursal) must
+     * rebuild it from what is left: parked markers of live repayments minus live sweeps.
+     */
+    public void recomputeTotalExcessPaymentAmountFromTransactions() {
+        BigDecimal parked = BigDecimal.ZERO;
+        BigDecimal swept = BigDecimal.ZERO;
+        for (final LoanTransaction transaction : this.loanTransactions) {
+            if (transaction.isReversed()) {
+                continue;
+            }
+            if (transaction.isRepaymentFromExcessAmount()) {
+                swept = swept.add(MathUtil.nullToZero(transaction.getAmount()));
+            } else {
+                parked = parked.add(MathUtil.nullToZero(transaction.getExcessPayment(getCurrency()).getAmount()));
+            }
+        }
+        this.totalExcessPaymentAmount = MathUtil.zeroToNull(MathUtil.subtractToZero(parked, swept));
+    }
+
+    public BigDecimal getTotalExcessPaymentAmount() {
+        return this.totalExcessPaymentAmount == null ? BigDecimal.ZERO : this.totalExcessPaymentAmount;
+    }
+
+    public void setTotalExcessPaymentAmount(BigDecimal amount) {
+        this.totalExcessPaymentAmount = amount;
     }
 
     public void updateIsInterestRecalculationEnabled() {

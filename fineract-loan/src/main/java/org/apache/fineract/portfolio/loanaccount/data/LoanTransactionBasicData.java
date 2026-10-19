@@ -39,6 +39,7 @@ public class LoanTransactionBasicData implements Serializable {
     private final BigDecimal feeChargesPortion;
     private final BigDecimal penaltyChargesPortion;
     private final BigDecimal overpaymentPortion;
+    private final BigDecimal excessPaymentPortion;
     private final BigDecimal unrecognizedIncomePortion;
     private final String externalId;
     private final boolean manuallyReversed;
