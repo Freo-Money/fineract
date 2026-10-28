@@ -28,10 +28,13 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -47,6 +50,8 @@ import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidDetail;
 import org.apache.fineract.portfolio.loanaccount.data.TransactionChangeData;
 import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
+import org.apache.fineract.portfolio.loanaccount.domain.ChargePaymentReceiptAllocation;
+import org.apache.fineract.portfolio.loanaccount.domain.ChargePaymentReceiptInstallmentResolver;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeEffectiveDueDateComparator;
@@ -138,6 +143,19 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
 
         final ChangedTransactionDetail changedTransactionDetail = new ChangedTransactionDetail();
         final List<LoanTransaction> transactionsToBeProcessed = new ArrayList<>();
+        // One aggregated warning per loan at the end of the replay, not one per transaction: a tenant with a backlog
+        // of clipped charge payments would otherwise flood the log on every reprocess and every COB run.
+        final List<Long> unreconciledChargePayments = new ArrayList<>();
+        Money unreconciledGap = Money.zero(currency);
+        Long warnLoanId = null;
+        // The charges that something other than a charge payment has already settled. Charge payments are all replayed
+        // before any of those reach the strategy, so a charge they touch still shows a balance that is about to be
+        // reduced again, and no split may be derived from it. Computed at most once per replay, and only when the
+        // feature is on: building it forces the lazily-fetched receipts of every repayment-like transaction.
+        Set<Long> chargesSettledOutsideChargePayments = null;
+        Map<String, Money> settledByKey = null;
+        // Both replay-context checks depend only on the loan, so they are answered once instead of per payment.
+        Boolean replayingOwnWork = null;
         for (final LoanTransaction loanTransaction : transactionsPostDisbursement) {
             if (loanTransaction.isChargePayment()) {
                 List<LoanChargePaidDetail> chargePaidDetails = new ArrayList<>();
@@ -147,30 +165,39 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                     transferCharges.add(chargePaidBy.getLoanCharge());
                 }
                 int firstNormalInstallmentNumber = LoanRepaymentScheduleProcessingWrapper.fetchFirstNormalInstallmentNumber(installments);
+                boolean deriveAllocationFromChargeSet = false;
+                if (replayingOwnWork == null) {
+                    replayingOwnWork = isReplayingLoanOwnTransactions(loanTransaction, transactionsPostDisbursement)
+                            && isReplayingLoanOwnSchedule(loanTransaction.getLoan(), installments);
+                }
+                if (hasMultipleChargeAllocations(chargePaidBies) && replayingOwnWork && isChargeSetAllocationAvailable(loanTransaction)) {
+                    if (chargesSettledOutsideChargePayments == null) {
+                        chargesSettledOutsideChargePayments = chargesSettledByOtherTransactionTypes(transactionsPostDisbursement);
+                    }
+                    deriveAllocationFromChargeSet = !touchesAnyOf(loanTransaction, chargesSettledOutsideChargePayments);
+                    if (!deriveAllocationFromChargeSet) {
+                        log.debug(
+                                "Charge payment reprocess: charge-set allocation skipped for transaction [id={}]; another transaction "
+                                        + "has already settled part of the same charges, which this replay order cannot see yet.",
+                                loanTransaction.getId());
+                    }
+                }
                 if (hasMultipleChargeAllocations(chargePaidBies)) {
-                    // Multi-charge payment: the stored receipts are authoritative - they were built as exact
-                    // (charge, installment, amount) allocations that sum to the transaction amount. Replay them as-is.
-                    // Re-deriving the amounts from each charge's CURRENT full amount and due period (the legacy path
-                    // below) is wrong here: a partially-allocated charge would be processed for its full amount and
-                    // starve the remaining allocations, and any later change to a charge's amount would shift money
-                    // between allocations on every reprocess, so the applied portions would no longer match the
-                    // receipts or the transaction amount.
-                    for (final LoanChargePaidBy chargePaidBy : chargePaidBies) {
-                        final LoanRepaymentScheduleInstallment installment = findInstallmentForChargePaidBy(installments,
-                                firstNormalInstallmentNumber, chargePaidBy);
-                        if (installment != null) {
-                            chargePaidDetails.add(new LoanChargePaidDetail(Money.of(currency, chargePaidBy.getAmount()), installment,
-                                    chargePaidBy.getLoanCharge().isFeeCharge()));
-                        } else {
-                            // Only reachable when the loan has no installments at all; surface it rather than silently
-                            // diverting the allocation to overpayment.
-                            final LoanCharge loanCharge = chargePaidBy.getLoanCharge();
-                            log.warn("Charge payment reprocess: could not map LoanChargePaidBy [id={}] (loanChargeId={}, amount={}) "
-                                    + "on transaction [id={}] of loan [id={}] to any installment; its amount will fall through to overpayment.",
-                                    chargePaidBy.getId(), loanCharge != null ? loanCharge.getId() : null, chargePaidBy.getAmount(),
-                                    loanTransaction.getId(), loanTransaction.getLoan() != null ? loanTransaction.getLoan().getId() : null);
+                    if (!deriveAllocationFromChargeSet && Boolean.TRUE.equals(replayingOwnWork)) {
+                        // Only a real replay reports a backlog: the prepayment and foreclosure quotes come through
+                        // here too, and a read-only amount request must not log a repair instruction per call.
+                        final Money receiptsTotal = loanTransaction.getLoanChargesPaidTotal(currency);
+                        if (!receiptsTotal.isEqualTo(loanTransaction.getAmount(currency))) {
+                            warnLoanId = loanTransaction.getLoan() == null ? warnLoanId : loanTransaction.getLoan().getId();
+                            unreconciledChargePayments.add(loanTransaction.getId());
+                            unreconciledGap = unreconciledGap.plus(loanTransaction.getAmount(currency).minus(receiptsTotal));
                         }
                     }
+                    if (deriveAllocationFromChargeSet && settledByKey == null) {
+                        settledByKey = ChargePaymentReceiptAllocation.settledByKey(transactionsPostDisbursement, currency);
+                    }
+                    chargePaidDetails.addAll(buildMultiReceiptChargePaidDetails(loanTransaction, currency, installments,
+                            firstNormalInstallmentNumber, chargePaidBies, deriveAllocationFromChargeSet, settledByKey));
                 } else {
                     for (final LoanCharge loanCharge : transferCharges) {
                         if (loanCharge.isInstalmentFee()) {
@@ -201,19 +228,29 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 // (rather than overwrite) portions when multiple charges fall in the same installment.
                 loanTransaction.clearLoanTransactionToRepaymentScheduleMappings();
                 Money unprocessed = loanTransaction.getAmount(currency);
+                final IdentityHashMap<LoanChargePaidBy, Money> appliedByReceipt = new IdentityHashMap<>();
                 for (LoanChargePaidDetail chargePaidDetail : chargePaidDetails) {
-                    final List<LoanRepaymentScheduleInstallment> processInstallments = new ArrayList<>(1);
-                    processInstallments.add(chargePaidDetail.getInstallment());
+                    if (!unprocessed.isGreaterThanZero()) {
+                        break;
+                    }
                     Money processAmt = chargePaidDetail.getAmount();
                     if (processAmt.isGreaterThan(unprocessed)) {
                         processAmt = unprocessed;
                     }
-                    Money chargeLeftover = handleTransactionAndCharges(loanTransaction, currency, processInstallments, transferCharges,
-                            processAmt, chargePaidDetail.isFeeCharge());
-                    unprocessed = unprocessed.minus(processAmt).plus(chargeLeftover);
-                    if (!unprocessed.isGreaterThanZero()) {
-                        break;
+                    if (!processAmt.isGreaterThanZero()) {
+                        // Nothing to apply: with charge-set allocation this is a receipt whose charge is already fully
+                        // settled, and its stored amount is reconciled to zero below.
+                        continue;
                     }
+                    final List<LoanRepaymentScheduleInstallment> processInstallments = new ArrayList<>(1);
+                    processInstallments.add(chargePaidDetail.getInstallment());
+                    Money chargeLeftover = handleTransactionAndCharges(loanTransaction, currency, processInstallments, transferCharges,
+                            processAmt, chargePaidDetail.isFeeCharge(), chargePaidDetail.getReceipt());
+                    final LoanChargePaidBy processedReceipt = chargePaidDetail.getReceipt();
+                    if (processedReceipt != null) {
+                        appliedByReceipt.merge(processedReceipt, processAmt.minus(chargeLeftover), Money::plus);
+                    }
+                    unprocessed = unprocessed.minus(processAmt).plus(chargeLeftover);
                 }
 
                 if (unprocessed.isGreaterThanZero()) {
@@ -221,9 +258,27 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                     loanTransaction.setOverPayments(unprocessed);
                 }
 
+                if (deriveAllocationFromChargeSet) {
+                    rewriteReceiptAmountsToAppliedAllocation(loanTransaction, currency, chargePaidDetails, appliedByReceipt);
+                    final Money unreconciled = unreconciledAmountOf(loanTransaction, currency);
+                    if (unreconciled.isGreaterThanZero()) {
+                        warnLoanId = loanTransaction.getLoan() == null ? warnLoanId : loanTransaction.getLoan().getId();
+                        unreconciledChargePayments.add(loanTransaction.getId());
+                        unreconciledGap = unreconciledGap.plus(unreconciled);
+                    }
+                }
+
             } else {
                 transactionsToBeProcessed.add(loanTransaction);
             }
+        }
+
+        if (!unreconciledChargePayments.isEmpty()) {
+            log.warn(
+                    "Charge payment reprocess: on loan [id={}] {} charge payment(s) did not reconcile (total {} unallocated); that money "
+                            + "falls through to overpayment on every reprocess until the receipts are repaired "
+                            + "(repairChargePaymentReceipts loan command). Transactions: {}.",
+                    warnLoanId, unreconciledChargePayments.size(), unreconciledGap.getAmount(), unreconciledChargePayments);
         }
 
         MoneyHolder overpaymentHolder = new MoneyHolder(Money.zero(currency));
@@ -653,6 +708,20 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
     protected Money handleTransactionAndCharges(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
             final List<LoanRepaymentScheduleInstallment> installments, final Set<LoanCharge> charges, final Money chargeAmountToProcess,
             final boolean isFeeCharge) {
+        return handleTransactionAndCharges(loanTransaction, currency, installments, charges, chargeAmountToProcess, isFeeCharge, null);
+    }
+
+    /**
+     * @param receipt
+     *            the stored {@link LoanChargePaidBy} this per-allocation call replays, or null when the allocation was
+     *            derived rather than replayed. When present, the charge it names is marked by exactly what this call
+     *            applied to the installment, so charge-level paid amounts follow the receipts (the authoritative
+     *            allocation) instead of a global earliest-unpaid walk that can land on a different charge of the same
+     *            definition.
+     */
+    protected Money handleTransactionAndCharges(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
+            final List<LoanRepaymentScheduleInstallment> installments, final Set<LoanCharge> charges, final Money chargeAmountToProcess,
+            final boolean isFeeCharge, final LoanChargePaidBy receipt) {
         if (loanTransaction.isRepaymentLikeType() || loanTransaction.isInterestWaiver() || loanTransaction.isRecoveryRepayment()) {
             loanTransaction.resetDerivedComponents();
         }
@@ -680,15 +749,13 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
                 // (the delta). This keeps the sum of the charges' amount-paid for the transaction equal to the
                 // transaction amount, and avoids the cumulative double-marking that the fee-only cap below could not
                 // catch for penalty allocations.
-                if (isFeeCharge) {
-                    final Money feeChargesDelta = loanTransaction.getFeeChargesPortion(currency).minus(feeChargesBefore);
-                    if (feeChargesDelta.isGreaterThanZero()) {
-                        updateChargesPaidAmountBy(loanTransaction, feeChargesDelta, loanFees, installmentNumber);
-                    }
-                } else {
-                    final Money penaltyChargesDelta = loanTransaction.getPenaltyChargesPortion(currency).minus(penaltyChargesBefore);
-                    if (penaltyChargesDelta.isGreaterThanZero()) {
-                        updateChargesPaidAmountBy(loanTransaction, penaltyChargesDelta, loanPenalties, installmentNumber);
+                final Money appliedDelta = isFeeCharge ? loanTransaction.getFeeChargesPortion(currency).minus(feeChargesBefore)
+                        : loanTransaction.getPenaltyChargesPortion(currency).minus(penaltyChargesBefore);
+                if (appliedDelta.isGreaterThanZero()) {
+                    if (receipt != null) {
+                        markChargePaidByReceipt(loanTransaction, receipt, appliedDelta, installmentNumber);
+                    } else {
+                        updateChargesPaidAmountBy(loanTransaction, appliedDelta, isFeeCharge ? loanFees : loanPenalties, installmentNumber);
                     }
                 }
             } else {
@@ -750,6 +817,48 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
         }
         return transactionAmountUnprocessed;
+    }
+
+    /**
+     * Marks the receipt's own charge by what this allocation applied to the installment. Inactive charges are never
+     * marked (a receipt can outlive its charge when an overdue penalty is deactivated and replayed); the amount still
+     * sits on the installment, and the mismatch is logged for the repair tooling.
+     */
+    private void markChargePaidByReceipt(final LoanTransaction loanTransaction, final LoanChargePaidBy receipt, final Money appliedAmount,
+            final Integer installmentNumber) {
+        final LoanCharge loanCharge = receipt.getLoanCharge();
+        final Long loanId = loanTransaction.getLoan() != null ? loanTransaction.getLoan().getId() : null;
+        if (!loanCharge.isActive()) {
+            log.warn(
+                    "Charge payment reprocess: receipt [id={}] of transaction [id={}] on loan [id={}] points to a deactivated charge "
+                            + "[id={}]; {} was applied to the installment but no charge was marked paid.",
+                    receipt.getId(), loanTransaction.getId(), loanId, loanCharge.getId(), appliedAmount);
+            return;
+        }
+        // installmentNumber is the installment this allocation was actually applied to (already resolved, with
+        // fallback, from the receipt). The receipt's own stored number is deliberately NOT used here: a stale number
+        // (schedule shrunk after the payment) would make updatePaidAmountBy look up a missing instalment-fee bucket.
+        // The RESOLVED number can miss too - the fallback picks the latest-due installment, which an instalment fee
+        // need not cover - and LoanCharge.updatePaidAmountBy dereferences that bucket without checking, so verify it
+        // exists first.
+        if (loanCharge.isInstalmentFee() && installmentNumber != null && loanCharge.getInstallmentLoanCharge(installmentNumber) == null) {
+            log.warn(
+                    "Charge payment reprocess: receipt [id={}] of transaction [id={}] on loan [id={}] resolved to installment {}, which "
+                            + "instalment-fee charge [id={}] has no bucket for; {} was applied to the installment but no charge was "
+                            + "marked paid.",
+                    receipt.getId(), loanTransaction.getId(), loanId, installmentNumber, loanCharge.getId(), appliedAmount);
+            return;
+        }
+        // Charge-payment convention (see updateChargesPaidAmountBy): the instalment-fee amount hint is the amount
+        // applied.
+        final Money marked = loanCharge.updatePaidAmountBy(appliedAmount, installmentNumber, appliedAmount);
+        if (marked.isLessThan(appliedAmount)) {
+            log.warn(
+                    "Charge payment reprocess: receipt [id={}] of transaction [id={}] on loan [id={}] applied {} to the installment but "
+                            + "charge [id={}] could only absorb {}; charge-level and installment-level paid amounts now differ by {}.",
+                    receipt.getId(), loanTransaction.getId(), loanId, appliedAmount, loanCharge.getId(), marked,
+                    appliedAmount.minus(marked));
+        }
     }
 
     protected Set<LoanCharge> extractFeeCharges(final Set<LoanCharge> loanCharges) {
@@ -850,6 +959,266 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
     }
 
     /**
+     * Builds one allocation per receipt of a multi-receipt charge payment.
+     * <p>
+     * With {@code deriveAllocationFromChargeSet} the receipts' CHARGES are authoritative and their amounts are
+     * re-derived: the transaction amount is spread over those charges in effective-due-date order, each taking at most
+     * what it still has outstanding at this point of the replay. Charges are reset before the replay, so a charge an
+     * earlier CHARGE PAYMENT already settled offers no room and the money moves on to the next charge of the set.
+     * Repayments cannot compete for that room: every charge payment is replayed in this loop before any of them is
+     * handed to the strategy, so a charge payment always has first claim on the charges it names. This reproduces how
+     * the charge-definition payment API allocated the money in the first place, so a receipt whose amount an earlier
+     * destructive re-derivation clipped in place is restored instead of leaving the difference to fall through to
+     * overpayment. The split is a pure function of the transaction amount, the charge set and the replay order, so a
+     * second reprocess is a no-op.
+     * <p>
+     * Without the flag the stored receipt amounts are replayed verbatim (the behaviour PR #153 introduced), and only
+     * the warning about receipts that do not sum to the transaction amount is emitted.
+     */
+    private List<LoanChargePaidDetail> buildMultiReceiptChargePaidDetails(final LoanTransaction loanTransaction,
+            final MonetaryCurrency currency, final List<LoanRepaymentScheduleInstallment> installments,
+            final int firstNormalInstallmentNumber, final Set<LoanChargePaidBy> chargePaidBies, final boolean deriveAllocationFromChargeSet,
+            final Map<String, Money> settledByKey) {
+        // Sorted only when the amounts are being derived: the order decides which receipt is raised first. Replaying
+        // the stored amounts needs no order, and imposing one there would change which receipt a release build
+        // truncates when a receipt set already sums above its transaction.
+        final Collection<LoanChargePaidBy> receipts = deriveAllocationFromChargeSet
+                ? ChargePaymentReceiptAllocation.sortedForAllocation(chargePaidBies, installments)
+                : chargePaidBies;
+        // The gap is the only money a derived replay may move: each receipt is RAISED towards its cap, never lowered
+        // and never re-split, so a payment whose receipts already sum to its amount comes out untouched and no payment
+        // can claim room another payment's receipts account for.
+        Map<LoanChargePaidBy, Money> topUps = Map.of();
+        if (deriveAllocationFromChargeSet) {
+            // The cap is measured exactly as the planner measures it, from the stored receipts of every other live
+            // transaction, charge payments included. Sizing it from the charge's running paid amount instead would let
+            // the payment replayed first claim room a later payment's receipts already account for, and would persist
+            // a split that never existed.
+            final Map<String, Money> carried = ChargePaymentReceiptAllocation.carriedByKey(loanTransaction, currency);
+            topUps = ChargePaymentReceiptAllocation.topUps(List.copyOf(receipts),
+                    loanTransaction.getAmount(currency).minus(loanTransaction.getLoanChargesPaidTotal(currency)), currency,
+                    receipt -> ChargePaymentReceiptAllocation.capOf(receipt, currency, settledByKey, carried));
+        }
+        final List<LoanChargePaidDetail> chargePaidDetails = new ArrayList<>(receipts.size());
+        for (final LoanChargePaidBy chargePaidBy : receipts) {
+            final LoanCharge loanCharge = chargePaidBy.getLoanCharge();
+            final LoanRepaymentScheduleInstallment installment = findInstallmentForChargePaidBy(installments, firstNormalInstallmentNumber,
+                    chargePaidBy);
+            if (installment == null || loanCharge == null) {
+                // Only reachable when the loan has no installments at all, or when a receipt lost its charge; surface
+                // it rather than silently diverting the allocation to overpayment.
+                log.warn(
+                        "Charge payment reprocess: could not map LoanChargePaidBy [id={}] (loanChargeId={}, amount={}) on transaction "
+                                + "[id={}] of loan [id={}] to any installment; its amount will fall through to overpayment.",
+                        chargePaidBy.getId(), loanCharge != null ? loanCharge.getId() : null, chargePaidBy.getAmount(),
+                        loanTransaction.getId(), loanTransaction.getLoan() != null ? loanTransaction.getLoan().getId() : null);
+                continue;
+            }
+            Money amount = Money.of(currency, chargePaidBy.getAmount());
+            if (deriveAllocationFromChargeSet) {
+                amount = amount.plus(topUps.getOrDefault(chargePaidBy, Money.zero(currency)));
+            }
+            final boolean derived = deriveAllocationFromChargeSet;
+            // The receipt is handed down only where its amount was derived here: that is what switches charge marking
+            // to the receipt's own charge, so with the flag off the release behaviour stays bit-for-bit unchanged, and
+            // a receipt whose amount was not derived is never rewritten either.
+            chargePaidDetails.add(new LoanChargePaidDetail(amount, installment, loanCharge.isFeeCharge(), derived ? chargePaidBy : null));
+        }
+        return chargePaidDetails;
+    }
+
+    /**
+     * Charge-set allocation is opt-in (global configuration {@code charge-payment-charge-set-allocation}, disabled by
+     * default) and is additionally skipped when the product has accounting enabled: a charge payment's journal entries
+     * are posted per receipt (tax exclusive), so re-deriving the receipts here would leave the entries already posted
+     * inconsistent with nothing to re-post them.
+     */
+    private boolean isChargeSetAllocationAvailable(final LoanTransaction loanTransaction) {
+        if (!TemporaryConfigurationServiceContainer.isChargePaymentChargeSetAllocationEnabled()) {
+            return false;
+        }
+        final Loan loan = loanTransaction.getLoan();
+        if (loan == null || loan.getLoanProduct() == null) {
+            return false;
+        }
+        if (!loan.getLoanProduct().isAccountingDisabled()) {
+            log.debug(
+                    "Charge payment reprocess: charge-set allocation skipped for transaction [id={}] of loan [id={}]; product [id={}] "
+                            + "has accounting enabled and its journal entries are derived from the receipts.",
+                    loanTransaction.getId(), loan.getId(), loan.getLoanProduct().getId());
+            return false;
+        }
+        if (ChargePaymentReceiptAllocation.hasMixedComponents(loanTransaction.getLoanChargesPaid())) {
+            // One transaction pays one component: the installment allocation routes every receipt by the
+            // transaction's own fee/penalty flag, so in a mixed set a receipt would be raised on disk while its charge
+            // received nothing. The repair planner refuses the same shape.
+            log.debug("Charge payment reprocess: charge-set allocation skipped for transaction [id={}] of loan [id={}]; its receipts mix "
+                    + "fee and penalty charges.", loanTransaction.getId(), loan.getId());
+            return false;
+        }
+        for (final LoanChargePaidBy receipt : loanTransaction.getLoanChargesPaid()) {
+            if (!ChargePaymentReceiptAllocation.isDerivable(receipt)) {
+                // One receipt that cannot be sized would push its share onto a sibling charge, leaving the stored
+                // receipts summing above the transaction, or leave the whole payment unallocated. Replay the set as it
+                // stands; the repair planner reports the same shape for review.
+                log.debug(
+                        "Charge payment reprocess: charge-set allocation skipped for transaction [id={}] of loan [id={}]; receipt "
+                                + "[id={}] cannot be re-derived (inactive, disbursement-time or unmapped instalment-fee charge).",
+                        loanTransaction.getId(), loan.getId(), receipt.getId());
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Whether the transaction being replayed is the loan's own managed instance rather than a copy. A copy shares the
+     * real {@link LoanChargePaidBy} objects but receives the derived portions itself, so anything written to the
+     * receipts from such a replay would never match the real transaction.
+     */
+    private static boolean isReplayingLoanOwnTransactions(final LoanTransaction loanTransaction,
+            final List<LoanTransaction> replayedTransactions) {
+        final Loan loan = loanTransaction.getLoan();
+        if (loan == null || CollectionUtils.isEmpty(replayedTransactions)) {
+            return false;
+        }
+        for (final LoanTransaction own : loan.getLoanTransactions()) {
+            if (own == loanTransaction) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The charges that a live transaction OTHER than a charge payment has settled with money. */
+    private static Set<Long> chargesSettledByOtherTransactionTypes(final List<LoanTransaction> transactions) {
+        final Set<Long> charges = new HashSet<>();
+        if (CollectionUtils.isEmpty(transactions)) {
+            return charges;
+        }
+        for (final LoanTransaction transaction : transactions) {
+            if (transaction.isChargePayment() || !ChargePaymentReceiptAllocation.isCashSettlementOfCharge(transaction)) {
+                continue;
+            }
+            for (final LoanChargePaidBy receipt : transaction.getLoanChargesPaid()) {
+                if (receipt.getLoanCharge() != null) {
+                    charges.add(receipt.getLoanCharge().getId());
+                }
+            }
+        }
+        return charges;
+    }
+
+    /** Whether any charge this transaction's receipts name appears in the given set. */
+    private static boolean touchesAnyOf(final LoanTransaction loanTransaction, final Set<Long> charges) {
+        if (charges.isEmpty()) {
+            return false;
+        }
+        for (final LoanChargePaidBy receipt : loanTransaction.getLoanChargesPaid()) {
+            if (receipt.getLoanCharge() != null && charges.contains(receipt.getLoanCharge().getId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * True when the installments being replayed are the loan's own schedule rows. The prepayment/foreclosure quoting
+     * path passes a simulated schedule instead, and nothing persistent may be re-derived from that.
+     */
+    private static boolean isReplayingLoanOwnSchedule(final Loan loan, final List<LoanRepaymentScheduleInstallment> installments) {
+        final List<LoanRepaymentScheduleInstallment> ownInstallments = loan.getRepaymentScheduleInstallments();
+        if (ownInstallments == installments) {
+            return true;
+        }
+        if (CollectionUtils.isEmpty(installments) || CollectionUtils.isEmpty(ownInstallments)) {
+            return false;
+        }
+        final Set<LoanRepaymentScheduleInstallment> ownByIdentity = Collections.newSetFromMap(new IdentityHashMap<>());
+        ownByIdentity.addAll(ownInstallments);
+        return ownByIdentity.containsAll(installments);
+    }
+
+    /**
+     * Writes a receipt's amount to what the replay actually applied for it, so the stored receipts sum to the
+     * transaction's allocated portions. Changing an amount re-derives that receipt's tax details, so the product's tax
+     * rounding mode is used.
+     * <p>
+     * A receipt is rewritten only when it was allocated something AND the installment absorbed that allocation in full.
+     * Anything else leaves the stored amount alone, because lowering it would destroy the only record of what was
+     * collected for that charge and no later replay could recover it: a receipt whose charge is inactive or already
+     * settled by another transaction keeps its amount and is reported instead (the planner classifies those for
+     * review), and so does one the installment bucket could not take in full, or one that resolved to no installment, A
+     * receipt whose amount this replay did not derive, such as one on a disbursement-time charge, never reaches this
+     * method at all.
+     */
+    private void rewriteReceiptAmountsToAppliedAllocation(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
+            final List<LoanChargePaidDetail> chargePaidDetails, final IdentityHashMap<LoanChargePaidBy, Money> appliedByReceipt) {
+        // identity, not equals: LoanChargePaidBy inherits no equals/hashCode, and two unsaved receipts must stay
+        // distinct
+        final IdentityHashMap<LoanChargePaidBy, Money> plannedByReceipt = new IdentityHashMap<>();
+        for (final LoanChargePaidDetail chargePaidDetail : chargePaidDetails) {
+            if (chargePaidDetail.getReceipt() != null) {
+                plannedByReceipt.merge(chargePaidDetail.getReceipt(), chargePaidDetail.getAmount(), Money::plus);
+            }
+        }
+        // The same resolution the path that CREATED these receipts uses
+        // (LoanChargeService#handleChargePaidTransaction),
+        // and the one the legacy single-receipt rewrite above uses: a receipt rewritten here must carry the very tax
+        // split a receipt of that amount would be created with, or repairing a loan would re-rate its GST.
+        final RoundingMode taxRoundingMode = TemporaryConfigurationServiceContainer.getTaxRoundingMode();
+        for (final Map.Entry<LoanChargePaidBy, Money> entry : plannedByReceipt.entrySet()) {
+            final LoanChargePaidBy chargePaidBy = entry.getKey();
+            final LoanCharge loanCharge = chargePaidBy.getLoanCharge();
+            final Money applied = appliedByReceipt.getOrDefault(chargePaidBy, Money.zero(currency));
+            if (!applied.isGreaterThanZero()) {
+                if (chargePaidBy.getAmount() == null || chargePaidBy.getAmount().compareTo(BigDecimal.ZERO) == 0) {
+                    continue;
+                }
+                log.warn(
+                        "Charge payment reprocess: receipt [id={}] (loanChargeId={}) of transaction [id={}] on loan [id={}] could be "
+                                + "allocated nothing (its charge is inactive, or already settled); its stored amount of {} is left "
+                                + "unchanged and that money falls through to overpayment.",
+                        chargePaidBy.getId(), loanCharge != null ? loanCharge.getId() : null, loanTransaction.getId(),
+                        loanTransaction.getLoan() != null ? loanTransaction.getLoan().getId() : null, chargePaidBy.getAmount());
+                continue;
+            }
+            if (!applied.isEqualTo(entry.getValue())) {
+                log.warn(
+                        "Charge payment reprocess: the installment absorbed only {} of the {} planned for receipt [id={}] "
+                                + "(loanChargeId={}) on transaction [id={}] of loan [id={}]; the stored receipt amount is left "
+                                + "unchanged and the difference falls through to overpayment.",
+                        applied.getAmount(), entry.getValue().getAmount(), chargePaidBy.getId(),
+                        loanCharge != null ? loanCharge.getId() : null, loanTransaction.getId(),
+                        loanTransaction.getLoan() != null ? loanTransaction.getLoan().getId() : null);
+                continue;
+            }
+            final BigDecimal before = chargePaidBy.getAmount();
+            if (before != null && before.compareTo(applied.getAmount()) == 0) {
+                continue;
+            }
+            chargePaidBy.setAmount(applied.getAmount(), taxRoundingMode);
+            log.info(
+                    "Charge payment reprocess: receipt [id={}] (loanChargeId={}) of transaction [id={}] on loan [id={}] re-derived from "
+                            + "{} to {}.",
+                    chargePaidBy.getId(), chargePaidBy.getLoanCharge() != null ? chargePaidBy.getLoanCharge().getId() : null,
+                    loanTransaction.getId(), loanTransaction.getLoan() != null ? loanTransaction.getLoan().getId() : null, before,
+                    applied.getAmount());
+        }
+    }
+
+    /**
+     * How much of a charge payment this replay could not place on a charge: the part of its amount that no charge
+     * absorbed. Reported once per loan by the caller rather than per transaction, because a tenant with a backlog would
+     * otherwise have the log flooded on every reprocess and every COB run.
+     */
+    private static Money unreconciledAmountOf(final LoanTransaction loanTransaction, final MonetaryCurrency currency) {
+        final Money amount = loanTransaction.getAmount(currency);
+        final Money portions = loanTransaction.getFeeChargesPortion(currency).plus(loanTransaction.getPenaltyChargesPortion(currency));
+        return MathUtil.negativeToZero(amount.minus(portions));
+    }
+
+    /**
      * Resolves the installment a multi-charge-payment receipt applies to: by the receipt's installment number when
      * present (instalment fees), otherwise by the period the charge is due in (regular/overdue charges), mirroring how
      * the allocation's installment was picked when the payment was made. When neither resolves - e.g. an
@@ -860,23 +1229,13 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
      */
     private LoanRepaymentScheduleInstallment findInstallmentForChargePaidBy(final List<LoanRepaymentScheduleInstallment> installments,
             final int firstNormalInstallmentNumber, final LoanChargePaidBy chargePaidBy) {
+        final LoanRepaymentScheduleInstallment resolved = ChargePaymentReceiptInstallmentResolver.resolve(installments,
+                firstNormalInstallmentNumber, chargePaidBy);
+        if (resolved != null) {
+            return resolved;
+        }
         final Integer installmentNumber = chargePaidBy.getInstallmentNumber();
-        if (installmentNumber != null) {
-            for (final LoanRepaymentScheduleInstallment installment : installments) {
-                if (installmentNumber.equals(installment.getInstallmentNumber())) {
-                    return installment;
-                }
-            }
-        }
         final LoanCharge charge = chargePaidBy.getLoanCharge();
-        if (charge != null) {
-            for (final LoanRepaymentScheduleInstallment installment : installments) {
-                final boolean isFirstPeriod = installment.getInstallmentNumber().equals(firstNormalInstallmentNumber);
-                if (charge.isDueInPeriod(installment.getFromDate(), installment.getDueDate(), isFirstPeriod)) {
-                    return installment;
-                }
-            }
-        }
         LoanRepaymentScheduleInstallment latestInstallment = null;
         for (final LoanRepaymentScheduleInstallment installment : installments) {
             if (latestInstallment == null || DateUtils.isAfter(installment.getDueDate(), latestInstallment.getDueDate())) {

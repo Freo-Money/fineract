@@ -234,6 +234,11 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     }
 
     @Override
+    public boolean isChargePaymentChargeSetAllocationEnabled() {
+        return getGlobalConfigurationPropertyData(GlobalConfigurationConstants.CHARGE_PAYMENT_CHARGE_SET_ALLOCATION).isEnabled();
+    }
+
+    @Override
     public RoundingMode getTaxRoundingMode() {
         RoundingMode defaultMode = RoundingMode.HALF_EVEN;
         final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(GlobalConfigurationConstants.TAX_ROUNDING_MODE);

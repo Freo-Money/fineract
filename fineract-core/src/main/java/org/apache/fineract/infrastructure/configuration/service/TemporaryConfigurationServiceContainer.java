@@ -21,6 +21,7 @@ package org.apache.fineract.infrastructure.configuration.service;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.math.RoundingMode;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.stereotype.Component;
@@ -32,6 +33,7 @@ import org.springframework.stereotype.Component;
  * Loan.java) and we dont need this workaround anymore
  */
 @Component
+@Slf4j
 @RequiredArgsConstructor
 public class TemporaryConfigurationServiceContainer implements InitializingBean {
 
@@ -45,6 +47,26 @@ public class TemporaryConfigurationServiceContainer implements InitializingBean 
 
     public static String getAccrualDateConfigForCharge() {
         return TemporaryConfigurationServiceContainer.STATIC_REF_CONFIGURATION_SERVICE.getAccrualDateConfigForCharge();
+    }
+
+    /**
+     * Fail-safe: with no configuration service available (so far only outside a running application context) the
+     * feature stays off, because it changes how stored charge-payment receipts are re-derived.
+     */
+    public static boolean isChargePaymentChargeSetAllocationEnabled() {
+        final ConfigurationDomainService configurationService = TemporaryConfigurationServiceContainer.STATIC_REF_CONFIGURATION_SERVICE;
+        if (configurationService == null) {
+            return false;
+        }
+        try {
+            return configurationService.isChargePaymentChargeSetAllocationEnabled();
+        } catch (final RuntimeException e) {
+            // The lookup throws when the c_configuration row is absent, for instance on a tenant whose schema predates
+            // the migration that inserts it. This runs in the transaction-processing path, so it must leave the feature
+            // off rather than fail every reprocess of a loan with a multi-receipt charge payment.
+            log.warn("Charge-payment charge-set allocation setting could not be read; treating the feature as disabled.", e);
+            return false;
+        }
     }
 
     public static RoundingMode getTaxRoundingMode() {

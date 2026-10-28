@@ -73,6 +73,14 @@ public interface ConfigurationDomainService {
 
     RoundingMode getTaxRoundingMode();
 
+    /**
+     * When enabled, replaying a multi-receipt charge payment re-derives how its amount splits across the charges its
+     * receipts name, instead of replaying the stored receipt amounts verbatim, and marks each charge against its own
+     * receipt rather than by the legacy earliest-unpaid walk. With it disabled the replay is the release behaviour. See
+     * {@code AbstractLoanRepaymentScheduleTransactionProcessor#reprocessLoanTransactions}.
+     */
+    boolean isChargePaymentChargeSetAllocationEnabled();
+
     boolean isBackdatePenaltiesEnabled();
 
     boolean isEnforceLoanTransactionNotBeforeLastUserTransactionEnabled();

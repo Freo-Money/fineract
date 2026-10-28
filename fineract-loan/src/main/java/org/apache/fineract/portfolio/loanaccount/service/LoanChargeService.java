@@ -1012,7 +1012,7 @@ public class LoanChargeService {
         return loanProductRoundingModeService.resolveMathContext(null);
     }
 
-    private RoundingMode resolveTaxRoundingMode(final Loan loan) {
+    public RoundingMode resolveTaxRoundingMode(final Loan loan) {
         if (loan != null && loan.getLoanProduct() != null) {
             return loanProductRoundingModeService.resolveTaxRoundingMode(loan.getLoanProduct().getId());
         }

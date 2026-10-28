@@ -1359,6 +1359,8 @@ public class LoansApiResource {
             commandRequest = builder.recalculateLoanSummary(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, "reprocessTransactions")) {
             commandRequest = builder.reprocessLoanTransactions(resolvedLoanId).build();
+        } else if (CommandParameterUtil.is(commandParam, LoanChargePaymentReceiptRepairApiConstants.COMMAND)) {
+            commandRequest = builder.repairChargePaymentReceipts(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, LoanReprocessApiConstants.COMMAND_REPROCESS_LOAN)) {
             commandRequest = builder.reprocessLoan(resolvedLoanId).build();
         } else if (CommandParameterUtil.is(commandParam, "assigndelinquency")) {
