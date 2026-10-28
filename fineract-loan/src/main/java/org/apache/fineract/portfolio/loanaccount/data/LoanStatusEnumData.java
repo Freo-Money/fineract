@@ -38,6 +38,7 @@ public class LoanStatusEnumData {
     private final boolean closedObligationsMet;
     private final boolean closedWrittenOff;
     private final boolean closedRescheduled;
+    private final boolean closedSold;
     private final boolean closed;
     private final boolean overpaid;
 
@@ -51,7 +52,8 @@ public class LoanStatusEnumData {
         this.closedObligationsMet = Long.valueOf(600).equals(this.id);
         this.closedWrittenOff = Long.valueOf(601).equals(this.id);
         this.closedRescheduled = Long.valueOf(602).equals(this.id);
-        this.closed = this.closedObligationsMet || this.closedWrittenOff || this.closedRescheduled;
+        this.closedSold = Long.valueOf(603).equals(this.id);
+        this.closed = this.closedObligationsMet || this.closedWrittenOff || this.closedRescheduled || this.closedSold;
         this.overpaid = Long.valueOf(700).equals(this.id);
     }
 
