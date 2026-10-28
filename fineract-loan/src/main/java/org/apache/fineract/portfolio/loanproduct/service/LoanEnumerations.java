@@ -390,6 +390,8 @@ public final class LoanEnumerations {
             case CLOSED_RESCHEDULE_OUTSTANDING_AMOUNT ->
                 new LoanStatusEnumData(LoanStatus.CLOSED_RESCHEDULE_OUTSTANDING_AMOUNT.getValue().longValue(),
                         LoanStatus.CLOSED_RESCHEDULE_OUTSTANDING_AMOUNT.getCode(), "Closed (rescheduled)");
+            case CLOSED_SOLD ->
+                new LoanStatusEnumData(LoanStatus.CLOSED_SOLD.getValue().longValue(), LoanStatus.CLOSED_SOLD.getCode(), "Closed (sold)");
             case OVERPAID -> new LoanStatusEnumData(LoanStatus.OVERPAID.getValue().longValue(), LoanStatus.OVERPAID.getCode(), "Overpaid");
             case TRANSFER_IN_PROGRESS -> new LoanStatusEnumData(LoanStatus.TRANSFER_IN_PROGRESS.getValue().longValue(),
                     LoanStatus.TRANSFER_IN_PROGRESS.getCode(), "Transfer in progress");
