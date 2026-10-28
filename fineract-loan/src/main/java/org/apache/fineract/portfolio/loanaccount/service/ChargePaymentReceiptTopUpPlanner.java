@@ -23,6 +23,8 @@ import java.util.Collection;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,7 +42,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
  * Before multi-receipt charge payments were replayed from their receipts, reprocessing lowered those receipts in place.
  * Now that the receipts are authoritative, the lowered part parks as overpayment on every reprocess. Raising each
  * receipt back within what its charge can still absorb, in effective-due-date order, restores the original allocation.
- * Receipts are only ever raised, never lowered or moved.
+ * Room on a charge that another short charge payment also has receipts on could belong to either payment, so such a
+ * payment is reported rather than topped up. Receipts are only ever raised, never lowered or moved.
  */
 public final class ChargePaymentReceiptTopUpPlanner {
 
@@ -60,9 +63,28 @@ public final class ChargePaymentReceiptTopUpPlanner {
             .comparing(LoanChargePaidBy::getLoanCharge, Comparator.nullsLast(LoanChargeEffectiveDueDateComparator.INSTANCE))
             .thenComparing(LoanChargePaidBy::getId, Comparator.nullsLast(Comparator.naturalOrder()));
 
+    private ChargePaymentReceiptTopUpPlanner() {}
+
     /** Whether the receipts of this transaction settle the charges they name. */
-    public static boolean settlesCharges(final LoanTransaction transaction) {
+    private static boolean settlesCharges(final LoanTransaction transaction) {
         return transaction.isNotReversed() && !NON_SETTLING_TYPES.contains(transaction.getTypeOf());
+    }
+
+    /** What the last replay absorbed into the transaction's fee and penalty portions. */
+    public static Money chargesPortion(final LoanTransaction transaction, final MonetaryCurrency currency) {
+        return transaction.getFeeChargesPortion(currency).plus(transaction.getPenaltyChargesPortion(currency));
+    }
+
+    /**
+     * The transaction's receipts, summed. The one definition of a short charge payment (receipts below its amount) for
+     * both {@link #shortPaymentIdsByCharge} and {@link #plan}, which must agree on it.
+     */
+    private static Money receiptsTotal(final LoanTransaction transaction, final MonetaryCurrency currency) {
+        Money total = Money.zero(currency);
+        for (final LoanChargePaidBy receipt : transaction.getLoanChargesPaid()) {
+            total = total.plus(Money.of(currency, receipt.getAmount()));
+        }
+        return total;
     }
 
     /**
@@ -86,24 +108,45 @@ public final class ChargePaymentReceiptTopUpPlanner {
     }
 
     /**
+     * Ids of the charge payments among {@code chargePayments} whose receipts sum below their amount, by the charges
+     * those receipts name. Room on such a charge could belong to any of them.
+     */
+    public static Map<Long, Set<Long>> shortPaymentIdsByCharge(final Collection<LoanTransaction> chargePayments,
+            final MonetaryCurrency currency) {
+        final Map<Long, Set<Long>> byCharge = new HashMap<>();
+        for (final LoanTransaction payment : chargePayments) {
+            if (!receiptsTotal(payment, currency).isLessThan(payment.getAmount(currency))) {
+                continue;
+            }
+            for (final LoanChargePaidBy receipt : payment.getLoanChargesPaid()) {
+                if (receipt.getLoanCharge() != null) {
+                    byCharge.computeIfAbsent(receipt.getLoanCharge().getId(), chargeId -> new HashSet<>()).add(payment.getId());
+                }
+            }
+        }
+        return byCharge;
+    }
+
+    /**
      * @param settledByCharge
      *            {@link #settledByCharge} over the loan's live transactions, this one included, with the top-ups
      *            applied to earlier charge payments merged in; it is not modified
+     * @param shortPaymentIdsByCharge
+     *            {@link #shortPaymentIdsByCharge} over the loan's live charge payments before any top-up
      */
-    public ChargePaymentReceiptTopUpPlan plan(final LoanTransaction transaction, final MonetaryCurrency currency,
-            final Map<Long, Money> settledByCharge) {
+    public static ChargePaymentReceiptTopUpPlan plan(final LoanTransaction transaction, final MonetaryCurrency currency,
+            final Map<Long, Money> settledByCharge, final Map<Long, Set<Long>> shortPaymentIdsByCharge) {
         final Money amount = transaction.getAmount(currency);
-        final Money charged = transaction.getFeeChargesPortion(currency).plus(transaction.getPenaltyChargesPortion(currency));
+        final Money charged = chargesPortion(transaction, currency);
+        final Money receiptsTotal = receiptsTotal(transaction, currency);
 
         final List<LoanChargePaidBy> receipts = new ArrayList<>(transaction.getLoanChargesPaid());
         receipts.sort(RECEIPT_ORDER);
-        Money receiptsTotal = Money.zero(currency);
         boolean anyInactiveCharge = false;
         boolean anyUnsupportedCharge = false;
         boolean anyFee = false;
         boolean anyPenalty = false;
         for (final LoanChargePaidBy receipt : receipts) {
-            receiptsTotal = receiptsTotal.plus(Money.of(currency, receipt.getAmount()));
             final LoanCharge charge = receipt.getLoanCharge();
             if (charge == null || !charge.isActive()) {
                 anyInactiveCharge = true;
@@ -137,22 +180,21 @@ public final class ChargePaymentReceiptTopUpPlanner {
             classification = charged.isLessThan(receiptsTotal) ? ChargePaymentReceiptClassification.INSTALLMENT_ROOM
                     : ChargePaymentReceiptClassification.CONSISTENT;
         } else {
-            final List<ChargePaymentReceiptTopUp> candidates = computeTopUps(receipts, gap, currency, settledByCharge);
-            Money raised = Money.zero(currency);
-            for (final ChargePaymentReceiptTopUp topUp : candidates) {
-                raised = raised.plus(Money.of(currency, topUp.to()).minus(Money.of(currency, topUp.from())));
-            }
-            if (candidates.isEmpty()) {
+            final Map<Long, Money> roomByCharge = roomByCharge(receipts, currency, settledByCharge);
+            if (roomByCharge.isEmpty()) {
                 classification = ChargePaymentReceiptClassification.SURPLUS;
-            } else if (!raised.isEqualTo(gap)) {
-                // A partial raise is never applied: the residual is left for refund.
+            } else if (Money.zero(currency).plus(roomByCharge.values()).isLessThan(gap)) {
+                // A partial raise is never applied: the residual is left for refund. Decided before the shared-room
+                // test, so this room may also be claimed by another short payment (see CLIPPED_RESIDUAL).
                 classification = ChargePaymentReceiptClassification.CLIPPED_RESIDUAL;
+            } else if (sharesRoomWithAnotherShortPayment(transaction, roomByCharge, shortPaymentIdsByCharge)) {
+                classification = ChargePaymentReceiptClassification.AMBIGUOUS_ROOM;
             } else if (charged.isLessThan(receiptsTotal)) {
                 // Replay parks what a receipt's installment cannot absorb, so raising receipts would never reconcile.
                 classification = ChargePaymentReceiptClassification.INSTALLMENT_ROOM;
             } else {
                 classification = ChargePaymentReceiptClassification.CLIPPED;
-                topUps = candidates;
+                topUps = computeTopUps(receipts, gap, currency, roomByCharge);
             }
         }
         return new ChargePaymentReceiptTopUpPlan(transaction, classification, amount.getAmount(), receiptsTotal.getAmount(),
@@ -160,30 +202,58 @@ public final class ChargePaymentReceiptTopUpPlanner {
     }
 
     /**
-     * Walks the receipts in {@link #RECEIPT_ORDER} and raises each towards its charge's room until the gap is used up.
-     * The room is the charge amount net of waivers, write-offs and every settling receipt on it (this transaction's
-     * included), so the receipts of one charge never exceed the charge.
+     * Room left on each of the receipts' charges, in {@link #RECEIPT_ORDER}, charges without room left out. The room is
+     * the charge amount net of waivers, write-offs and every settling receipt on it (this transaction's included), so
+     * the receipts of one charge never exceed the charge.
+     */
+    private static Map<Long, Money> roomByCharge(final List<LoanChargePaidBy> receipts, final MonetaryCurrency currency,
+            final Map<Long, Money> settledByCharge) {
+        final Map<Long, Money> rooms = new LinkedHashMap<>();
+        for (final LoanChargePaidBy receipt : receipts) {
+            final LoanCharge charge = receipt.getLoanCharge();
+            final Money room = charge.getAmount(currency).minus(charge.getAmountWaived(currency))
+                    .minus(charge.getAmountWrittenOff(currency)).minus(settledByCharge.getOrDefault(charge.getId(), Money.zero(currency)));
+            if (room.isGreaterThanZero()) {
+                rooms.putIfAbsent(charge.getId(), room);
+            }
+        }
+        return rooms;
+    }
+
+    private static boolean sharesRoomWithAnotherShortPayment(final LoanTransaction transaction, final Map<Long, Money> roomByCharge,
+            final Map<Long, Set<Long>> shortPaymentIdsByCharge) {
+        for (final Long chargeId : roomByCharge.keySet()) {
+            for (final Long paymentId : shortPaymentIdsByCharge.getOrDefault(chargeId, Set.of())) {
+                if (!paymentId.equals(transaction.getId())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Walks the receipts in {@link #RECEIPT_ORDER} and raises each by its charge's room until the gap is used up; a
+     * charge's room goes to its first receipt, so later receipts on the same charge are left as they are.
      */
     private static List<ChargePaymentReceiptTopUp> computeTopUps(final List<LoanChargePaidBy> receipts, final Money gap,
-            final MonetaryCurrency currency, final Map<Long, Money> settledByCharge) {
-        final Map<Long, Money> settled = new HashMap<>(settledByCharge);
+            final MonetaryCurrency currency, final Map<Long, Money> roomByCharge) {
+        final Map<Long, Money> unclaimedRoom = new HashMap<>(roomByCharge);
         final List<ChargePaymentReceiptTopUp> topUps = new ArrayList<>();
         Money remaining = gap;
         for (final LoanChargePaidBy receipt : receipts) {
             if (!remaining.isGreaterThanZero()) {
                 break;
             }
-            final LoanCharge charge = receipt.getLoanCharge();
-            final Money room = charge.getAmount(currency).minus(charge.getAmountWaived(currency))
-                    .minus(charge.getAmountWrittenOff(currency)).minus(settled.getOrDefault(charge.getId(), Money.zero(currency)));
-            if (!room.isGreaterThanZero()) {
+            // Null when the charge has no room, or an earlier receipt on it already took the room.
+            final Money room = unclaimedRoom.remove(receipt.getLoanCharge().getId());
+            if (room == null) {
                 continue;
             }
             final Money increment = room.isGreaterThan(remaining) ? remaining : room;
             // Money keeps the currency scale, which is what the receipt's GST split is computed at on creation.
             topUps.add(new ChargePaymentReceiptTopUp(receipt, receipt.getAmount(),
                     Money.of(currency, receipt.getAmount()).plus(increment).getAmount()));
-            settled.merge(charge.getId(), increment, Money::plus);
             remaining = remaining.minus(increment);
         }
         return List.copyOf(topUps);

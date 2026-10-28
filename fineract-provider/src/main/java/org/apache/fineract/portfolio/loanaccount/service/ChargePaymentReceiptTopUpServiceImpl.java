@@ -30,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
@@ -59,11 +60,12 @@ import org.springframework.transaction.annotation.Transactional;
  * amount when, as in this defect, the receipts were clipped after the payment was booked.
  * <p>
  * Always rolled back when, after the reprocess, the overpayment parked across the loan did not fall by what the
- * topped-up payments had parked, or the loan newly became overpaid. When something was topped up, also when a topped-up
- * or consistent charge payment still carries overpayment, another charge payment carries more than before, or a
- * topped-up charge's paid amount differs from its receipts. The before-figures are the stored ones, so on a loan not
- * reprocessed since multi-receipt charge payments started replaying from their receipts, a payment that is not topped
- * up and parks its clipped part for the first time fails these checks too.
+ * topped-up payments had parked, the overpayment parked outside charge payments rose, or the loan newly became
+ * overpaid. When something was topped up, also when a topped-up or consistent charge payment still carries overpayment,
+ * another charge payment carries more than before, or a topped-up charge's paid amount differs from its receipts. The
+ * before-figures are the stored ones, so on a loan not reprocessed since multi-receipt charge payments started
+ * replaying from their receipts, a payment that is not topped up and parks its clipped part for the first time fails
+ * these checks too.
  */
 @Slf4j
 @Service
@@ -77,7 +79,6 @@ public class ChargePaymentReceiptTopUpServiceImpl implements ChargePaymentReceip
     private final LoanWritePlatformService loanWritePlatformService;
     private final LoanProductRoundingModeService loanProductRoundingModeService;
     private final LoanTransactionRepository loanTransactionRepository;
-    private final ChargePaymentReceiptTopUpPlanner planner = new ChargePaymentReceiptTopUpPlanner();
 
     @Override
     public boolean isRequested(final JsonCommand command) {
@@ -107,9 +108,11 @@ public class ChargePaymentReceiptTopUpServiceImpl implements ChargePaymentReceip
 
         final MonetaryCurrency currency = loan.getCurrency();
         final LoanStatus statusBefore = loan.getStatus();
-        final Money parkedBefore = parkedOverpayment(loan, currency);
-        final Set<Long> liveIdsBefore = liveTransactionIds(loan);
         final List<LoanTransaction> liveTransactions = loan.getLoanTransactions(LoanTransaction::isNotReversed);
+        final Parked parkedBefore = Parked.on(liveTransactions, currency);
+        // Nothing has changed the loan yet, so its live transactions are the database's; after the reprocess the ids
+        // are read back from the database.
+        final Set<Long> liveIdsBefore = liveTransactions.stream().map(LoanTransaction::getId).collect(Collectors.toSet());
         final Money repaymentChargesBefore = chargesPaidByRepayments(liveTransactions, currency);
 
         final List<ChargePaymentReceiptTopUpPlan> plans = applyTopUps(loan, currency, liveTransactions);
@@ -122,8 +125,9 @@ public class ChargePaymentReceiptTopUpServiceImpl implements ChargePaymentReceip
             assertChargePaymentsReconciled(loan, plans, currency);
             assertChargesMatchReceipts(loan, plans, currency);
         }
-        final Money parkedAfter = parkedOverpayment(loan, currency);
+        final Parked parkedAfter = Parked.on(loan.getLoanTransactions(LoanTransaction::isNotReversed), currency);
         assertOverpaymentReleased(loan, plans, currency, statusBefore, parkedBefore, parkedAfter);
+        logTopUps(loan, plans);
 
         // Read back from the database: the reprocess saves some replacements (accrual activity) without adding them to
         // the loan's in-memory transactions.
@@ -133,8 +137,8 @@ public class ChargePaymentReceiptTopUpServiceImpl implements ChargePaymentReceip
         changes.put("action", toppedUp ? ACTION_TOPPED_UP : ACTION_NO_TOP_UP);
         changes.put("statusBefore", statusBefore.name());
         changes.put("statusAfter", loan.getStatus().name());
-        changes.put("parkedOverpaymentBefore", parkedBefore.getAmount());
-        changes.put("parkedOverpaymentAfter", parkedAfter.getAmount());
+        changes.put("parkedOverpaymentBefore", parkedBefore.total().getAmount());
+        changes.put("parkedOverpaymentAfter", parkedAfter.total().getAmount());
         // A fall means a repayment had paid dues a top-up claims and its money moved on to other dues (principal or
         // interest on an active loan) instead of parking, which the overpayment check above cannot see.
         changes.put("repaymentChargesBefore", repaymentChargesBefore.getAmount());
@@ -182,29 +186,49 @@ public class ChargePaymentReceiptTopUpServiceImpl implements ChargePaymentReceip
     }
 
     /**
-     * Plans and applies the charge payments one at a time in (transaction date, id) order, so a later payment on the
-     * same charge sees the room an earlier top-up used.
+     * Plans and applies the charge payments one at a time in (transaction date, id) order. Which payments are short is
+     * taken once, before any top-up, and a payment is only topped up when no other short payment has receipts on any of
+     * its charges that still have room. Two topped-up payments therefore never share a charge, so merging each top-up
+     * into {@code settledByCharge} changes no later plan today; it keeps the room right should that rule be relaxed.
      */
     private List<ChargePaymentReceiptTopUpPlan> applyTopUps(final Loan loan, final MonetaryCurrency currency,
             final List<LoanTransaction> liveTransactions) {
-        final RoundingMode taxRoundingMode = this.loanProductRoundingModeService.resolveTaxRoundingMode(loan.getLoanProduct().getId());
         final Map<Long, Money> settledByCharge = ChargePaymentReceiptTopUpPlanner.settledByCharge(liveTransactions, currency);
         final List<LoanTransaction> chargePayments = liveTransactions.stream().filter(LoanTransaction::isChargePayment)
                 .sorted(Comparator.comparing(LoanTransaction::getTransactionDate).thenComparing(LoanTransaction::getId)).toList();
+        final Map<Long, Set<Long>> shortPaymentIdsByCharge = ChargePaymentReceiptTopUpPlanner.shortPaymentIdsByCharge(chargePayments,
+                currency);
+        // Resolved on the first top-up only: a loan with nothing to top up never needs it.
+        RoundingMode taxRoundingMode = null;
         final List<ChargePaymentReceiptTopUpPlan> plans = new ArrayList<>(chargePayments.size());
         for (final LoanTransaction chargePayment : chargePayments) {
-            final ChargePaymentReceiptTopUpPlan plan = this.planner.plan(chargePayment, currency, settledByCharge);
+            final ChargePaymentReceiptTopUpPlan plan = ChargePaymentReceiptTopUpPlanner.plan(chargePayment, currency, settledByCharge,
+                    shortPaymentIdsByCharge);
             for (final ChargePaymentReceiptTopUp topUp : plan.topUps()) {
-                final LoanCharge charge = topUp.receipt().getLoanCharge();
+                if (taxRoundingMode == null) {
+                    taxRoundingMode = this.loanProductRoundingModeService.resolveTaxRoundingMode(loan.getLoanProduct().getId());
+                }
                 // Rebuilds the receipt's GST rows for the new amount.
                 topUp.receipt().setAmount(topUp.to(), taxRoundingMode);
-                settledByCharge.merge(charge.getId(), Money.of(currency, topUp.to()).minus(Money.of(currency, topUp.from())), Money::plus);
-                log.info("Charge payment receipt top-up: loan [id={}] transaction [id={}] receipt [id={}] charge [id={}] {} -> {}",
-                        loan.getId(), chargePayment.getId(), topUp.receipt().getId(), charge.getId(), topUp.from(), topUp.to());
+                settledByCharge.merge(topUp.receipt().getLoanCharge().getId(),
+                        Money.of(currency, topUp.to()).minus(Money.of(currency, topUp.from())), Money::plus);
             }
             plans.add(plan);
         }
         return plans;
+    }
+
+    /**
+     * Logged only once every check has passed, so a top-up that a failed check rolls back is never logged as applied.
+     */
+    private static void logTopUps(final Loan loan, final List<ChargePaymentReceiptTopUpPlan> plans) {
+        for (final ChargePaymentReceiptTopUpPlan plan : plans) {
+            for (final ChargePaymentReceiptTopUp topUp : plan.topUps()) {
+                log.info("Charge payment receipt top-up: loan [id={}] transaction [id={}] receipt [id={}] charge [id={}] {} -> {}",
+                        loan.getId(), plan.transaction().getId(), topUp.receipt().getId(), topUp.receipt().getLoanCharge().getId(),
+                        topUp.from(), topUp.to());
+            }
+        }
     }
 
     /**
@@ -218,7 +242,7 @@ public class ChargePaymentReceiptTopUpServiceImpl implements ChargePaymentReceip
             final Money amount = transaction.getAmount(currency);
             final Money overpayment = transaction.getOverPaymentPortion(currency);
             final Money overpaymentBefore = Money.of(currency, plan.overpaymentPortion());
-            final Money charged = transaction.getFeeChargesPortion(currency).plus(transaction.getPenaltyChargesPortion(currency));
+            final Money charged = ChargePaymentReceiptTopUpPlanner.chargesPortion(transaction, currency);
             final boolean mustReconcile = plan.hasTopUps() || plan.classification() == ChargePaymentReceiptClassification.CONSISTENT;
             final boolean failed = mustReconcile ? !overpayment.isZero() || !charged.isEqualTo(amount)
                     : overpayment.isGreaterThan(overpaymentBefore);
@@ -257,23 +281,28 @@ public class ChargePaymentReceiptTopUpServiceImpl implements ChargePaymentReceip
      * The top-up releases what the topped-up charge payments had parked, so the overpayment parked across the loan must
      * fall by at least that much. Anything less means money parked elsewhere instead: a charge payment whose clipped
      * part has no room, or a repayment that paid the same charge again (double collection, which is refunded rather
-     * than topped up). Only money that parks is seen here: on an active loan a repayment's displaced money pays later
-     * principal or interest instead, which the result reports through {@code repaymentChargesBefore/After}.
+     * than topped up). The overpayment parked outside charge payments must not rise either: on its own the loan-wide
+     * figure misses a repayment that parks more when another charge payment parks less than its stored (stale) figure.
+     * Only money that parks is seen here: on an active loan a repayment's displaced money pays later principal or
+     * interest instead, which the result reports through {@code repaymentChargesBefore/After}.
      */
     private static void assertOverpaymentReleased(final Loan loan, final List<ChargePaymentReceiptTopUpPlan> plans,
-            final MonetaryCurrency currency, final LoanStatus statusBefore, final Money parkedBefore, final Money parkedAfter) {
+            final MonetaryCurrency currency, final LoanStatus statusBefore, final Parked parkedBefore, final Parked parkedAfter) {
         Money released = Money.zero(currency);
         for (final ChargePaymentReceiptTopUpPlan plan : plans) {
             if (plan.hasTopUps()) {
                 released = released.plus(Money.of(currency, plan.overpaymentPortion()));
             }
         }
-        if (parkedAfter.isGreaterThan(parkedBefore.minus(released))) {
+        final Money allowed = parkedBefore.total().minus(released);
+        if (parkedAfter.total().isGreaterThan(allowed)
+                || parkedAfter.outsideChargePayments().isGreaterThan(parkedBefore.outsideChargePayments())) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.charge.payment.receipt.topup.overpayment.moved",
-                    "Overpayment parked on loan " + loan.getId() + " would go from " + parkedBefore + " to " + parkedAfter + ", above the "
-                            + parkedBefore.minus(released) + " allowed: a charge payment would park a clipped part its charges have"
-                            + " no room for, or a repayment that paid the same charge again would park it. The loan was rolled back;"
-                            + " review it for refund.",
+                    "Overpayment parked on loan " + loan.getId() + " would go from " + parkedBefore.total() + " to " + parkedAfter.total()
+                            + " (at most " + allowed + " allowed), and outside charge payments from " + parkedBefore.outsideChargePayments()
+                            + " to " + parkedAfter.outsideChargePayments()
+                            + " (no rise allowed): a charge payment would park a clipped part its charges have no room for, or a"
+                            + " repayment that paid the same charge again would park it. The loan was rolled back; review it for refund.",
                     loan.getId());
         }
         if (!statusBefore.isOverpaid() && loan.getStatus().isOverpaid()) {
@@ -282,26 +311,12 @@ public class ChargePaymentReceiptTopUpServiceImpl implements ChargePaymentReceip
         }
     }
 
-    /**
-     * Overpayment parked on the loan's live transactions, charge payments included. Measured on the transactions
-     * because the loan's overpaid amount leaves charge payments out.
-     */
-    private static Money parkedOverpayment(final Loan loan, final MonetaryCurrency currency) {
-        Money parked = Money.zero(currency);
-        for (final LoanTransaction transaction : loan.getLoanTransactions()) {
-            if (transaction.isNotReversed()) {
-                parked = parked.plus(transaction.getOverPaymentPortion(currency));
-            }
-        }
-        return parked;
-    }
-
     /** Fee and penalty paid by the live repayment-like transactions, i.e. everything except charge payments. */
     private static Money chargesPaidByRepayments(final Collection<LoanTransaction> transactions, final MonetaryCurrency currency) {
         Money paid = Money.zero(currency);
         for (final LoanTransaction transaction : transactions) {
             if (transaction.isNotReversed() && (transaction.isRepaymentLikeType() || transaction.isRecoveryRepayment())) {
-                paid = paid.plus(transaction.getFeeChargesPortion(currency)).plus(transaction.getPenaltyChargesPortion(currency));
+                paid = paid.plus(ChargePaymentReceiptTopUpPlanner.chargesPortion(transaction, currency));
             }
         }
         return paid;
@@ -342,5 +357,25 @@ public class ChargePaymentReceiptTopUpServiceImpl implements ChargePaymentReceip
         }
         out.put("topUps", topUps);
         return out;
+    }
+
+    /**
+     * Overpayment parked on live transactions: in total, charge payments included, and outside charge payments.
+     * Measured on the transactions because the loan's overpaid amount leaves charge payments out.
+     */
+    private record Parked(Money total, Money outsideChargePayments) {
+
+        static Parked on(final Collection<LoanTransaction> liveTransactions, final MonetaryCurrency currency) {
+            Money total = Money.zero(currency);
+            Money outsideChargePayments = Money.zero(currency);
+            for (final LoanTransaction transaction : liveTransactions) {
+                final Money overpayment = transaction.getOverPaymentPortion(currency);
+                total = total.plus(overpayment);
+                if (!transaction.isChargePayment()) {
+                    outsideChargePayments = outsideChargePayments.plus(overpayment);
+                }
+            }
+            return new Parked(total, outsideChargePayments);
+        }
     }
 }

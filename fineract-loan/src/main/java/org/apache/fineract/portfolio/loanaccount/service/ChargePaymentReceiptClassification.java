@@ -25,12 +25,26 @@ public enum ChargePaymentReceiptClassification {
 
     /** Receipts sum to the amount and the fee/penalty portions absorb all of it. */
     CONSISTENT,
-    /** Receipts sum below the amount and raising them within their charges' room closes the gap exactly. */
+    /**
+     * Receipts sum below the amount, the room left on their charges covers the gap and no other short charge payment
+     * has receipts on any of those charges that still has room. Receipts are raised in effective-due-date order until
+     * the gap is closed.
+     */
     CLIPPED,
-    /** Receipts sum below the amount and the charges' room closes only part of the gap. Left for refund. */
+    /**
+     * Receipts sum below the amount and the charges' room closes only part of the gap. Left for refund. Decided before
+     * {@link #AMBIGUOUS_ROOM}, so another short charge payment may also have receipts on a charge with that room: check
+     * the loan for one before taking gap minus room as the refund.
+     */
     CLIPPED_RESIDUAL,
     /** Receipts sum below the amount and no charge has room left. */
     SURPLUS,
+    /**
+     * Receipts sum below the amount, the room left on their charges covers the gap, and another short charge payment
+     * has receipts on charges with room left, so that room could belong to either payment. Left for manual review. Used
+     * where the payment would otherwise be {@link #CLIPPED} or {@link #INSTALLMENT_ROOM}.
+     */
+    AMBIGUOUS_ROOM,
     /** Receipts sum above the amount. */
     OVER,
     /**
