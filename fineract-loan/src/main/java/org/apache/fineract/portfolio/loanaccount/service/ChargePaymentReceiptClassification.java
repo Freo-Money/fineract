@@ -45,6 +45,12 @@ public enum ChargePaymentReceiptClassification {
      * where the payment would otherwise be {@link #CLIPPED} or {@link #INSTALLMENT_ROOM}.
      */
     AMBIGUOUS_ROOM,
+    /**
+     * Would be {@link #CLIPPED}, but the payment's journal entries hold overpayment. A top-up moves the clipped part
+     * into fee or penalty without a journal entry, which is only right while the entry carries the whole amount as fee
+     * or penalty, so it is left for manual review.
+     */
+    LEDGER_OVERPAYMENT,
     /** Receipts sum above the amount. */
     OVER,
     /**
@@ -58,8 +64,9 @@ public enum ChargePaymentReceiptClassification {
     /** At least one receipt points to an inactive or missing charge. */
     RECEIPT_ON_INACTIVE_CHARGE,
     /**
-     * At least one receipt pays an instalment fee or a charge due at disbursement. Their replay is not bounded by the
-     * charge's room (one installment's share, or no installment at all), so they are not topped up.
+     * At least one receipt pays an instalment fee or a charge due at disbursement. The replay can absorb less than such
+     * a charge's room (one installment's share, or no installment carrying it), so a raise would park again; they are
+     * not topped up.
      */
     UNSUPPORTED_CHARGE,
     /** Single receipt on an active charge: replay re-derives it from the charge, so it is never clipped. */

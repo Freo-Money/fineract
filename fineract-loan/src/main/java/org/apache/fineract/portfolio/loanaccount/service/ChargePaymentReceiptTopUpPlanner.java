@@ -18,6 +18,7 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -41,9 +42,10 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionType;
  * <p>
  * Before multi-receipt charge payments were replayed from their receipts, reprocessing lowered those receipts in place.
  * Now that the receipts are authoritative, the lowered part parks as overpayment on every reprocess. Raising each
- * receipt back within what its charge can still absorb, in effective-due-date order, restores the original allocation.
- * Room on a charge that another short charge payment also has receipts on could belong to either payment, so such a
- * payment is reported rather than topped up. Receipts are only ever raised, never lowered or moved.
+ * receipt back within what its charge can still absorb, in effective-due-date order, makes the receipts sum to the
+ * amount again; the service's checks after the reprocess decide whether the replay agrees. Room on a charge that
+ * another short charge payment also has receipts on could belong to either payment, so such a payment is reported
+ * rather than topped up. Receipts are only ever raised, never lowered or moved.
  */
 public final class ChargePaymentReceiptTopUpPlanner {
 
@@ -204,7 +206,8 @@ public final class ChargePaymentReceiptTopUpPlanner {
     /**
      * Room left on each of the receipts' charges, in {@link #RECEIPT_ORDER}, charges without room left out. The room is
      * the charge amount net of waivers, write-offs and every settling receipt on it (this transaction's included), so
-     * the receipts of one charge never exceed the charge.
+     * at currency precision the receipts of one charge never exceed the charge. Room is measured at that precision, so
+     * a stored receipt with extra decimals can end up above it by less than one minor unit.
      */
     private static Map<Long, Money> roomByCharge(final List<LoanChargePaidBy> receipts, final MonetaryCurrency currency,
             final Map<Long, Money> settledByCharge) {
@@ -251,11 +254,26 @@ public final class ChargePaymentReceiptTopUpPlanner {
                 continue;
             }
             final Money increment = room.isGreaterThan(remaining) ? remaining : room;
-            // Money keeps the currency scale, which is what the receipt's GST split is computed at on creation.
-            topUps.add(new ChargePaymentReceiptTopUp(receipt, receipt.getAmount(),
-                    Money.of(currency, receipt.getAmount()).plus(increment).getAmount()));
+            topUps.add(new ChargePaymentReceiptTopUp(receipt, receipt.getAmount(), raised(receipt.getAmount(), increment, currency)));
             remaining = remaining.minus(increment);
         }
         return List.copyOf(topUps);
+    }
+
+    /**
+     * The stored amount plus the increment, never re-rounded. A result with no more decimals than the currency takes
+     * the currency scale, which is what the receipt's GST split is computed at on creation; one with more keeps them,
+     * unless it would round to another minor unit than planned (HALF_EVEN on an exact half unit is not
+     * shift-invariant). The replay reads each receipt through {@link Money#of}, so such a receipt takes the planned
+     * currency-precision amount instead, which is still above the stored one: the increment is at least one minor unit.
+     */
+    private static BigDecimal raised(final BigDecimal stored, final Money increment, final MonetaryCurrency currency) {
+        final BigDecimal raised = stored.add(increment.getAmount());
+        final int digits = currency.getDigitsAfterDecimal();
+        if (raised.stripTrailingZeros().scale() <= digits) {
+            return raised.setScale(digits);
+        }
+        final Money planned = Money.of(currency, stored).plus(increment);
+        return Money.of(currency, raised).isEqualTo(planned) ? raised : planned.getAmount();
     }
 }

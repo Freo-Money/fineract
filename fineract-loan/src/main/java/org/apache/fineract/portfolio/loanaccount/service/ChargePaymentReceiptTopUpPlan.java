@@ -32,4 +32,9 @@ public record ChargePaymentReceiptTopUpPlan(LoanTransaction transaction, ChargeP
     public boolean hasTopUps() {
         return !topUps.isEmpty();
     }
+
+    /** The same payment under another classification, with nothing to top up. */
+    public ChargePaymentReceiptTopUpPlan withoutTopUps(final ChargePaymentReceiptClassification newClassification) {
+        return new ChargePaymentReceiptTopUpPlan(transaction, newClassification, amount, receiptsTotal, overpaymentPortion, List.of());
+    }
 }

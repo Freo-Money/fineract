@@ -152,6 +152,10 @@ class ChargePaymentReceiptTopUpPlannerTest {
         assertNoTopUp(ChargePaymentReceiptClassification.AMBIGUOUS_ROOM, plan(b, a, b));
     }
 
+    /**
+     * The planner's verdict only. The replay marks a payment's money on its earliest unpaid charge, so on a live loan
+     * A's raise lands on C before B is replayed and the service rolls this shape back with charge.mismatch.
+     */
     @Test
     void sharedChargeWithoutRoom_doesNotBlock_eachPaymentFillsItsOwnCharge() {
         final LoanCharge c = fee(1L, JAN, "10");
@@ -331,6 +335,94 @@ class ChargePaymentReceiptTopUpPlannerTest {
                 INR);
 
         assertEquals(Map.of(1L, Set.of(101L), 2L, Set.of(101L)), byCharge);
+    }
+
+    @Test
+    void instalmentFeeReceipt_isUnsupported() {
+        final LoanCharge x = fee(1L, JAN, "200");
+        final LoanCharge y = fee(2L, FEB, "200");
+        y.setChargeTime(ChargeTimeType.INSTALMENT_FEE.getValue());
+        final LoanTransaction payment = chargePayment(101L, loan, PAID_ON, "400", "240", false);
+        receipt(11L, payment, x, "120");
+        receipt(12L, payment, y, "120");
+
+        assertNoTopUp(ChargePaymentReceiptClassification.UNSUPPORTED_CHARGE, plan(payment, payment));
+    }
+
+    /** A repayment's receipt on the charge uses its room, so the gap can no longer be closed. */
+    @Test
+    void repaymentReceiptOnTheCharge_usesItsRoom() {
+        final LoanCharge x = fee(1L, JAN, "200");
+        final LoanCharge y = fee(2L, FEB, "200");
+        final LoanTransaction payment = chargePayment(101L, loan, PAID_ON, "400", "240", false);
+        receipt(11L, payment, x, "120");
+        receipt(12L, payment, y, "120");
+        final LoanTransaction repayment = transaction(301L, LoanTransactionType.REPAYMENT, loan, PAID_ON, "100");
+        receipt(13L, repayment, y, "80");
+
+        assertNoTopUp(ChargePaymentReceiptClassification.CLIPPED_RESIDUAL, plan(payment, payment, repayment));
+    }
+
+    @Test
+    void writtenOffAmount_reducesRoom() {
+        final LoanCharge x = fee(1L, JAN, "200");
+        final LoanCharge y = fee(2L, FEB, "200");
+        y.setAmountWrittenOff(new BigDecimal("80"));
+        final LoanTransaction payment = chargePayment(101L, loan, PAID_ON, "400", "240", false);
+        receipt(11L, payment, x, "120");
+        receipt(12L, payment, y, "120");
+
+        assertNoTopUp(ChargePaymentReceiptClassification.CLIPPED_RESIDUAL, plan(payment, payment));
+    }
+
+    /** A receipt is raised from what is stored, so decimals beyond the currency's survive the raise. */
+    @Test
+    void raisedReceipt_keepsItsStoredDecimals() {
+        final LoanCharge x = fee(1L, JAN, "50");
+        final LoanCharge y = fee(2L, FEB, "50");
+        final LoanTransaction payment = chargePayment(101L, loan, PAID_ON, "100", "63.90", false);
+        receipt(11L, payment, x, "50");
+        receipt(12L, payment, y, "13.904");
+
+        final ChargePaymentReceiptTopUpPlan plan = plan(payment, payment);
+
+        assertEquals(ChargePaymentReceiptClassification.CLIPPED, plan.classification());
+        assertEquals(1, plan.topUps().size());
+        assertTopUp(plan.topUps().get(0), 2L, "13.904", "50.004");
+    }
+
+    /** A whole-currency result takes the currency scale, which is what the GST split is computed at on creation. */
+    @Test
+    void raisedWholeAmount_takesTheCurrencyScale() {
+        final LoanCharge x = fee(1L, JAN, "200");
+        final LoanCharge y = fee(2L, FEB, "200");
+        final LoanTransaction payment = chargePayment(101L, loan, PAID_ON, "400", "240", false);
+        receipt(11L, payment, x, "120.000000");
+        receipt(12L, payment, y, "120.000000");
+
+        final ChargePaymentReceiptTopUpPlan plan = plan(payment, payment);
+
+        assertTopUp(plan.topUps().get(0), 1L, "120", "200");
+        assertEquals(INR.getDigitsAfterDecimal(), plan.topUps().get(0).to().scale());
+    }
+
+    /**
+     * Under HALF_EVEN, 13.905 + 36.11 = 50.015 would round to 50.02 while the plan sized the raise from 13.90 + 36.11:
+     * the receipts would no longer sum to the amount in the replay, so the raise takes the planned 50.01.
+     */
+    @Test
+    void raisedReceiptOnAHalfUnitTie_takesThePlannedAmount() {
+        final LoanCharge x = fee(1L, JAN, "50.00");
+        final LoanCharge y = fee(2L, FEB, "50.01");
+        final LoanTransaction payment = chargePayment(101L, loan, PAID_ON, "100.01", "63.90", false);
+        receipt(11L, payment, x, "50.00");
+        receipt(12L, payment, y, "13.905");
+
+        final ChargePaymentReceiptTopUpPlan plan = plan(payment, payment);
+
+        assertEquals(ChargePaymentReceiptClassification.CLIPPED, plan.classification());
+        assertEquals(1, plan.topUps().size());
+        assertTopUp(plan.topUps().get(0), 2L, "13.905", "50.01");
     }
 
     private ChargePaymentReceiptTopUpPlan plan(final LoanTransaction payment, final LoanTransaction... liveTransactions) {
