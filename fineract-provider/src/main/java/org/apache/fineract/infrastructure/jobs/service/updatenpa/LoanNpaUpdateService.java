@@ -37,4 +37,16 @@ public interface LoanNpaUpdateService {
      *            the COB business date
      */
     void updateNpaStatusForLoan(Loan loan, LocalDate businessDate);
+
+    /**
+     * Whether the loan would be treated as NPA under loan-level entry/keep rules for the given business date.
+     * <p>
+     * Uses the <em>entry</em> rule ({@code overdue_since < threshold}) when {@code loan.is_npa} is false, and the
+     * <em>keep</em> rule when it is true (including boundary hysteresis and arrears-completion "any arrears"). Client
+     * NPA contagion also sets {@code loan.is_npa}, so under contagion this predicate is deliberately conservative:
+     * arrears-completion siblings with any arrears count as independently NPA and can block client exit under
+     * {@code ANY_NPA_LOAN_EXISTS}. Distinguishing independently entered vs contagion-flagged loans would require
+     * per-loan cause data the model does not store.
+     */
+    boolean wouldBeLoanLevelNpa(Loan loan, LocalDate businessDate);
 }

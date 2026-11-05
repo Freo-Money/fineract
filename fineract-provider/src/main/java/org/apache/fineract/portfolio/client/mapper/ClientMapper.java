@@ -55,6 +55,7 @@ public interface ClientMapper {
     @Mapping(target = "maritalStatus", source = "source", qualifiedByName = "clientMaritalStatusCode")
     @Mapping(target = "legalForm", source = "source", qualifiedByName = "clientLegalFormEnum")
     @Mapping(target = "isStaff", source = "source", qualifiedByName = "clientIsStaff")
+    @Mapping(target = "isNpa", ignore = true)
     @Mapping(target = "imagePresent", ignore = true)
     @Mapping(target = "officeOptions", ignore = true)
     @Mapping(target = "staffOptions", ignore = true)

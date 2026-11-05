@@ -52,6 +52,8 @@ import org.apache.fineract.portfolio.charge.domain.Charge;
 import org.apache.fineract.portfolio.charge.domain.ChargeTimeType;
 import org.apache.fineract.portfolio.loanaccount.api.LoanApiConstants;
 import org.apache.fineract.portfolio.loanaccount.data.ScheduleGeneratorDTO;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionSubType;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargePaidBy;
@@ -314,6 +316,9 @@ public class LoanDisbursementService {
         // Create BPI as a paid repayment transaction
         final LoanTransaction bpiRepayment = LoanTransaction.repayment(loan.getOffice(), bpiAmount, paymentDetail, disbursedOn,
                 generateExternalIdIfEnabled());
+        // Marks this as raised by the disbursement rather than paid by the borrower, so it keeps allocating under the
+        // loan product strategy even when the loan is NPA and an NPA transaction processing strategy is configured
+        TransactionMetaData.mergeSubType(bpiRepayment, TransactionSubType.BPI);
 
         // Update components: BPI is interest, so set interest portion as paid
         final Money zero = Money.zero(loan.getCurrency());
