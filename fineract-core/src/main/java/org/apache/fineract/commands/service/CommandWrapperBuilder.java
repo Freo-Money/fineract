@@ -998,6 +998,15 @@ public class CommandWrapperBuilder {
         return this;
     }
 
+    public CommandWrapperBuilder loanPartPaymentTransaction(final Long loanId) {
+        this.actionName = "PART_PAYMENT";
+        this.entityName = "LOAN";
+        this.entityId = null;
+        this.loanId = loanId;
+        this.href = "/loans/" + loanId + "/transactions?command=partPayment";
+        return this;
+    }
+
     public CommandWrapperBuilder creditBalanceRefund(final Long loanId) {
         this.actionName = "CREDITBALANCEREFUND";
         this.entityName = "LOAN";

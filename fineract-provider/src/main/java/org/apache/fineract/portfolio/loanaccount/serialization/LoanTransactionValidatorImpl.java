@@ -626,6 +626,48 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
         throwExceptionIfValidationWarningsExist(dataValidationErrors);
     }
 
+    /**
+     * Validates the part-payment payload only. The request carries no loan reference - the loan id comes from the URL,
+     * not the body - so the rules that depend on the loan cannot be decided here. Both bounds on the amount are among
+     * them: the total outstanding it must stay under is enforced by
+     * {@code LoanPartPaymentValidator#validateAmountWithinTotalOutstanding} as soon as the loan is assembled, and the
+     * interest accrued to the transaction date it must exceed by
+     * {@code PartPaymentScheduleReamortizer#validatePartPaymentAmount} inside
+     * {@code LoanAccountDomainServiceJpa#partPayLoan}, both before any transaction is created. What this method
+     * guarantees is the floor those rules build on: a date and a strictly positive amount are present and well formed.
+     */
+    @Override
+    public void validateLoanPartPayment(final String json) {
+        if (StringUtils.isBlank(json)) {
+            throw new InvalidJsonException();
+        }
+
+        final Set<String> partPaymentParameters = new HashSet<>(
+                Arrays.asList("transactionDate", "transactionAmount", "paymentTypeId", "note", "locale", "dateFormat", "externalId"));
+
+        final Type typeOfMap = new TypeToken<Map<String, Object>>() {}.getType();
+        this.fromApiJsonHelper.checkForUnsupportedParameters(typeOfMap, json, partPaymentParameters);
+
+        final List<ApiParameterError> dataValidationErrors = new ArrayList<>();
+        final DataValidatorBuilder baseDataValidator = new DataValidatorBuilder(dataValidationErrors).resource("loan");
+
+        final JsonElement element = this.fromApiJsonHelper.parse(json);
+        final LocalDate transactionDate = this.fromApiJsonHelper.extractLocalDateNamed("transactionDate", element);
+        baseDataValidator.reset().parameter("transactionDate").value(transactionDate).notNull();
+
+        final BigDecimal transactionAmount = this.fromApiJsonHelper.extractBigDecimalWithLocaleNamed("transactionAmount", element);
+        baseDataValidator.reset().parameter("transactionAmount").value(transactionAmount).notNull().positiveAmount();
+
+        final String note = this.fromApiJsonHelper.extractStringNamed("note", element);
+        baseDataValidator.reset().parameter("note").value(note).notExceedingLengthOf(1000);
+
+        final String externalId = this.fromApiJsonHelper.extractStringNamed("externalId", element);
+        baseDataValidator.reset().parameter("externalId").value(externalId).ignoreIfNull().notExceedingLengthOf(100);
+
+        validatePaymentDetails(baseDataValidator, element);
+        throwExceptionIfValidationWarningsExist(dataValidationErrors);
+    }
+
     @Override
     public void validateLoanForeclosure(final String json) {
 

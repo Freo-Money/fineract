@@ -32,6 +32,7 @@ import lombok.Setter;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableWithUTCDateTimeCustom;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductConfigurationWrapper;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.domain.LoanProductConfigMapping;
 
 /**
@@ -88,7 +89,10 @@ public class LoanConfigMapping extends AbstractAuditableWithUTCDateTimeCustom<Lo
         this.loan = loan;
         this.configIdentity = productConfigMapping.getConfigIdentity();
         this.configJson = productConfigMapping.getConfigJson();
-        this.configurationWrapper = productConfigMapping.getConfigurationWrapper();
+        // Snapshot, not alias: the loan gets its own wrapper so a later loan-level edit cannot mutate the product's
+        // in-memory configuration (and vice versa).
+        final LoanProductConfigurationWrapper productWrapper = productConfigMapping.getConfigurationWrapper();
+        this.configurationWrapper = productWrapper != null ? productWrapper.copy() : null;
     }
 
     /**
@@ -110,6 +114,14 @@ public class LoanConfigMapping extends AbstractAuditableWithUTCDateTimeCustom<Lo
         }
         configurationWrapper.setBrokenPeriodConfig(brokenPeriodConfig);
         this.configJson = configurationWrapper.toJson();
+    }
+
+    /**
+     * Get the part-payment configuration as a DTO object
+     */
+    public PartPaymentConfigDTO getPartPaymentConfig() {
+        LoanProductConfigurationWrapper wrapper = getConfigurationWrapper();
+        return wrapper != null ? wrapper.getPartPaymentConfig() : null;
     }
 
     /**
@@ -154,13 +166,38 @@ public class LoanConfigMapping extends AbstractAuditableWithUTCDateTimeCustom<Lo
     }
 
     /**
+     * Update the existing configuration with a new part-payment config, leaving every other configuration type in the
+     * envelope untouched. Mirrors {@link #updateBrokenPeriodConfig}.
+     */
+    public void updatePartPaymentConfig(PartPaymentConfigDTO partPaymentConfig) {
+        if (configurationWrapper == null && configJson != null) {
+            configurationWrapper = LoanProductConfigurationWrapper.fromJson(configJson);
+        }
+        if (configurationWrapper == null) {
+            configurationWrapper = new LoanProductConfigurationWrapper();
+        }
+        configurationWrapper.setPartPaymentConfig(partPaymentConfig);
+        this.configJson = configurationWrapper.toJson();
+    }
+
+    /**
+     * Whether the envelope still carries any configuration at all.
+     */
+    public boolean hasAnyConfiguration() {
+        final LoanProductConfigurationWrapper wrapper = getConfigurationWrapper();
+        return wrapper != null && wrapper.hasAnyConfiguration();
+    }
+
+    /**
      * Update the configuration by copying from product config
      */
     public void updateFromProductConfig(LoanProductConfigMapping productConfigMapping) {
         if (productConfigMapping != null) {
             this.configIdentity = productConfigMapping.getConfigIdentity();
             this.configJson = productConfigMapping.getConfigJson();
-            this.configurationWrapper = productConfigMapping.getConfigurationWrapper();
+            // Same snapshot rule as the copy constructor: never share the product's wrapper instance.
+            final LoanProductConfigurationWrapper productWrapper = productConfigMapping.getConfigurationWrapper();
+            this.configurationWrapper = productWrapper != null ? productWrapper.copy() : null;
         }
     }
 

@@ -32,6 +32,7 @@ import lombok.Setter;
 import org.apache.fineract.infrastructure.core.domain.AbstractAuditableWithUTCDateTimeCustom;
 import org.apache.fineract.portfolio.loanproduct.data.BrokenPeriodInterestConfigDTO;
 import org.apache.fineract.portfolio.loanproduct.data.LoanProductConfigurationWrapper;
+import org.apache.fineract.portfolio.loanproduct.data.PartPaymentConfigDTO;
 
 /**
  * Entity for storing loan product BPI (Broken Period Interest) configuration mapping. This table stores product-level
@@ -111,6 +112,14 @@ public class LoanProductConfigMapping extends AbstractAuditableWithUTCDateTimeCu
     }
 
     /**
+     * Get the part-payment configuration as a DTO object
+     */
+    public PartPaymentConfigDTO getPartPaymentConfig() {
+        LoanProductConfigurationWrapper wrapper = getConfigurationWrapper();
+        return wrapper != null ? wrapper.getPartPaymentConfig() : null;
+    }
+
+    /**
      * Get the full configuration wrapper (extensible)
      */
     public LoanProductConfigurationWrapper getConfigurationWrapper() {
@@ -149,6 +158,29 @@ public class LoanProductConfigMapping extends AbstractAuditableWithUTCDateTimeCu
         }
         configurationWrapper.setBrokenPeriodConfig(brokenPeriodConfig);
         this.configJson = configurationWrapper.toJson();
+    }
+
+    /**
+     * Update the existing configuration with a new part-payment config, leaving every other configuration type in the
+     * envelope untouched. Mirrors {@link #updateBrokenPeriodConfig}.
+     */
+    public void updatePartPaymentConfig(PartPaymentConfigDTO partPaymentConfig) {
+        if (configurationWrapper == null && configJson != null) {
+            configurationWrapper = LoanProductConfigurationWrapper.fromJson(configJson);
+        }
+        if (configurationWrapper == null) {
+            configurationWrapper = new LoanProductConfigurationWrapper();
+        }
+        configurationWrapper.setPartPaymentConfig(partPaymentConfig);
+        this.configJson = configurationWrapper.toJson();
+    }
+
+    /**
+     * Whether the envelope still carries any configuration at all. Used to decide whether a row is worth keeping.
+     */
+    public boolean hasAnyConfiguration() {
+        final LoanProductConfigurationWrapper wrapper = getConfigurationWrapper();
+        return wrapper != null && wrapper.hasAnyConfiguration();
     }
 
     /**
