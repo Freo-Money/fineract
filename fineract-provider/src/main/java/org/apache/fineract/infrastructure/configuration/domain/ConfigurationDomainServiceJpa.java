@@ -580,11 +580,6 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
     }
 
     @Override
-    public boolean isForeclosureExpectedAmountValidationEnabled() {
-        return getGlobalConfigurationPropertyData(GlobalConfigurationConstants.VALIDATE_FORECLOSURE_EXPECTED_AMOUNT).isEnabled();
-    }
-
-    @Override
     public String getAssetOwnerTransferOustandingInterestStrategy() {
         return getGlobalConfigurationPropertyData(
                 GlobalConfigurationConstants.ASSET_OWNER_TRANSFER_OUTSTANDING_INTEREST_CALCULATION_STRATEGY).getStringValue();

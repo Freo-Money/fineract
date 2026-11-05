@@ -188,6 +188,9 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
     @Column(name = "preclose_emi_rounding")
     private boolean precloseEmiRounding;
 
+    @Column(name = "validate_foreclosure_expected_amount")
+    private boolean validateForeclosureExpectedAmount;
+
     @Column(name = "is_linked_to_floating_interest_rates", nullable = false)
     private boolean isLinkedToFloatingInterestRate;
 
@@ -277,10 +280,10 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
             final Integer minimumDaysBetweenDisbursalAndFirstRepayment, final boolean holdGuarantorFunds,
             final LoanProductGuaranteeDetails loanProductGuaranteeDetails, final BigDecimal principalThresholdForLastInstallment,
             final boolean accountMovesOutOfNPAOnlyOnArrearsCompletion, final boolean canDefineEmiAmount,
-            final boolean adjustInterestForRounding, final boolean precloseEmiRounding, final Integer installmentAmountInMultiplesOf,
-            final LoanProductConfigurableAttributes loanProductConfigurableAttributes, Boolean isLinkedToFloatingInterestRates,
-            FloatingRate floatingRate, BigDecimal interestRateDifferential, BigDecimal minDifferentialLendingRate,
-            BigDecimal maxDifferentialLendingRate, BigDecimal defaultDifferentialLendingRate,
+            final boolean adjustInterestForRounding, final boolean precloseEmiRounding, final boolean validateForeclosureExpectedAmount,
+            final Integer installmentAmountInMultiplesOf, final LoanProductConfigurableAttributes loanProductConfigurableAttributes,
+            Boolean isLinkedToFloatingInterestRates, FloatingRate floatingRate, BigDecimal interestRateDifferential,
+            BigDecimal minDifferentialLendingRate, BigDecimal maxDifferentialLendingRate, BigDecimal defaultDifferentialLendingRate,
             Boolean isFloatingInterestRateCalculationAllowed, final Boolean isVariableInstallmentsAllowed,
             final Integer minimumGapBetweenInstallments, final Integer maximumGapBetweenInstallments,
             final boolean syncExpectedWithDisbursementDate, final boolean canUseForTopup, final boolean isEqualAmortization,
@@ -389,6 +392,7 @@ public class LoanProduct extends AbstractPersistableCustom<Long> {
         this.canDefineInstallmentAmount = canDefineEmiAmount;
         this.adjustInterestForRounding = adjustInterestForRounding;
         this.precloseEmiRounding = precloseEmiRounding;
+        this.validateForeclosureExpectedAmount = validateForeclosureExpectedAmount;
         this.syncExpectedWithDisbursementDate = syncExpectedWithDisbursementDate;
         this.canUseForTopup = canUseForTopup;
         this.fixedPrincipalPercentagePerInstallment = fixedPrincipalPercentagePerInstallment;
