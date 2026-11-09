@@ -23,6 +23,7 @@ import org.apache.fineract.commands.annotation.CommandType;
 import org.apache.fineract.commands.handler.NewCommandSourceHandler;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.portfolio.loanaccount.service.ChargePaymentReceiptTopUpService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanWritePlatformService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +34,9 @@ import org.springframework.transaction.annotation.Transactional;
  * the paid allocation and derived balances are re-derived; transactions whose allocation changes are reverse-replayed
  * with matching journal entries. Used to reconcile transaction allocation after out-of-band corrections, without the
  * schedule regeneration that a full recalculate would perform.
+ * <p>
+ * With {@code {"topUpClippedChargeReceipts": true}} the loan's clipped charge-payment receipts are raised first, in the
+ * same transaction; see {@link ChargePaymentReceiptTopUpService}.
  */
 @Service
 @RequiredArgsConstructor
@@ -40,10 +44,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class ReprocessLoanTransactionsCommandHandler implements NewCommandSourceHandler {
 
     private final LoanWritePlatformService writePlatformService;
+    private final ChargePaymentReceiptTopUpService chargePaymentReceiptTopUpService;
 
     @Transactional
     @Override
     public CommandProcessingResult processCommand(final JsonCommand command) {
+        if (this.chargePaymentReceiptTopUpService.isRequested(command)) {
+            return this.chargePaymentReceiptTopUpService.reprocessWithTopUp(command.getLoanId(), command);
+        }
         return this.writePlatformService.reprocessLoanTransactions(command.getLoanId(), command);
     }
 }
