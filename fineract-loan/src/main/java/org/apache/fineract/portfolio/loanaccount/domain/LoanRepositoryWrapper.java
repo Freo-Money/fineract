@@ -109,6 +109,10 @@ public class LoanRepositoryWrapper {
         this.repository.deleteById(loanId);
     }
 
+    public List<Loan> getLoansWithExcessAmount(LocalDate currentDate) {
+        return this.repository.getLoansWithExcessAmount(currentDate);
+    }
+
     // Only root entities is enough
     public List<Loan> getGroupLoansDisbursedAfter(@Param("disbursementDate") LocalDate disbursementDate, @Param("groupId") Long groupId,
             @Param("loanType") AccountType loanType) {

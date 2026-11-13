@@ -263,4 +263,9 @@
     <include file="parts/1064_add_loan_reprocessed_external_event.xml" relativeToChangelogFile="true" />
     <include file="parts/1065_add_per_day_interest_rate_frequency_enum_value.xml" relativeToChangelogFile="true" />
     <include file="parts/1071_add_validate_foreclosure_expected_amount_configuration.xml" relativeToChangelogFile="true" />
+    <include file="parts/1072_add_excess_payment_portion.xml" relativeToChangelogFile="true" />
+    <include file="parts/1073_add_total_excess_payment_amount.xml" relativeToChangelogFile="true" />
+    <include file="parts/1074_add_enable_excess_payment_parking_loanProduct.xml" relativeToChangelogFile="true" />
+    <include file="parts/1075_add_enable_excess_payment_parking_loan.xml" relativeToChangelogFile="true" />
+    <include file="parts/1076_add_excess_payment_gl_account.xml" relativeToChangelogFile="true" />
 </databaseChangeLog>

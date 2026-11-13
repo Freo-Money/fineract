@@ -273,6 +273,8 @@ public class LoanProductAssembler {
 
         final boolean enableDownPayment = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.ENABLE_DOWN_PAYMENT);
         final boolean enableScheduleArchive = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.ENABLE_SCHEDULE_ARCHIVE);
+        final boolean enableExcessPaymentParking = command
+                .booleanPrimitiveValueOfParameterNamed(LoanProductConstants.ENABLE_EXCESS_PAYMENT_PARKING);
         final BigDecimal disbursedAmountPercentageDownPayment = command
                 .bigDecimalValueOfParameterNamed(LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT);
         final boolean enableAutoRepaymentForDownPayment = command
@@ -375,12 +377,12 @@ public class LoanProductAssembler {
                 maximumGapBetweenInstallments, syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, productRates,
                 fixedPrincipalPercentagePerInstallment, disallowExpectedDisbursements, allowApprovedDisbursedAmountsOverApplied,
                 overAppliedCalculationType, overAppliedNumber, dueDaysForRepaymentEvent, overDueDaysForRepaymentEvent, enableDownPayment,
-                enableScheduleArchive, disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment, repaymentStartDateType,
-                enableInstallmentLevelDelinquency, loanScheduleType, loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting,
-                supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate, daysInYearCustomStrategy,
-                enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType,
-                enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, null,
-                installmentInterestCalculationType, bpiCollectedAtDisbursement);
+                enableScheduleArchive, enableExcessPaymentParking, disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment,
+                repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType, loanScheduleProcessingType, fixedLength,
+                enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate,
+                daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
+                capitalizedIncomeType, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
+                merchantBuyDownFee, null, installmentInterestCalculationType, bpiCollectedAtDisbursement);
 
     }
 

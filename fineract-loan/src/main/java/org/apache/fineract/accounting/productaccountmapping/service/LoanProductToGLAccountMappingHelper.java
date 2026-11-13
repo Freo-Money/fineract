@@ -232,6 +232,8 @@ public class LoanProductToGLAccountMappingHelper extends ProductToGLAccountMappi
                 element);
         final Long overPaymentAccountId = this.fromApiJsonHelper.extractLongNamed(LoanProductAccountingParams.OVERPAYMENT.getValue(),
                 element);
+        final Long excessPaymentParkingAccountId = this.fromApiJsonHelper
+                .extractLongNamed(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), element);
         final Long transfersInSuspenseAccountId = this.fromApiJsonHelper
                 .extractLongNamed(LoanProductAccountingParams.TRANSFERS_SUSPENSE.getValue(), element);
 
@@ -255,6 +257,8 @@ public class LoanProductToGLAccountMappingHelper extends ProductToGLAccountMappi
                         incomeFromFeeId, incomeFromPenaltyId, writeOffAccountId, overPaymentAccountId, transfersInSuspenseAccountId,
                         incomeFromRecoveryAccountId, incomeFromBuyDownFeesAccountId, receivableInterestAccountId, receivableFeeAccountId,
                         receivablePenaltyAccountId);
+                changes.put(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), excessPaymentParkingAccountId);
+
             break;
             case ACCRUAL_UPFRONT:
                 populateChangesForAccrualBasedAccounting(changes, fundAccountId, loanPortfolioAccountId, incomeFromInterestId,
@@ -461,6 +465,14 @@ public class LoanProductToGLAccountMappingHelper extends ProductToGLAccountMappi
                 // liabilities
                 mergeLoanToLiabilityAccountMappingChanges(element, LoanProductAccountingParams.OVERPAYMENT.getValue(), loanProductId,
                         CashAccountsForLoan.OVERPAYMENT.getValue(), CashAccountsForLoan.OVERPAYMENT.toString(), changes);
+
+                final Boolean enableExcessPaymentParkingAccrual = this.fromApiJsonHelper.extractBooleanNamed("enableExcessPaymentParking",
+                        element);
+                if (Boolean.TRUE.equals(enableExcessPaymentParkingAccrual)) {
+                    mergeLoanToLiabilityAccountMappingChanges(element, LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(),
+                            loanProductId, CashAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue(),
+                            CashAccountsForLoan.EXCESS_PAYMENT_PARKING.toString(), changes);
+                }
                 if (!enableBuyDownFee && !enableIncomeCapitalization) {
                     deleteProductToGLAccountMapping(loanProductId, PortfolioProductType.LOAN,
                             AccrualAccountsForLoan.DEFERRED_INCOME_LIABILITY.getValue());
