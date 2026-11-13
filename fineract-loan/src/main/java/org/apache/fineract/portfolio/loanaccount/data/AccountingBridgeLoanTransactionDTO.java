@@ -44,6 +44,7 @@ public class AccountingBridgeLoanTransactionDTO {
     private BigDecimal feeChargesPortion;
     private BigDecimal penaltyChargesPortion;
     private BigDecimal overPaymentPortion;
+    private BigDecimal excessPaymentPortion;
     private String chargeRefundChargeType;
     private Long paymentTypeId;
     private List<LoanChargePaidByDTO> loanChargesPaid = new ArrayList<>();

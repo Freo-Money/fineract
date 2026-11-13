@@ -72,6 +72,8 @@ public class LoanBalanceService {
         // But when a same-day repayment (or any extra payment) genuinely overpays the loan, the transaction
         // processor stamps a real overpayment portion on a transaction - in that case keep the overpayment so the
         // loan can transition to OVERPAID instead of silently swallowing it.
+        // Parked excess never survives foreclosure: a surplus beyond the foreclosure payable blocks the
+        // foreclosure up front, and anything up to the payable is consumed by it.
         if (loan.isForeclosure() && loan.getSummary() != null && loan.getSummary().getTotalOutstanding(currency).isZero()
                 && !hasActualOverpaymentPortion(loan, currency)) {
             return Money.zero(currency);
@@ -97,9 +99,34 @@ public class LoanBalanceService {
             }
         }
 
-        // if total paid in transactions doesn't match repayment schedule then there's
-        // an overpayment.
-        return totalPaidInRepayments.minus(cumulativeTotalPaidOnInstallments);
+        // Parked excess is never overpayment while it sits in the pool: the pool only leaves through a
+        // REPAYMENT_FROM_EXCESS_AMOUNT transaction (nightly sweep, payoff reclassification, foreclosure), whose surplus
+        // then shows up as overpayment through the transaction figures. Deriving status from transactions this way
+        // keeps loan state and the parking liability in step, including when such a transaction is reversed.
+        Money overpayment = totalPaidInRepayments.minus(cumulativeTotalPaidOnInstallments);
+        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            overpayment = overpayment.minus(Money.of(currency, MathUtil.nullToZero(loan.getTotalExcessPaymentAmount())));
+            if (isFullyPaidOff(installments)) {
+                // Charge payments reduce installment balances but are not included in totalPaidInRepayments.
+                // Add them back so the overpayment is not understated.
+                overpayment = overpayment.plus(chargePaymentAppliedToInstallments(loan, currency));
+            }
+        }
+        return overpayment;
+    }
+
+    private boolean isFullyPaidOff(final List<LoanRepaymentScheduleInstallment> installments) {
+        return !installments.isEmpty() && installments.stream().noneMatch(LoanRepaymentScheduleInstallment::isNotFullyPaidOff);
+    }
+
+    private Money chargePaymentAppliedToInstallments(final Loan loan, final MonetaryCurrency currency) {
+        Money total = Money.zero(currency);
+        for (final LoanTransaction loanTransaction : loan.getLoanTransactions()) {
+            if (loanTransaction.isNotReversed() && loanTransaction.isChargePayment()) {
+                total = total.plus(loanTransaction.getFeeChargesPortion(currency)).plus(loanTransaction.getPenaltyChargesPortion(currency));
+            }
+        }
+        return total;
     }
 
     private boolean hasActualOverpaymentPortion(final Loan loan, final MonetaryCurrency currency) {
@@ -144,6 +171,9 @@ public class LoanBalanceService {
         loan.getSummary().updateSummary(loan.getCurrency(), principal, loan.getRepaymentScheduleInstallments(), loan.getLoanCharges(),
                 capitalizedIncome, capitalizedIncomeAdjustment);
         updateLoanOutstandingBalances(loan);
+        // A parked pool that outlives the last open installment is NOT zeroed here: the pool only moves through a
+        // REPAYMENT_FROM_EXCESS_AMOUNT transaction (posted by LoanAccountDomainServiceJpa on payoff) so the
+        // parking liability is reclassified to overpayment in the ledger as well as in loan state.
     }
 
     private Money calculateTotalRecoveredPayments(Loan loan) {

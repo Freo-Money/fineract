@@ -190,6 +190,7 @@ public final class LoanProductsApiResourceSwagger {
         public Integer overDueDaysForRepaymentEvent;
         @Schema(example = "false")
         public Boolean enableDownPayment;
+        public Boolean enableExcessPaymentParking;
         @Schema(example = "5.5")
         public BigDecimal disbursedAmountPercentageForDownPayment;
         @Schema(example = "false")
@@ -268,6 +269,7 @@ public final class LoanProductsApiResourceSwagger {
         public Long incomeFromPenaltyAccountId;
         @Schema(example = "2")
         public Long overpaymentLiabilityAccountId;
+        public Long excessPaymentParkingAccountId;
         @Schema(example = "41")
         public Long writeOffAccountId;
         @Schema(example = "5")
@@ -1527,6 +1529,7 @@ public final class LoanProductsApiResourceSwagger {
         public Integer inArrearsTolerance;
         @Schema(example = "false")
         public Boolean enableDownPayment;
+        public Boolean enableExcessPaymentParking;
         @Schema(example = "5.5")
         public BigDecimal disbursedAmountPercentageForDownPayment;
         @Schema(example = "false")
@@ -1709,6 +1712,7 @@ public final class LoanProductsApiResourceSwagger {
         public Integer overDueDaysForRepaymentEvent;
         @Schema(example = "false")
         public Boolean enableDownPayment;
+        public Boolean enableExcessPaymentParking;
         @Schema(example = "5.5")
         public BigDecimal disbursedAmountPercentageForDownPayment;
         @Schema(example = "false")
@@ -1767,6 +1771,7 @@ public final class LoanProductsApiResourceSwagger {
         public Long incomeFromPenaltyAccountId;
         @Schema(example = "2")
         public Long overpaymentLiabilityAccountId;
+        public Long excessPaymentParkingAccountId;
         @Schema(example = "41")
         public Long writeOffAccountId;
         @Schema(example = "5")

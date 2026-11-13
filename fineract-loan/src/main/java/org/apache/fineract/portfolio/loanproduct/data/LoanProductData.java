@@ -242,6 +242,8 @@ public class LoanProductData implements Serializable {
     private final Integer overDueDaysForRepaymentEvent;
 
     private final boolean enableDownPayment;
+    private final boolean enableScheduleArchive;
+    private final boolean enableExcessPaymentParking;
     private final BigDecimal disbursedAmountPercentageForDownPayment;
     private final boolean enableAutoRepaymentForDownPayment;
     private final boolean enableInstallmentLevelDelinquency;
@@ -367,6 +369,8 @@ public class LoanProductData implements Serializable {
         final Integer dueDaysForRepaymentEvent = null;
         final Integer overDueDaysForRepaymentEvent = null;
         final boolean enableDownPayment = false;
+        final boolean enableScheduleArchive = false;
+        final boolean enableExcessPaymentParking = false;
         final BigDecimal disbursedAmountPercentageDownPayment = null;
         final Collection<AdvancedPaymentData> paymentAllocation = null;
         final Collection<CreditAllocationData> creditAllocation = null;
@@ -411,13 +415,14 @@ public class LoanProductData implements Serializable {
                 maxDifferentialLendingRate, isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed, minimumGap, maximumGap,
                 syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, rateOptions, rates, isRatesEnabled,
                 fixedPrincipalPercentagePerInstallment, delinquencyBucketOptions, delinquencyBucket, dueDaysForRepaymentEvent,
-                overDueDaysForRepaymentEvent, enableDownPayment, disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment,
-                paymentAllocation, creditAllocation, repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType,
-                loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour,
-                interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
-                capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
-                buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions, brokenPeriodConfig, null, bpiCollectedAtDisbursement);
+                overDueDaysForRepaymentEvent, enableDownPayment, enableScheduleArchive, enableExcessPaymentParking,
+                disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment, paymentAllocation, creditAllocation,
+                repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType, loanScheduleProcessingType, fixedLength,
+                enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate,
+                daysInYearTypeCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
+                capitalizedIncomeType, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
+                merchantBuyDownFee, writeOffReasonsToExpenseMappings, writeOffReasonOptions, brokenPeriodConfig, null,
+                bpiCollectedAtDisbursement);
 
     }
 
@@ -509,6 +514,8 @@ public class LoanProductData implements Serializable {
         final Integer dueDaysForRepaymentEvent = null;
         final Integer overDueDaysForRepaymentEvent = null;
         final boolean enableDownPayment = false;
+        final boolean enableScheduleArchive = false;
+        final boolean enableExcessPaymentParking = false;
         final BigDecimal disbursedAmountPercentageDownPayment = null;
         final boolean enableAutoRepaymentForDownPayment = false;
         final Collection<AdvancedPaymentData> paymentAllocation = null;
@@ -552,13 +559,13 @@ public class LoanProductData implements Serializable {
                 maxDifferentialLendingRate, isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed, minimumGap, maximumGap,
                 syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, rateOptions, rates, isRatesEnabled,
                 fixedPrincipalPercentagePerInstallment, delinquencyBucketOptions, delinquencyBucket, dueDaysForRepaymentEvent,
-                overDueDaysForRepaymentEvent, enableDownPayment, disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment,
-                paymentAllocation, creditAllocation, repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType,
-                loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour,
-                interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
-                capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
-                buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions, brokenPeriodConfig, null, false);
+                overDueDaysForRepaymentEvent, enableDownPayment, enableScheduleArchive, enableExcessPaymentParking,
+                disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment, paymentAllocation, creditAllocation,
+                repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType, loanScheduleProcessingType, fixedLength,
+                enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate,
+                daysInYearTypeCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
+                capitalizedIncomeType, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
+                merchantBuyDownFee, writeOffReasonsToExpenseMappings, writeOffReasonOptions, brokenPeriodConfig, null, false);
 
     }
 
@@ -657,6 +664,8 @@ public class LoanProductData implements Serializable {
         final Integer dueDaysForRepaymentEvent = null;
         final Integer overDueDaysForRepaymentEvent = null;
         final boolean enableDownPayment = false;
+        final boolean enableScheduleArchive = false;
+        final boolean enableExcessPaymentParking = false;
         final BigDecimal disbursedAmountPercentageDownPayment = null;
         final boolean enableAutoRepaymentForDownPayment = false;
         final Collection<AdvancedPaymentData> paymentAllocation = null;
@@ -700,13 +709,13 @@ public class LoanProductData implements Serializable {
                 maxDifferentialLendingRate, isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed, minimumGap, maximumGap,
                 syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, rateOptions, rates, isRatesEnabled,
                 fixedPrincipalPercentagePerInstallment, delinquencyBucketOptions, delinquencyBucket, dueDaysForRepaymentEvent,
-                overDueDaysForRepaymentEvent, enableDownPayment, disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment,
-                paymentAllocation, creditAllocation, repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType,
-                loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour,
-                interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
-                capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
-                buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions, brokenPeriodConfig, null, false);
+                overDueDaysForRepaymentEvent, enableDownPayment, enableScheduleArchive, enableExcessPaymentParking,
+                disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment, paymentAllocation, creditAllocation,
+                repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType, loanScheduleProcessingType, fixedLength,
+                enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate,
+                daysInYearTypeCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
+                capitalizedIncomeType, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
+                merchantBuyDownFee, writeOffReasonsToExpenseMappings, writeOffReasonOptions, brokenPeriodConfig, null, false);
 
     }
 
@@ -799,6 +808,8 @@ public class LoanProductData implements Serializable {
         final Integer dueDaysForRepaymentEvent = null;
         final Integer overDueDaysForRepaymentEvent = null;
         final boolean enableDownPayment = false;
+        final boolean enableScheduleArchive = false;
+        final boolean enableExcessPaymentParking = false;
         final BigDecimal disbursedAmountPercentageDownPayment = null;
         final boolean enableAutoRepaymentForDownPayment = false;
         final Collection<AdvancedPaymentData> paymentAllocation = null;
@@ -842,13 +853,13 @@ public class LoanProductData implements Serializable {
                 maxDifferentialLendingRate, isFloatingInterestRateCalculationAllowed, isVariableInstallmentsAllowed, minimumGap, maximumGap,
                 syncExpectedWithDisbursementDate, canUseForTopup, isEqualAmortization, rateOptions, rates, isRatesEnabled,
                 fixedPrincipalPercentagePerInstallment, delinquencyBucketOptions, delinquencyBucket, dueDaysForRepaymentEvent,
-                overDueDaysForRepaymentEvent, enableDownPayment, disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment,
-                paymentAllocation, creditAllocationData, repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType,
-                loanScheduleProcessingType, fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour,
-                interestRecognitionOnDisbursementDate, daysInYearTypeCustomStrategy, enableIncomeCapitalization,
-                capitalizedIncomeCalculationType, capitalizedIncomeStrategy, capitalizedIncomeType, enableBuyDownFee,
-                buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType, merchantBuyDownFee, writeOffReasonsToExpenseMappings,
-                writeOffReasonOptions, brokenPeriodConfig, null, false);
+                overDueDaysForRepaymentEvent, enableDownPayment, enableScheduleArchive, enableExcessPaymentParking,
+                disbursedAmountPercentageDownPayment, enableAutoRepaymentForDownPayment, paymentAllocation, creditAllocationData,
+                repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType, loanScheduleProcessingType, fixedLength,
+                enableAccrualActivityPosting, supportedInterestRefundTypes, chargeOffBehaviour, interestRecognitionOnDisbursementDate,
+                daysInYearTypeCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
+                capitalizedIncomeType, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,
+                merchantBuyDownFee, writeOffReasonsToExpenseMappings, writeOffReasonOptions, brokenPeriodConfig, null, false);
     }
 
     public static LoanProductData withAccountingDetails(final LoanProductData productData, final Map<String, Object> accountingMappings,
@@ -903,19 +914,19 @@ public class LoanProductData implements Serializable {
             Collection<RateData> rateOptions, Collection<RateData> rates, final boolean isRatesEnabled,
             final BigDecimal fixedPrincipalPercentagePerInstallment, final Collection<DelinquencyBucketData> delinquencyBucketOptions,
             final DelinquencyBucketData delinquencyBucket, final Integer dueDaysForRepaymentEvent,
-            final Integer overDueDaysForRepaymentEvent, final boolean enableDownPayment,
-            final BigDecimal disbursedAmountPercentageForDownPayment, final boolean enableAutoRepaymentForDownPayment,
-            final Collection<AdvancedPaymentData> paymentAllocation, final Collection<CreditAllocationData> creditAllocation,
-            final EnumOptionData repaymentStartDateType, final boolean enableInstallmentLevelDelinquency,
-            final EnumOptionData loanScheduleType, final EnumOptionData loanScheduleProcessingType, final Integer fixedLength,
-            final boolean enableAccrualActivityPosting, final List<StringEnumOptionData> supportedInterestRefundTypes,
-            StringEnumOptionData chargeOffBehaviour, final boolean interestRecognitionOnDisbursementDate,
-            final StringEnumOptionData daysInYearCustomStrategy, final boolean enableIncomeCapitalization,
-            final StringEnumOptionData capitalizedIncomeCalculationType, final StringEnumOptionData capitalizedIncomeStrategy,
-            final StringEnumOptionData capitalizedIncomeType, final boolean enableBuyDownFee,
-            final StringEnumOptionData buyDownFeeCalculationType, final StringEnumOptionData buyDownFeeStrategy,
-            final StringEnumOptionData buyDownFeeIncomeType, final boolean merchantBuyDownFee,
-            final List<WriteOffReasonsToExpenseAccountMapper> writeOffReasonsToExpenseMappings,
+            final Integer overDueDaysForRepaymentEvent, final boolean enableDownPayment, final boolean enableScheduleArchive,
+            final boolean enableExcessPaymentParking, final BigDecimal disbursedAmountPercentageForDownPayment,
+            final boolean enableAutoRepaymentForDownPayment, final Collection<AdvancedPaymentData> paymentAllocation,
+            final Collection<CreditAllocationData> creditAllocation, final EnumOptionData repaymentStartDateType,
+            final boolean enableInstallmentLevelDelinquency, final EnumOptionData loanScheduleType,
+            final EnumOptionData loanScheduleProcessingType, final Integer fixedLength, final boolean enableAccrualActivityPosting,
+            final List<StringEnumOptionData> supportedInterestRefundTypes, StringEnumOptionData chargeOffBehaviour,
+            final boolean interestRecognitionOnDisbursementDate, final StringEnumOptionData daysInYearCustomStrategy,
+            final boolean enableIncomeCapitalization, final StringEnumOptionData capitalizedIncomeCalculationType,
+            final StringEnumOptionData capitalizedIncomeStrategy, final StringEnumOptionData capitalizedIncomeType,
+            final boolean enableBuyDownFee, final StringEnumOptionData buyDownFeeCalculationType,
+            final StringEnumOptionData buyDownFeeStrategy, final StringEnumOptionData buyDownFeeIncomeType,
+            final boolean merchantBuyDownFee, final List<WriteOffReasonsToExpenseAccountMapper> writeOffReasonsToExpenseMappings,
             final List<CodeValueData> writeOffReasonOptions, final BrokenPeriodConfigData brokenPeriodConfig,
             final EnumOptionData installmentInterestCalculationType, final boolean bpiCollectedAtDisbursement) {
         this.id = id;
@@ -1054,6 +1065,8 @@ public class LoanProductData implements Serializable {
         this.dueDaysForRepaymentEvent = dueDaysForRepaymentEvent;
         this.overDueDaysForRepaymentEvent = overDueDaysForRepaymentEvent;
         this.enableDownPayment = enableDownPayment;
+        this.enableScheduleArchive = enableScheduleArchive;
+        this.enableExcessPaymentParking = enableExcessPaymentParking;
         this.disbursedAmountPercentageForDownPayment = disbursedAmountPercentageForDownPayment;
         this.paymentAllocation = paymentAllocation;
         this.creditAllocation = creditAllocation;
@@ -1264,6 +1277,8 @@ public class LoanProductData implements Serializable {
         this.dueDaysForRepaymentEvent = productData.dueDaysForRepaymentEvent;
         this.overDueDaysForRepaymentEvent = productData.overDueDaysForRepaymentEvent;
         this.enableDownPayment = productData.enableDownPayment;
+        this.enableScheduleArchive = productData.enableScheduleArchive;
+        this.enableExcessPaymentParking = productData.enableExcessPaymentParking;
         this.disbursedAmountPercentageForDownPayment = productData.disbursedAmountPercentageForDownPayment;
         this.enableAutoRepaymentForDownPayment = productData.enableAutoRepaymentForDownPayment;
         this.paymentAllocation = productData.paymentAllocation;
