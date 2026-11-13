@@ -115,6 +115,19 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
     String FIND_LOANS_FOR_PERIODIC_ACCRUAL = LOANS_FOR_ACCRUAL
             + "and (:futureCharges = true or ls.fromDate < :tillDate or (ls.installmentNumber = (select min(lsi.installmentNumber) from LoanRepaymentScheduleInstallment lsi where lsi.loan.id = l.id and lsi.isDownPayment = false) and ls.fromDate = :tillDate))))";
     String FIND_LOANS_FOR_ADD_ACCRUAL = LOANS_FOR_ACCRUAL + "and (:futureCharges = true or ls.dueDate <= :tillDate)))";
+    // closed / overpaid loans (not NPA, not foreclosed) whose expected maturity is on/after :maturityFrom and that have
+    // an installment not fully accrued (same gap predicate as LOANS_FOR_ACCRUAL).
+    // expectedMaturityDate is the schedule end (indexed); actualMaturityDate is set to the closure date on closure.
+    String FIND_CLOSED_LOANS_FOR_PERIODIC_ACCRUAL = "select l.id from Loan l left join l.loanInterestRecalculationDetails recalcDetails "
+            + "where l.loanStatus in :loanStatuses and l.chargedOff = false and l.isNpa = false "
+            + "and l.expectedMaturityDate >= :maturityFrom " + "and (l.loanSubStatus is null or l.loanSubStatus <> :foreclosedSubStatus) "
+            + "and l.loanProduct.accountingRule = :accountingType "
+            + "and (recalcDetails.isCompoundingToBePostedAsTransaction is null or recalcDetails.isCompoundingToBePostedAsTransaction = false) "
+            + "and (exists (select ls.id from LoanRepaymentScheduleInstallment ls where ls.loan.id = l.id and ls.isDownPayment = false "
+            + "and ((coalesce(ls.interestCharged, 0) - coalesce(ls.interestWaived, 0)) <> coalesce(ls.interestAccrued, 0) "
+            + "or (coalesce(ls.feeChargesCharged, 0) - coalesce(ls.feeChargesWaived, 0)) <> coalesce(ls.feeAccrued, 0) "
+            + "or (coalesce(ls.penaltyCharges, 0) - coalesce(ls.penaltyChargesWaived, 0)) <> coalesce(ls.penaltyAccrued, 0)) "
+            + "and (:futureCharges = true or ls.fromDate < :tillDate))) order by l.id";
 
     String FIND_LOAN_BY_EXTERNAL_ID = "SELECT loan FROM Loan loan WHERE loan.externalId = :externalId";
 
@@ -260,6 +273,12 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
     List<Loan> findLoansForPeriodicAccrual(@Param("accountingType") AccountingRuleType accountingType,
             @Param("tillDate") LocalDate tillDate, @Param("futureCharges") boolean futureCharges,
             @Param("loanStatus") LoanStatus loanStatus);
+
+    @Query(FIND_CLOSED_LOANS_FOR_PERIODIC_ACCRUAL)
+    List<Long> findClosedLoanIdsForPeriodicAccrual(@Param("accountingType") AccountingRuleType accountingType,
+            @Param("tillDate") LocalDate tillDate, @Param("maturityFrom") LocalDate maturityFrom,
+            @Param("futureCharges") boolean futureCharges, @Param("loanStatuses") Collection<LoanStatus> loanStatuses,
+            @Param("foreclosedSubStatus") LoanSubStatus foreclosedSubStatus);
 
     @Query(FIND_LOANS_FOR_ADD_ACCRUAL)
     List<Loan> findLoansForAddAccrual(@Param("accountingType") AccountingRuleType accountingType, @Param("tillDate") LocalDate tillDate,

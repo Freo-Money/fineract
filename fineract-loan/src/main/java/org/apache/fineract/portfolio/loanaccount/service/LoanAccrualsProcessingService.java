@@ -18,13 +18,11 @@
  */
 package org.apache.fineract.portfolio.loanaccount.service;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import org.apache.fineract.infrastructure.core.exception.MultiException;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
-import org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction;
 import org.springframework.lang.NonNull;
 
 public interface LoanAccrualsProcessingService {
@@ -35,9 +33,15 @@ public interface LoanAccrualsProcessingService {
 
     /**
      * Posts periodic accruals for a single loan up to the given date (same logic as COB step / batch runaccruals for
-     * that loan). The loan product must have periodic accrual accounting enabled.
+     * that loan), including a loan closed / overpaid by repayment. Returns the changes for the API response.
      */
-    void addPeriodicAccrualsForLoanId(@NonNull Long loanId, @NonNull LocalDate tillDate);
+    Map<String, Object> addPeriodicAccrualsForLoanId(@NonNull Long loanId, @NonNull LocalDate tillDate);
+
+    /**
+     * Batch job "Add Periodic Accrual Transactions For Closed Loans": periodic accrual continues on loans closed /
+     * overpaid by repayment until their last due date.
+     */
+    void addPeriodicAccrualsForClosedLoans(@NonNull LocalDate tillDate) throws MultiException;
 
     void addAccruals(@NonNull LocalDate tillDate) throws MultiException;
 
@@ -51,8 +55,7 @@ public interface LoanAccrualsProcessingService {
 
     void processAccrualsOnLoanClosure(@NonNull Loan loan, boolean addJournal);
 
-    void processAccrualsOnLoanForeClosure(@NonNull Loan loan, @NonNull LocalDate foreClosureDate,
-            @NonNull List<LoanTransaction> newAccrualTransactions, @NonNull Map<Long, BigDecimal> mergedChargePercentages);
+    void processAccrualsOnLoanForeClosure(@NonNull Loan loan, @NonNull LocalDate foreClosureDate);
 
     void convertAccrualToSuspenseForNpaLoans(@NonNull List<Long> loanIds);
 

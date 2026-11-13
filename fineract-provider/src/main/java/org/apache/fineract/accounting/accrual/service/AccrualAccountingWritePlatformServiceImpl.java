@@ -25,11 +25,13 @@ import static org.apache.fineract.accounting.accrual.api.AccrualAccountingConsta
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.apache.fineract.accounting.accrual.serialization.AccrualAccountingDataValidator;
 import org.apache.fineract.infrastructure.core.api.JsonCommand;
 import org.apache.fineract.infrastructure.core.data.ApiParameterError;
 import org.apache.fineract.infrastructure.core.data.CommandProcessingResult;
+import org.apache.fineract.infrastructure.core.data.CommandProcessingResultBuilder;
 import org.apache.fineract.infrastructure.core.data.DataValidatorBuilder;
 import org.apache.fineract.infrastructure.core.exception.MultiException;
 import org.apache.fineract.infrastructure.core.exception.PlatformApiDataValidationException;
@@ -62,7 +64,8 @@ public class AccrualAccountingWritePlatformServiceImpl implements AccrualAccount
     public CommandProcessingResult executeLoanPeriodicAccrual(Long loanId, JsonCommand command) {
         this.accountingDataValidator.validateLoanPeriodicAccrualData(command.json());
         LocalDate tillDate = command.localDateValueOfParameterNamed(ACCRUE_TILL_PARAM_NAME);
-        this.loanAccrualsProcessingService.addPeriodicAccrualsForLoanId(loanId, tillDate);
-        return CommandProcessingResult.resourceResult(loanId);
+        final Map<String, Object> changes = this.loanAccrualsProcessingService.addPeriodicAccrualsForLoanId(loanId, tillDate);
+        return new CommandProcessingResultBuilder().withCommandId(command.commandId()).withLoanId(loanId).withEntityId(loanId).with(changes)
+                .build();
     }
 }

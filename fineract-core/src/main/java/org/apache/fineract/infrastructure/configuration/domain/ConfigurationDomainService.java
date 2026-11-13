@@ -170,6 +170,12 @@ public interface ConfigurationDomainService {
      */
     boolean isForeclosureExpectedAmountValidationEnabled();
 
+    /**
+     * Lookback in days for the "Add Periodic Accrual Transactions For Closed Loans" job: closed / overpaid loans with
+     * maturity date on or after (business date - days) are accrued. Null when disabled.
+     */
+    Long retrieveAccrueClosedLoansMaturityLookbackDays();
+
     String getAssetOwnerTransferOustandingInterestStrategy();
 
     Integer getArrearsBasedOnValue();

@@ -19,6 +19,7 @@
 package org.apache.fineract.portfolio.loanaccount.api;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.time.LocalDate;
 
 final class LoanAccrualsApiResourceSwagger {
 
@@ -44,5 +45,25 @@ final class LoanAccrualsApiResourceSwagger {
 
         @Schema(example = "1")
         public Long resourceId;
+        @Schema(example = "1")
+        public Long loanId;
+        public PostLoansLoanIdAccrualsPostTillDateChanges changes;
+    }
+
+    @Schema(description = "PostLoansLoanIdAccrualsPostTillDateChanges")
+    public static final class PostLoansLoanIdAccrualsPostTillDateChanges {
+
+        private PostLoansLoanIdAccrualsPostTillDateChanges() {}
+
+        @Schema(example = "CLOSED_OBLIGATIONS_MET")
+        public String loanStatus;
+        @Schema(example = "true", description = "true when the loan is closed / overpaid by repayment and accrued as such")
+        public Boolean closedLoan;
+        @Schema(example = "[2026, 9, 23]")
+        public LocalDate accruedTillBefore;
+        @Schema(example = "[2026, 9, 24]")
+        public LocalDate accruedTillAfter;
+        @Schema(example = "loan is not active and not closed by repayment", description = "present when nothing was accrued")
+        public String skippedReason;
     }
 }

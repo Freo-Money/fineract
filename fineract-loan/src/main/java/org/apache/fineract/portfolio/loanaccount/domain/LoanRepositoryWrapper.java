@@ -298,6 +298,12 @@ public class LoanRepositoryWrapper {
         return repository.findLoansForPeriodicAccrual(accountingType, tillDate, futureCharges, LoanStatus.ACTIVE);
     }
 
+    public List<Long> findClosedLoanIdsForPeriodicAccrual(AccountingRuleType accountingType, LocalDate tillDate, LocalDate maturityFrom,
+            boolean futureCharges) {
+        return repository.findClosedLoanIdsForPeriodicAccrual(accountingType, tillDate, maturityFrom, futureCharges,
+                List.of(LoanStatus.CLOSED_OBLIGATIONS_MET, LoanStatus.OVERPAID), LoanSubStatus.FORECLOSED);
+    }
+
     public List<Loan> findLoansForAddAccrual(AccountingRuleType accountingType, LocalDate tillDate, boolean futureCharges) {
         return repository.findLoansForAddAccrual(accountingType, tillDate, futureCharges, LoanStatus.ACTIVE);
     }
