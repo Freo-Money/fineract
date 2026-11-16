@@ -356,7 +356,7 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             Loan loan, LocalDate transactionDate) {
         LoanBusinessEvent repaymentEvent = null;
         if (repaymentTransactionType.isRepaymentFromExcessAmount()) {
-            repaymentEvent = new LoanTransactionMakeRepaymentPreBusinessEvent(loan, transactionDate);
+            repaymentEvent = new LoanTransactionMakeRepaymentPreBusinessEvent(loan, transactionDate, true);
         } else if (repaymentTransactionType.isRepayment()) {
             repaymentEvent = new LoanTransactionMakeRepaymentPreBusinessEvent(loan, transactionDate);
         } else if (repaymentTransactionType.isMerchantIssuedRefund()) {
@@ -871,6 +871,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         if (payment == null && excessRepayment != null) {
             // Consumers identify the closing transaction by this tag; keep that contract when the pool covers it all.
             excessRepayment.updateTransactionMetaData(new TransactionMetaData("FORECLOSURE").serialize());
+            // It is the transaction the caller gets back, so it must carry the external id sent with the foreclosure.
+            if (externalId != null && !externalId.isEmpty()) {
+                excessRepayment.updateExternalId(externalId);
+            }
         }
 
         if (settlingTransaction != null && foreclosureFee.isGreaterThanZero()) {

@@ -109,6 +109,12 @@ public class LoanOverduePenaltyPreTransactionEventService {
 
         @Override
         public void onBusinessEvent(final LoanTransactionMakeRepaymentPreBusinessEvent event) {
+            // A sweep of the parked excess is sized from the loan as it stands when the nightly job posts it; levying a
+            // penalty in between would make the sweep pay that penalty and leave the installment it was sized for
+            // short. Penalties are applied by their own job, and the customer's money was in the pool in time.
+            if (event.isRepaymentFromExcessAmount()) {
+                return;
+            }
             reconcileOverduePenaltiesUpToDate(event.get(), dateOrBusinessDate(event.getTransactionDate()));
         }
     }

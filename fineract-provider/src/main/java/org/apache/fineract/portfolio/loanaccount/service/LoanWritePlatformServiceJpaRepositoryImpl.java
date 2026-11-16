@@ -1684,6 +1684,13 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
             throw new GeneralPlatformDomainRuleException("error.msg.loan.is.charged.off",
                     "Loan: " + loanId + " Close as rescheduled is not allowed. Loan Account is Charged-off", loanId);
         }
+        // The rescheduled status is outside the nightly excess job, so a parked pool would be stranded there.
+        if (loan.getTotalExcessPaymentAmount() != null && loan.getTotalExcessPaymentAmount().compareTo(BigDecimal.ZERO) > 0) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.close.rescheduled.not.allowed.with.parked.excess",
+                    "Loan: " + loanId + " Close as rescheduled is not allowed while it holds parked excess payment of "
+                            + loan.getTotalExcessPaymentAmount() + ". Refund or settle the parked amount first.",
+                    loanId, loan.getTotalExcessPaymentAmount());
+        }
         removeLoanCycle(loan);
         businessEventNotifierService.notifyPreBusinessEvent(new LoanCloseAsRescheduleBusinessEvent(loan));
 
@@ -2870,6 +2877,12 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
         if (loan.isChargedOff()) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.is.already.charged.off",
                     "Loan: " + loanId + " is already charged-off", loanId);
+        }
+        // The charged-off repayment journal entries do not book the parked excess portion, so a parking loan that is
+        // charged off would lose parked cash from the ledger. Not supported until that accounting exists.
+        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.chargeoff.not.supported.with.excess.parking",
+                    "Loan: " + loanId + " charge-off is not supported for loans with excess payment parking enabled", loanId);
         }
         if (DateUtils.isBefore(transactionDate, loan.getLastUserTransactionDate())) {
             throw new GeneralPlatformDomainRuleException("error.msg.loan.charge.off.is.before.than.the.last.user.transaction",

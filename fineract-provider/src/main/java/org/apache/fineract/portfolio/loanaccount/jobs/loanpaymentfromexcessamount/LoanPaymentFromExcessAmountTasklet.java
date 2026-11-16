@@ -101,11 +101,14 @@ public class LoanPaymentFromExcessAmountTasklet implements Tasklet {
         }
 
         if (!loan.getStatus().isActive()) {
+            log.warn("Loan [id={}] in status {} still holds a parked excess pool of {}; it needs manual handling.", loan.getId(),
+                    loan.getStatus(), parkedPool);
             return;
         }
 
-        // One sweep per due installment, re-reading the schedule after each posting: a sweep can reprocess the loan
-        // and replace installment objects, so a snapshot taken up front could be stale.
+        // Normally a single sweep settles everything due; the loop re-reads the schedule after each posting (a sweep
+        // can
+        // reprocess the loan and replace installment objects) and stops once nothing due is left or the pool is empty.
         final int maxSweeps = loan.getRepaymentScheduleInstallments().size();
         for (int sweeps = 0; sweeps < maxSweeps; sweeps++) {
             final BigDecimal totalExcessAmount = loan.getTotalExcessPaymentAmount();
@@ -121,19 +124,25 @@ public class LoanPaymentFromExcessAmountTasklet implements Tasklet {
                         + " schedule flags need review.", loan.getId(), totalExcessAmount);
                 break;
             }
-            if (openInstallments.get(0).getDueDate().isAfter(businessDate)) {
+            // One sweep covers everything due on or before the business date: the processor settles those
+            // installments in the strategy's own order (OD/ADV pay interest/principal across all of them before
+            // fees/penalties), so sizing the sweep from the first installment alone would spend it on a later
+            // installment and leave the earlier one's charges overdue while money stays parked.
+            final List<LoanRepaymentScheduleInstallment> dueInstallments = openInstallments.stream()
+                    .filter(inst -> !inst.getDueDate().isAfter(businessDate)).toList();
+            if (dueInstallments.isEmpty()) {
                 break;
             }
-            final LoanRepaymentScheduleInstallment dueInstallment = openInstallments.get(0);
-            final BigDecimal outstandingAmount = dueInstallment.getTotalOutstanding(loan.getCurrency()).getAmount();
+            final BigDecimal outstandingAmount = dueInstallments.stream()
+                    .map(inst -> inst.getTotalOutstanding(loan.getCurrency()).getAmount()).reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            // On the final outstanding installment, draw the ENTIRE remaining pool rather than capping at the
-            // outstanding amount: the transaction processor applies what is due and returns the surplus as the
+            // When nothing is open beyond the due installments, draw the ENTIRE remaining pool rather than capping at
+            // the outstanding amount: the transaction processor applies what is due and returns the surplus as the
             // sweep's overpayment portion, which is what posts the reclassification journal entry (debit
             // parking liability, credit overpayment liability). Capping here would convert the surplus to
             // overpaid in loan state only, leaving the parking liability overstated and the overpayment
             // liability unfunded when a credit balance refund is paid out.
-            final boolean hasLaterOutstandingInstallment = openInstallments.size() > 1;
+            final boolean hasLaterOutstandingInstallment = openInstallments.size() > dueInstallments.size();
             final BigDecimal paymentAmount = hasLaterOutstandingInstallment
                     ? (totalExcessAmount.compareTo(outstandingAmount) >= 0 ? outstandingAmount : totalExcessAmount)
                     : totalExcessAmount;

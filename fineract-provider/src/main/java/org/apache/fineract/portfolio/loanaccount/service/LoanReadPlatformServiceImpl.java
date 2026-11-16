@@ -826,6 +826,14 @@ public class LoanReadPlatformServiceImpl implements LoanReadPlatformService, Loa
         this.loanUtilService.validateRepaymentTransactionType(repaymentTransactionType);
 
         final Loan loan = this.loanRepositoryWrapper.findOneWithNotFoundDetection(loanId, true);
+        // On an excess-parking loan a repayment of the quoted outstanding does not close the loan: money not yet due is
+        // parked and swept on the due dates. Early closure goes through foreclosure, whose template nets the pool.
+        if (repaymentTransactionType.isRepayment() && loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.prepay.not.supported.with.excess.parking",
+                    "Loan: " + loanId + " prepayment template is not supported for loans with excess payment parking;"
+                            + " use the foreclosure template (command=foreclosure) to close the loan early.",
+                    loanId);
+        }
 
         final MonetaryCurrency currency = loan.getCurrency();
         final ApplicationCurrency applicationCurrency = this.applicationCurrencyRepository.findOneWithNotFoundDetection(currency);

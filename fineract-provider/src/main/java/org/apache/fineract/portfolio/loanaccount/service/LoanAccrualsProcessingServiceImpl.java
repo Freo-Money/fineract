@@ -1254,7 +1254,9 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
                 receivableInterest = receivableInterest.plus(Money.of(currency, interestPortion));
                 receivableFee = receivableFee.plus(Money.of(currency, feePortion));
                 receivablePenalty = receivablePenalty.plus(Money.of(currency, penaltyPortion));
-            } else if (transactionType.isRepayment() || transactionType.isChargePayment() || transactionType.isAccrualAdjustment()) {
+            } else if (transactionType.isRepayment() || transactionType.isChargePayment() || transactionType.isAccrualAdjustment()
+                    || transactionType.isRepaymentFromExcessAmount()) {
+                // Sweeps of the parked excess settle interest/fees/penalties exactly like repayments do.
                 receivableInterest = receivableInterest.minus(Money.of(currency, interestPortion));
                 receivableFee = receivableFee.minus(Money.of(currency, feePortion));
                 receivablePenalty = receivablePenalty.minus(Money.of(currency, penaltyPortion));

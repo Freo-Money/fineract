@@ -132,6 +132,11 @@ public interface LoanRepository extends JpaRepository<Loan, Long>, JpaSpecificat
     List<Long> getLoanIdsWithExcessAmount(@Param("currentDate") LocalDate currentDate,
             @Param("loanStatuses") Collection<LoanStatus> loanStatuses);
 
+    @Query("select count(loan.id) from Loan loan where loan.loanProduct.id = :productId "
+            + "and loan.loanRepaymentScheduleDetail.enableExcessPaymentParking = true "
+            + "and (loan.loanStatus in :loanStatuses or loan.totalExcessPaymentAmount > 0)")
+    long countLoansWithExcessPaymentParking(@Param("productId") Long productId, @Param("loanStatuses") Collection<LoanStatus> loanStatuses);
+
     @Query(FIND_GROUP_LOANS_DISBURSED_AFTER)
     List<Loan> getGroupLoansDisbursedAfter(@Param("disbursementDate") LocalDate disbursementDate, @Param("groupId") Long groupId,
             @Param("loanType") AccountType loanType);

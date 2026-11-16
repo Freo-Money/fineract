@@ -62,6 +62,8 @@ import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeStr
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCapitalizedIncomeType;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanChargeOffBehaviour;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepaymentScheduleTransactionProcessorFactory;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanRepository;
+import org.apache.fineract.portfolio.loanaccount.domain.LoanStatus;
 import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.AdvancedPaymentScheduleTransactionProcessor;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleProcessingType;
 import org.apache.fineract.portfolio.loanaccount.loanschedule.domain.LoanScheduleType;
@@ -237,6 +239,7 @@ public final class LoanProductDataValidator {
     private final AdvancedPaymentAllocationsValidator advancedPaymentAllocationsValidator;
     private final ProductToGLAccountMappingHelper productToGLAccountMappingHelper;
     private final ProductToGLAccountMappingRepository productToGLAccountMappingRepository;
+    private final LoanRepository loanRepository;
 
     public void validateForCreate(final JsonCommand command) {
         String json = command.json();
@@ -732,13 +735,18 @@ public final class LoanProductDataValidator {
             baseDataValidator.reset().parameter(LoanProductAccountingParams.OVERPAYMENT.getValue()).value(overpaymentAccountId).notNull()
                     .integerGreaterThanZero();
 
-            // Mandatory for every accrual-periodic product, independent of enableExcessPaymentParking, so the
-            // parking mapping is configured once at creation and no flow ever finds it missing.
+            // Mandatory only when the product is created with parking enabled; otherwise optional. Enabling parking
+            // later through update requires the account in the request or an existing mapping.
             final Long excessPaymentParkingAccountId = this.fromApiJsonHelper
                     .extractLongNamed(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), element);
-            if (AccountingValidations.isAccrualPeriodicBasedAccounting(accountingRuleType)) {
+            final boolean parkingEnabledAtCreate = Boolean.TRUE
+                    .equals(this.fromApiJsonHelper.extractBooleanNamed(LoanProductConstants.ENABLE_EXCESS_PAYMENT_PARKING, element));
+            if (parkingEnabledAtCreate && AccountingValidations.isAccrualPeriodicBasedAccounting(accountingRuleType)) {
                 baseDataValidator.reset().parameter(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue())
                         .value(excessPaymentParkingAccountId).notNull().integerGreaterThanZero();
+            } else {
+                baseDataValidator.reset().parameter(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue())
+                        .value(excessPaymentParkingAccountId).ignoreIfNull().integerGreaterThanZero();
             }
 
             final Long incomeFromChargeOffInterestAccountId = this.fromApiJsonHelper
@@ -906,13 +914,13 @@ public final class LoanProductDataValidator {
                 baseDataValidator.reset().parameter("enableExcessPaymentParking").failWithCode("not.supported.with.interest.recalculation");
             }
             // The progressive (advanced payment allocation) processor never reaches the parking flow and does not
-            // handle REPAYMENT_FROM_EXCESS_AMOUNT; the flag would silently do nothing there.
+            // handle REPAYMENT_FROM_EXCESS_AMOUNT; other strategies are allowed only once verified with parking.
             if (Boolean.TRUE.equals(enableExcessPaymentParking)) {
                 String scheduleType = LoanScheduleType.CUMULATIVE.toString();
                 if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.LOAN_SCHEDULE_TYPE, element)) {
                     scheduleType = this.fromApiJsonHelper.extractStringNamed(LoanProductConstants.LOAN_SCHEDULE_TYPE, element);
                 }
-                validateParkingNotProgressive(baseDataValidator, scheduleType, transactionProcessingStrategyCode);
+                validateParkingSupported(baseDataValidator, scheduleType, transactionProcessingStrategyCode);
             }
         }
         if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.LOAN_SCHEDULE_TYPE, element)) {
@@ -1911,12 +1919,23 @@ public final class LoanProductDataValidator {
         baseDataValidator.reset().parameter(LoanProductAccountingParams.OVERPAYMENT.getValue()).value(overpaymentAccountId).ignoreIfNull()
                 .integerGreaterThanZero();
 
-        // The mapping is mandatory at creation for accrual-periodic products; on update just validate the value
-        // when one is supplied.
+        // On update just validate the value when one is supplied; enabling parking checks below that a mapping exists.
         final Long excessPaymentParkingAccountId = this.fromApiJsonHelper
                 .extractLongNamed(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), element);
         baseDataValidator.reset().parameter(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue())
                 .value(excessPaymentParkingAccountId).ignoreIfNull().integerGreaterThanZero();
+
+        // Loans keep their own copy of the parking flag, and leaving accrual-periodic accounting drops the parking
+        // mapping: every loan that still parks would then journal parked cash nowhere (cash) or fail (upfront). Turning
+        // the product flag off only affects new loans, so it does not lift this. Loans in any status that still hold a
+        // parked pool also count (a closed loan's pool is reclassified by the nightly job).
+        if (accountingRuleType != null && !AccountingValidations.isAccrualPeriodicBasedAccounting(accountingRuleType)
+                && loanProduct.getAccountingRule() != null
+                && AccountingValidations.isAccrualPeriodicBasedAccounting(loanProduct.getAccountingRule().getValue())
+                && loanRepository.countLoansWithExcessPaymentParking(loanProduct.getId(), List.of(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL,
+                        LoanStatus.APPROVED, LoanStatus.ACTIVE, LoanStatus.OVERPAID)) > 0) {
+            baseDataValidator.reset().parameter(ACCOUNTING_RULE).failWithCode("not.allowed.while.loans.have.excess.payment.parking");
+        }
 
         Boolean parkingEnabled = loanProduct.getLoanProductRelatedDetail().isEnableExcessPaymentParking();
         if (this.fromApiJsonHelper.parameterExists("enableExcessPaymentParking", element)) {
@@ -1942,13 +1961,17 @@ public final class LoanProductDataValidator {
             if (this.fromApiJsonHelper.parameterExists(LoanProductConstants.LOAN_SCHEDULE_TYPE, element)) {
                 effectiveScheduleType = this.fromApiJsonHelper.extractStringNamed(LoanProductConstants.LOAN_SCHEDULE_TYPE, element);
             }
-            validateParkingNotProgressive(baseDataValidator, effectiveScheduleType, transactionProcessingStrategyCode);
+            validateParkingSupported(baseDataValidator, effectiveScheduleType, transactionProcessingStrategyCode);
             // Every parked repayment journals against the parking liability; enabling the flag on a product that has
-            // no such mapping (created before the mapping became mandatory) would fail on the first early payment.
+            // no such mapping would fail on the first early payment. A change of accounting rule in the same request
+            // deletes every mapping and recreates them from the request alone, so an existing mapping does not count
+            // then and the account must be sent.
             final boolean parkingBeingEnabled = !loanProduct.getLoanProductRelatedDetail().isEnableExcessPaymentParking();
-            if (parkingBeingEnabled && excessPaymentParkingAccountId == null
-                    && productToGLAccountMappingRepository.findCoreProductToFinAccountMapping(loanProduct.getId(),
-                            PortfolioProductType.LOAN.getValue(), AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue()) == null) {
+            final boolean accountingRuleChanging = accountingRuleType != null
+                    && (loanProduct.getAccountingRule() == null || !accountingRuleType.equals(loanProduct.getAccountingRule().getValue()));
+            if ((parkingBeingEnabled || accountingRuleChanging) && excessPaymentParkingAccountId == null && (accountingRuleChanging
+                    || productToGLAccountMappingRepository.findCoreProductToFinAccountMapping(loanProduct.getId(),
+                            PortfolioProductType.LOAN.getValue(), AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue()) == null)) {
                 baseDataValidator.reset().parameter(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue())
                         .failWithCode("required.to.enable.excess.payment.parking");
             }
@@ -3148,12 +3171,22 @@ public final class LoanProductDataValidator {
         return value != null ? value : 0;
     }
 
-    private void validateParkingNotProgressive(final DataValidatorBuilder baseDataValidator, final String loanScheduleType,
+    /**
+     * Parking runs only in the cumulative processor and only with the repayment strategies it is verified with (see
+     * {@link LoanProductConstants#EXCESS_PAYMENT_PARKING_SUPPORTED_STRATEGIES}).
+     */
+    private void validateParkingSupported(final DataValidatorBuilder baseDataValidator, final String loanScheduleType,
             final String transactionProcessingStrategyCode) {
         final boolean progressive = LoanScheduleType.PROGRESSIVE.equals(LoanScheduleType.valueOf(loanScheduleType))
                 || LoanProductConstants.ADVANCED_PAYMENT_ALLOCATION_STRATEGY.equals(transactionProcessingStrategyCode);
         if (progressive) {
             baseDataValidator.reset().parameter("enableExcessPaymentParking").failWithCode("not.supported.for.progressive.loans");
+            return;
+        }
+        if (transactionProcessingStrategyCode == null
+                || !LoanProductConstants.EXCESS_PAYMENT_PARKING_SUPPORTED_STRATEGIES.contains(transactionProcessingStrategyCode)) {
+            baseDataValidator.reset().parameter("enableExcessPaymentParking")
+                    .failWithCode("not.supported.for.transaction.processing.strategy", transactionProcessingStrategyCode);
         }
     }
 }

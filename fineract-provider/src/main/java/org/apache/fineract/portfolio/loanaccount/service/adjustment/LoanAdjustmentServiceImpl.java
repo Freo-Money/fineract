@@ -331,7 +331,9 @@ public class LoanAdjustmentServiceImpl implements LoanAdjustmentService {
         // loan-level pool. Once the sweeper (REPAYMENT_FROM_EXCESS_AMOUNT) has consumed it against installments,
         // reversing the funding transaction would double-spend: the replay clamps the pool at zero and the
         // installments stay paid with money that was returned. The sweep transactions must be reversed first.
-        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+        // A sweep's own parked portion (what it could not apply on a replay) is exempt: removing a sweep only ever
+        // returns money to the pool, so it can never leave a later sweep unfunded.
+        if (loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking() && !transactionForAdjustment.isRepaymentFromExcessAmount()) {
             final MonetaryCurrency loanCurrency = loan.getCurrency();
             final Money parkedByTransaction = transactionForAdjustment.getExcessPayment(loanCurrency);
             if (parkedByTransaction.isGreaterThanZero()) {

@@ -19,6 +19,10 @@
 package org.apache.fineract.portfolio.loanproduct;
 
 import java.math.BigDecimal;
+import java.util.Set;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.FineractStyleLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.OverdueDueAdvInterestPrincipalOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.OverdueDueInterestPrincipalOverdueDueFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor;
 
 public interface LoanProductConstants {
 
@@ -155,6 +159,14 @@ public interface LoanProductConstants {
     String ENABLE_DOWN_PAYMENT = "enableDownPayment";
     String ENABLE_SCHEDULE_ARCHIVE = "enableScheduleArchive";
     String ENABLE_EXCESS_PAYMENT_PARKING = "enableExcessPaymentParking";
+    /**
+     * Repayment strategies excess payment parking is verified with. Parking settles only what is due on the transaction
+     * date in the strategy's order and parks the rest, so a strategy is only safe here once its handlers are known to
+     * touch nothing but the installments they are handed.
+     */
+    Set<String> EXCESS_PAYMENT_PARKING_SUPPORTED_STRATEGIES = Set.of(FineractStyleLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE,
+            OverdueDueInterestPrincipalOverdueDueFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE,
+            OverdueDueAdvInterestPrincipalOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE);
     String DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT = "disbursedAmountPercentageForDownPayment";
     String ENABLE_AUTO_REPAYMENT_DOWN_PAYMENT = "enableAutoRepaymentForDownPayment";
     String REPAYMENT_START_DATE_TYPE = "repaymentStartDateType";

@@ -1379,7 +1379,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
 
     /**
      * The pool is only ever moved by processing; paths that reverse transactions without a replay (undo disbursal) must
-     * rebuild it from what is left: parked markers of live repayments minus live sweeps.
+     * rebuild it from what is left: parked markers of live transactions minus live sweeps. A sweep's own marker is the
+     * part it could not apply and kept parked, so it counts as parked too.
      */
     public void recomputeTotalExcessPaymentAmountFromTransactions() {
         BigDecimal parked = BigDecimal.ZERO;
@@ -1390,9 +1391,8 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
             }
             if (transaction.isRepaymentFromExcessAmount()) {
                 swept = swept.add(MathUtil.nullToZero(transaction.getAmount()));
-            } else {
-                parked = parked.add(MathUtil.nullToZero(transaction.getExcessPayment(getCurrency()).getAmount()));
             }
+            parked = parked.add(MathUtil.nullToZero(transaction.getExcessPayment(getCurrency()).getAmount()));
         }
         this.totalExcessPaymentAmount = MathUtil.zeroToNull(MathUtil.subtractToZero(parked, swept));
     }
