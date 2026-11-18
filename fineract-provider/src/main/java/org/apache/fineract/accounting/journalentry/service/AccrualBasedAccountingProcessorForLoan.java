@@ -1740,6 +1740,7 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
         final BigDecimal feesAmount = loanTransactionDTO.getFees();
         final BigDecimal penaltiesAmount = loanTransactionDTO.getPenalties();
         final BigDecimal overPaymentAmount = loanTransactionDTO.getOverPayment();
+        final BigDecimal excessPaymentAmount = loanTransactionDTO.getExcessPayment();
         final Long paymentTypeId = loanTransactionDTO.getPaymentTypeId();
 
         BigDecimal totalDebitAmount = new BigDecimal(0);
@@ -1837,6 +1838,20 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
             }
         }
 
+        // Parked part of a repayment: credited to the excess payment parking liability (only REPAYMENT
+        // transactions park).
+        if (MathUtil.isGreaterThanZero(excessPaymentAmount)) {
+            totalDebitAmount = totalDebitAmount.add(excessPaymentAmount);
+            final GLAccount account = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
+                    AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue(), paymentTypeId);
+            if (accountMap.containsKey(account)) {
+                final BigDecimal amount = accountMap.get(account).add(excessPaymentAmount);
+                accountMap.put(account, amount);
+            } else {
+                accountMap.put(account, excessPaymentAmount);
+            }
+        }
+
         if (MathUtil.isGreaterThanZero(overPaymentAmount)) {
             totalDebitAmount = totalDebitAmount.add(overPaymentAmount);
             final GLAccount account = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
@@ -1880,8 +1895,15 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                     }
 
                 } else {
-                    this.helper.createDebitJournalEntryForLoan(office, currencyCode, AccrualAccountsForLoan.FUND_SOURCE.getValue(),
-                            loanProductId, paymentTypeId, loanId, transactionId, transactionDate, totalDebitAmount);
+                    final AccrualAccountsForLoan debitAccountType;
+
+                    if (loanTransactionDTO.getTransactionType().isRepaymentFromExcessAmount()) {
+                        debitAccountType = AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING;
+                    } else {
+                        debitAccountType = AccrualAccountsForLoan.FUND_SOURCE;
+                    }
+                    this.helper.createDebitJournalEntryForLoan(office, currencyCode, debitAccountType.getValue(), loanProductId,
+                            paymentTypeId, loanId, transactionId, transactionDate, totalDebitAmount);
                 }
             }
         }

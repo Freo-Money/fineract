@@ -109,6 +109,14 @@ public class LoanRepositoryWrapper {
         this.repository.deleteById(loanId);
     }
 
+    public List<Long> getLoanIdsWithExcessAmount(LocalDate currentDate) {
+        // Active loans get swept; fully paid (closed / overpaid) loans get their leftover pool reclassified.
+        // Written-off loans are selected only so the job reports their stranded pool for manual handling;
+        // nothing is posted.
+        return this.repository.getLoanIdsWithExcessAmount(currentDate,
+                List.of(LoanStatus.ACTIVE, LoanStatus.CLOSED_OBLIGATIONS_MET, LoanStatus.OVERPAID, LoanStatus.CLOSED_WRITTEN_OFF));
+    }
+
     // Only root entities is enough
     public List<Loan> getGroupLoansDisbursedAfter(@Param("disbursementDate") LocalDate disbursementDate, @Param("groupId") Long groupId,
             @Param("loanType") AccountType loanType) {

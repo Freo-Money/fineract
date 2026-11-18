@@ -63,9 +63,10 @@ public class LoanOverduePenaltyPreTransactionEventService {
     /**
      * Before a repayment / charge payment / foreclosure, reconcile the loan's overdue penalties to the transaction
      * date: apply any due up to it and remove any applied beyond it, so the loan (and the amount paid) reflect exactly
-     * the penalties due as of the transaction date. Honors grace / wait period and does not skip NPA loans.
+     * the penalties due as of the transaction date. Honors grace / wait period and does not skip NPA loans. Also used
+     * before a sweep of parked excess dated on a past due date, so penalties levied after that date are removed.
      */
-    private void reconcileOverduePenaltiesUpToDate(final Loan loan, final LocalDate asOfDate) {
+    public void reconcileOverduePenaltiesUpToDate(final Loan loan, final LocalDate asOfDate) {
         if (loan == null || loan.getId() == null || !loan.isOpen() || loan.isChargedOff()) {
             return;
         }
@@ -109,6 +110,12 @@ public class LoanOverduePenaltyPreTransactionEventService {
 
         @Override
         public void onBusinessEvent(final LoanTransactionMakeRepaymentPreBusinessEvent event) {
+            // A sweep of the parked excess is sized from the loan as it stands when the nightly job posts it; levying a
+            // penalty in between would make the sweep pay that penalty and leave the installment it was sized for
+            // short. Penalties are applied by their own job, and the customer's money was in the pool in time.
+            if (event.isRepaymentFromExcessAmount()) {
+                return;
+            }
             reconcileOverduePenaltiesUpToDate(event.get(), dateOrBusinessDate(event.getTransactionDate()));
         }
     }

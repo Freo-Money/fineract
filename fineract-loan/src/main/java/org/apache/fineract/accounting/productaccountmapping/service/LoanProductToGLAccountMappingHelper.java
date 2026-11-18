@@ -232,6 +232,8 @@ public class LoanProductToGLAccountMappingHelper extends ProductToGLAccountMappi
                 element);
         final Long overPaymentAccountId = this.fromApiJsonHelper.extractLongNamed(LoanProductAccountingParams.OVERPAYMENT.getValue(),
                 element);
+        final Long excessPaymentParkingAccountId = this.fromApiJsonHelper
+                .extractLongNamed(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), element);
         final Long transfersInSuspenseAccountId = this.fromApiJsonHelper
                 .extractLongNamed(LoanProductAccountingParams.TRANSFERS_SUSPENSE.getValue(), element);
 
@@ -255,6 +257,8 @@ public class LoanProductToGLAccountMappingHelper extends ProductToGLAccountMappi
                         incomeFromFeeId, incomeFromPenaltyId, writeOffAccountId, overPaymentAccountId, transfersInSuspenseAccountId,
                         incomeFromRecoveryAccountId, incomeFromBuyDownFeesAccountId, receivableInterestAccountId, receivableFeeAccountId,
                         receivablePenaltyAccountId);
+                changes.put(LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(), excessPaymentParkingAccountId);
+
             break;
             case ACCRUAL_UPFRONT:
                 populateChangesForAccrualBasedAccounting(changes, fundAccountId, loanPortfolioAccountId, incomeFromInterestId,
@@ -461,6 +465,13 @@ public class LoanProductToGLAccountMappingHelper extends ProductToGLAccountMappi
                 // liabilities
                 mergeLoanToLiabilityAccountMappingChanges(element, LoanProductAccountingParams.OVERPAYMENT.getValue(), loanProductId,
                         CashAccountsForLoan.OVERPAYMENT.getValue(), CashAccountsForLoan.OVERPAYMENT.toString(), changes);
+
+                // Applied whenever the request supplies the account (no-op on an absent param); the mapping is a
+                // one-time product configuration independent of the enableExcessPaymentParking flag. Create-or-merge,
+                // not merge: a product that predates the mapping (or lost it) must be able to add it on update.
+                createOrmergeProductToAccountMappingChanges(element, LoanProductAccountingParams.EXCESS_PAYMENT_PARKING.getValue(),
+                        loanProductId, AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue(), changes, GLAccountType.LIABILITY,
+                        PortfolioProductType.LOAN);
                 if (!enableBuyDownFee && !enableIncomeCapitalization) {
                     deleteProductToGLAccountMapping(loanProductId, PortfolioProductType.LOAN,
                             AccrualAccountsForLoan.DEFERRED_INCOME_LIABILITY.getValue());

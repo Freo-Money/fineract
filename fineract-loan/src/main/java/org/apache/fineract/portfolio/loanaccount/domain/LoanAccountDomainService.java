@@ -108,4 +108,20 @@ public interface LoanAccountDomainService {
             PaymentDetail paymentDetail, ExternalId txnExternalId);
 
     void createAndSaveLoanScheduleArchive(Loan loan);
+
+    /**
+     * Settles, from the parked excess pool, everything due on or before {@code settleDate} with
+     * REPAYMENT_FROM_EXCESS_AMOUNT transactions dated {@code settleDate}. When no installment is open beyond those due,
+     * the whole pool is drawn so the surplus becomes overpayment in the same transaction. Used by the nightly job and
+     * after back-dated postings, so both size the sweep the same way.
+     */
+    void sweepParkedExcessDueOn(Loan loan, LocalDate settleDate, String note);
+
+    /**
+     * For a parking loan holding a pool, sweeps each installment due date from {@code fromDate} (inclusive) up to the
+     * business date, dated on that due date, so money that reached the pool in time pays the installment on time. With
+     * {@code reconcilePenalties} (after a back-dated repayment) the overdue penalties are reconciled to each due date
+     * first, so penalties levied after it are removed.
+     */
+    void settleParkedExcessForDueDatesFrom(Loan loan, LocalDate fromDate, boolean reconcilePenalties);
 }

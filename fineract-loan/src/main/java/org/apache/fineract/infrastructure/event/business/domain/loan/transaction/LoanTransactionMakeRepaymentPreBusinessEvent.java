@@ -27,18 +27,32 @@ public class LoanTransactionMakeRepaymentPreBusinessEvent extends LoanBusinessEv
     private static final String TYPE = "LoanTransactionMakeRepaymentPreBusinessEvent";
 
     private final LocalDate transactionDate;
+    private final boolean repaymentFromExcessAmount;
 
     public LoanTransactionMakeRepaymentPreBusinessEvent(Loan value) {
         this(value, null);
     }
 
     public LoanTransactionMakeRepaymentPreBusinessEvent(Loan value, LocalDate transactionDate) {
+        this(value, transactionDate, false);
+    }
+
+    public LoanTransactionMakeRepaymentPreBusinessEvent(Loan value, LocalDate transactionDate, boolean repaymentFromExcessAmount) {
         super(value);
         this.transactionDate = transactionDate;
+        this.repaymentFromExcessAmount = repaymentFromExcessAmount;
     }
 
     public LocalDate getTransactionDate() {
         return transactionDate;
+    }
+
+    /**
+     * True when the repayment is a sweep of the parked excess (REPAYMENT_FROM_EXCESS_AMOUNT), which is already sized
+     * from the loan's state when it is posted.
+     */
+    public boolean isRepaymentFromExcessAmount() {
+        return repaymentFromExcessAmount;
     }
 
     @Override

@@ -263,7 +263,7 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     + "lp.days_in_month_enum as daysInMonth, lp.days_in_year_enum as daysInYear, lp.interest_recalculation_enabled as isInterestRecalculationEnabled, "
                     + "lp.can_define_fixed_emi_amount as canDefineInstallmentAmount, lp.adjust_interest_for_rounding as adjustInterestForRounding, lp.preclose_emi_rounding as precloseEmiRounding, "
                     + "lp.installment_amount_in_multiples_of as installmentAmountInMultiplesOf, "
-                    + "lp.due_days_for_repayment_event as dueDaysForRepaymentEvent, lp.overdue_days_for_repayment_event as overDueDaysForRepaymentEvent, lp.enable_down_payment as enableDownPayment, lp.disbursed_amount_percentage_for_down_payment as disbursedAmountPercentageForDownPayment, lp.enable_auto_repayment_for_down_payment as enableAutoRepaymentForDownPayment, lp.repayment_start_date_type_enum as repaymentStartDateType, "
+                    + "lp.due_days_for_repayment_event as dueDaysForRepaymentEvent, lp.overdue_days_for_repayment_event as overDueDaysForRepaymentEvent, lp.enable_down_payment as enableDownPayment, lp.enable_schedule_archive as enableScheduleArchive, lp.enable_excess_payment_parking as enableExcessPaymentParking, lp.disbursed_amount_percentage_for_down_payment as disbursedAmountPercentageForDownPayment, lp.enable_auto_repayment_for_down_payment as enableAutoRepaymentForDownPayment, lp.repayment_start_date_type_enum as repaymentStartDateType, "
                     + "lp.enable_installment_level_delinquency as enableInstallmentLevelDelinquency, "
                     + "lpr.pre_close_interest_calculation_strategy as preCloseInterestCalculationStrategy, "
                     + "lpr.id as lprId, lpr.product_id as productId, lpr.compound_type_enum as compoundType, lpr.reschedule_strategy_enum as rescheduleStrategy, "
@@ -411,6 +411,8 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
             final Integer dueDaysForRepaymentEvent = JdbcSupport.getIntegerDefaultToNullIfZero(rs, "dueDaysForRepaymentEvent");
             final Integer overDueDaysForRepaymentEvent = JdbcSupport.getIntegerDefaultToNullIfZero(rs, "overDueDaysForRepaymentEvent");
             final boolean enableDownPayment = rs.getBoolean("enableDownPayment");
+            final boolean enableScheduleArchive = rs.getBoolean("enableScheduleArchive");
+            final boolean enableExcessPaymentParking = rs.getBoolean("enableExcessPaymentParking");
             final BigDecimal disbursedAmountPercentageForDownPayment = rs.getBigDecimal("disbursedAmountPercentageForDownPayment");
             final boolean enableAutoRepaymentForDownPayment = rs.getBoolean("enableAutoRepaymentForDownPayment");
             final Integer repaymentStartDateTypeId = JdbcSupport.getInteger(rs, "repaymentStartDateType");
@@ -629,9 +631,10 @@ public class LoanProductReadPlatformServiceImpl implements LoanProductReadPlatfo
                     isVariableIntallmentsAllowed, minimumGap, maximumGap, syncExpectedWithDisbursementDate, canUseForTopup,
                     isEqualAmortization, rateOptions, this.rates, isRatesEnabled, fixedPrincipalPercentagePerInstallment,
                     delinquencyBucketOptions, delinquencyBucket, dueDaysForRepaymentEvent, overDueDaysForRepaymentEvent, enableDownPayment,
-                    disbursedAmountPercentageForDownPayment, enableAutoRepaymentForDownPayment, advancedPaymentData, creditAllocationData,
-                    repaymentStartDateType, enableInstallmentLevelDelinquency, loanScheduleType.asEnumOptionData(),
-                    loanScheduleProcessingType.asEnumOptionData(), fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes,
+                    enableScheduleArchive, enableExcessPaymentParking, disbursedAmountPercentageForDownPayment,
+                    enableAutoRepaymentForDownPayment, advancedPaymentData, creditAllocationData, repaymentStartDateType,
+                    enableInstallmentLevelDelinquency, loanScheduleType.asEnumOptionData(), loanScheduleProcessingType.asEnumOptionData(),
+                    fixedLength, enableAccrualActivityPosting, supportedInterestRefundTypes,
                     loanChargeOffBehaviour.getValueAsStringEnumOptionData(), interestRecognitionOnDisbursementDate,
                     daysInYearCustomStrategy, enableIncomeCapitalization, capitalizedIncomeCalculationType, capitalizedIncomeStrategy,
                     capitalizedIncome, enableBuyDownFee, buyDownFeeCalculationType, buyDownFeeStrategy, buyDownFeeIncomeType,

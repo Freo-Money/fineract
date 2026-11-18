@@ -136,7 +136,8 @@ public abstract class CommonLoanSummaryDataProvider implements LoanSummaryDataPr
                 .totalCreditBalanceRefund(totalCreditBalanceRefund).totalCreditBalanceRefundReversed(totalCreditBalanceRefundReversed)
                 .totalRepaymentTransaction(totalRepaymentTransaction).totalRepaymentTransactionReversed(totalRepaymentTransactionReversed)
                 .totalInterestPaymentWaiver(totalInterestPaymentWaiver).totalUnpaidPayableDueInterest(totalUnpaidPayableDueInterest)
-                .totalUnpaidPayableNotDueInterest(totalUnpaidPayableNotDueInterest).totalInterestRefund(totalInterestRefund).build();
+                .totalUnpaidPayableNotDueInterest(totalUnpaidPayableNotDueInterest).totalInterestRefund(totalInterestRefund)
+                .totalExcessPaymentAmount(defaultSummaryData.getTotalExcessPaymentAmount()).build();
     }
 
     private static BigDecimal fetchLoanTransactionBalanceByType(final Collection<? extends LoanTransactionBalance> loanTransactionBalances,
