@@ -627,7 +627,7 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
     }
 
     @Override
-    public void validateLoanForeclosure(final String json) {
+    public void validateLoanForeclosure(final String json, final Loan loan) {
 
         if (StringUtils.isBlank(json)) {
             throw new InvalidJsonException();
@@ -655,7 +655,7 @@ public final class LoanTransactionValidatorImpl implements LoanTransactionValida
 
         final BigDecimal expectedForeclosureAmount = this.fromApiJsonHelper
                 .extractBigDecimalWithLocaleNamed(LoanApiConstants.expectedForeclosureAmountParamName, element);
-        if (this.configurationDomainService.isForeclosureExpectedAmountValidationEnabled()) {
+        if (loan.getLoanProduct().isValidateForeclosureExpectedAmount()) {
             baseDataValidator.reset().parameter(LoanApiConstants.expectedForeclosureAmountParamName).value(expectedForeclosureAmount)
                     .notNull().zeroOrPositiveAmount();
         } else {

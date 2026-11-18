@@ -492,8 +492,8 @@ public class ProgressiveLoanTransactionValidatorImpl implements ProgressiveLoanT
     }
 
     @Override
-    public void validateLoanForeclosure(String json) {
-        loanTransactionValidator.validateLoanForeclosure(json);
+    public void validateLoanForeclosure(String json, Loan loan) {
+        loanTransactionValidator.validateLoanForeclosure(json, loan);
     }
 
     @Override

@@ -60,7 +60,7 @@ public interface LoanTransactionValidator {
 
     void validateNewRefundTransaction(String json);
 
-    void validateLoanForeclosure(String json);
+    void validateLoanForeclosure(String json, Loan loan);
 
     void validateLoanForeclosureChargePercentages(Loan loan, Map<Long, BigDecimal> foreclosureChargePercentageMap);
 

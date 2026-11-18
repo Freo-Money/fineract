@@ -141,6 +141,7 @@ public interface LoanProductConstants {
     String installmentAmountInMultiplesOfParamName = "installmentAmountInMultiplesOf";
     String ADJUST_INTEREST_FOR_ROUNDING_PARAM_NAME = "adjustInterestForRounding";
     String PRECLOSE_EMI_ROUNDING_PARAM_NAME = "precloseEmiRounding";
+    String VALIDATE_FORECLOSURE_EXPECTED_AMOUNT_PARAM_NAME = "validateForeclosureExpectedAmount";
     String DISALLOW_EXPECTED_DISBURSEMENTS = "disallowExpectedDisbursements";
     String ALLOW_APPROVED_DISBURSED_AMOUNTS_OVER_APPLIED = "allowApprovedDisbursedAmountsOverApplied";
     String OVER_APPLIED_CALCULATION_TYPE = "overAppliedCalculationType";
