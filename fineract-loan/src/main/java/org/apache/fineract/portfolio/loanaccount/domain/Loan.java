@@ -1237,9 +1237,9 @@ public class Loan extends AbstractAuditableWithUTCDateTimeCustom<Long> {
     }
 
     public boolean isUserTransaction(LoanTransaction transaction) {
-        // Sweeps from the parked-excess pool deliberately count here: a user transaction back-dated before a sweep
-        // would make the sweep replay against nothing (surfacing as overpayment), so the sweep has to be reversed
-        // first.
+        // Sweeps from the parked-excess pool deliberately count here: a user transaction back-dated before a
+        // sweep would make the sweep replay against nothing (surfacing as overpayment), so the sweep has to be
+        // reversed first.
         return !(transaction.isReversed() || transaction.isAccrualRelated() || transaction.isIncomePosting());
     }
 

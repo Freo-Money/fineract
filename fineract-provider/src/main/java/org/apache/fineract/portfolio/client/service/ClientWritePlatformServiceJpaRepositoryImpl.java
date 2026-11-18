@@ -894,6 +894,11 @@ public class ClientWritePlatformServiceJpaRepositoryImpl implements ClientWriteP
                 } else if (loanStatus.isOverpaid()) {
                     final String errorMessage = "Client cannot be closed because of overpaid loans.";
                     throw new InvalidClientStateTransitionException("close", "loan.overpaid", errorMessage);
+                } else if (loan.getTotalExcessPaymentAmount() != null && loan.getTotalExcessPaymentAmount().signum() > 0) {
+                    // Parked money of a closed client can no longer be swept or refunded: both refuse
+                    // inactive clients.
+                    final String errorMessage = "Client cannot be closed because a loan still holds parked excess payment.";
+                    throw new InvalidClientStateTransitionException("close", "loan.parked.excess", errorMessage);
                 }
             }
             final List<SavingsAccount> clientSavingAccounts = this.savingsRepositoryWrapper.findSavingAccountByClientId(clientId);

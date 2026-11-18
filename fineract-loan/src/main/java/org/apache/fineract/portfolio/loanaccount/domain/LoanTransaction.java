@@ -354,9 +354,8 @@ public class LoanTransaction extends AbstractAuditableWithUTCDateTimeCustom<Long
         // The parked-excess marker must survive the copy: replay honours it (see the parking flow in
         // AbstractLoanRepaymentScheduleTransactionProcessor#processTransaction).
         newTransaction.excessPaymentPortion = loanTransaction.excessPaymentPortion;
-        // Sub-types (FORECLOSURE on the closing transaction, EXCESS_SETTLEMENT on parked/re-parked amounts) identify
-        // the
-        // transaction to consumers and drive replay; a replacement must keep them.
+        // Sub-types (FORECLOSURE on the closing transaction, EXCESS_SETTLEMENT on parked/re-parked amounts)
+        // identify the transaction to consumers and drive replay; a replacement must keep them.
         newTransaction.transactionMetaData = loanTransaction.transactionMetaData;
         return newTransaction;
     }

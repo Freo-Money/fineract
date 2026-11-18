@@ -22,11 +22,11 @@ package org.apache.fineract.portfolio.loanaccount.jobs.loanpaymentfromexcessamou
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
+import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
 import org.apache.fineract.infrastructure.jobs.exception.JobExecutionException;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
@@ -46,6 +46,7 @@ public class LoanPaymentFromExcessAmountTasklet implements Tasklet {
     private final LoanAccountDomainService loanAccountDomainService;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
     private final TransactionTemplate transactionTemplate;
+    private final ExternalIdFactory externalIdFactory;
 
     @Override
     public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
@@ -106,51 +107,9 @@ public class LoanPaymentFromExcessAmountTasklet implements Tasklet {
             return;
         }
 
-        // Normally a single sweep settles everything due; the loop re-reads the schedule after each posting (a sweep
-        // can
-        // reprocess the loan and replace installment objects) and stops once nothing due is left or the pool is empty.
-        final int maxSweeps = loan.getRepaymentScheduleInstallments().size();
-        for (int sweeps = 0; sweeps < maxSweeps; sweeps++) {
-            final BigDecimal totalExcessAmount = loan.getTotalExcessPaymentAmount();
-            if (totalExcessAmount == null || totalExcessAmount.compareTo(BigDecimal.ZERO) <= 0 || !loan.getStatus().isActive()) {
-                break;
-            }
-            final List<LoanRepaymentScheduleInstallment> openInstallments = loan.getRepaymentScheduleInstallments().stream()
-                    .filter(inst -> !inst.isObligationsMet() && inst.getTotalOutstanding(loan.getCurrency()).isGreaterThanZero())
-                    .sorted(Comparator.comparing(LoanRepaymentScheduleInstallment::getDueDate)).toList();
-            if (openInstallments.isEmpty()) {
-                // Reachable only when an installment has obligationsMet=false but nothing outstanding (stale flag).
-                log.warn("Loan [id={}] holds a parked excess pool of {} but has no installment with an outstanding amount;"
-                        + " schedule flags need review.", loan.getId(), totalExcessAmount);
-                break;
-            }
-            // One sweep covers everything due on or before the business date: the processor settles those
-            // installments in the strategy's own order (OD/ADV pay interest/principal across all of them before
-            // fees/penalties), so sizing the sweep from the first installment alone would spend it on a later
-            // installment and leave the earlier one's charges overdue while money stays parked.
-            final List<LoanRepaymentScheduleInstallment> dueInstallments = openInstallments.stream()
-                    .filter(inst -> !inst.getDueDate().isAfter(businessDate)).toList();
-            if (dueInstallments.isEmpty()) {
-                break;
-            }
-            final BigDecimal outstandingAmount = dueInstallments.stream()
-                    .map(inst -> inst.getTotalOutstanding(loan.getCurrency()).getAmount()).reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            // When nothing is open beyond the due installments, draw the ENTIRE remaining pool rather than capping at
-            // the outstanding amount: the transaction processor applies what is due and returns the surplus as the
-            // sweep's overpayment portion, which is what posts the reclassification journal entry (debit
-            // parking liability, credit overpayment liability). Capping here would convert the surplus to
-            // overpaid in loan state only, leaving the parking liability overstated and the overpayment
-            // liability unfunded when a credit balance refund is paid out.
-            final boolean hasLaterOutstandingInstallment = openInstallments.size() > dueInstallments.size();
-            final BigDecimal paymentAmount = hasLaterOutstandingInstallment
-                    ? (totalExcessAmount.compareTo(outstandingAmount) >= 0 ? outstandingAmount : totalExcessAmount)
-                    : totalExcessAmount;
-            if (paymentAmount.compareTo(BigDecimal.ZERO) <= 0) {
-                break;
-            }
-            postSweep(loan, businessDate, paymentAmount, "Auto Payment");
-        }
+        // Sized the same way as a sweep after a back-dated posting (everything due on or before the business date, or
+        // the whole pool when nothing is open beyond it).
+        loanAccountDomainService.sweepParkedExcessDueOn(loan, businessDate, "Auto Payment");
     }
 
     private boolean allInstallmentsMet(final Loan loan) {
@@ -159,13 +118,11 @@ public class LoanPaymentFromExcessAmountTasklet implements Tasklet {
     }
 
     /**
-     * Dated on the business date the sweep actually runs, never back-dated to the installment due date: a back-dated
-     * sweep is rejected once any later user transaction exists (and would rewrite accrual history), and on replay it
-     * could sort before the repayment that funded the pool. Holiday / non-working-day validation is skipped: the sweep
-     * is system generated and deferring it would let delinquency accrue on money that was parked in time.
+     * The safety-net reclassification is dated on the business date the job runs. Holiday / non-working-day validation
+     * is skipped: the sweep is system generated.
      */
     private void postSweep(final Loan loan, final LocalDate businessDate, final BigDecimal amount, final String note) {
         loanAccountDomainService.makeRepayment(LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT, loan, businessDate, amount, null, note,
-                null, false, null, false, null, true, false);
+                externalIdFactory.create(), false, null, false, null, true, false);
     }
 }

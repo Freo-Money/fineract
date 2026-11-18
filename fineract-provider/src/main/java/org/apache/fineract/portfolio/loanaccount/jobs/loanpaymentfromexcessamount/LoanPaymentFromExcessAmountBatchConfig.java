@@ -19,6 +19,7 @@
 
 package org.apache.fineract.portfolio.loanaccount.jobs.loanpaymentfromexcessamount;
 
+import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
 import org.apache.fineract.infrastructure.jobs.service.JobName;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanAccountDomainService;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
@@ -50,6 +51,9 @@ public class LoanPaymentFromExcessAmountBatchConfig {
     @Autowired
     private LoanRepositoryWrapper loanRepositoryWrapper;
 
+    @Autowired
+    private ExternalIdFactory externalIdFactory;
+
     @Bean
     protected Step loanPaymentFromExcessAmountStep() {
         return new StepBuilder(JobName.LOAN_PAYMENT_FROM_EXCESS_AMOUNT.name(), jobRepository)
@@ -68,6 +72,7 @@ public class LoanPaymentFromExcessAmountBatchConfig {
         // not roll back the payments already made for the others.
         final TransactionTemplate perLoanTransactionTemplate = new TransactionTemplate(transactionManager);
         perLoanTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-        return new LoanPaymentFromExcessAmountTasklet(loanAccountDomainService, loanRepositoryWrapper, perLoanTransactionTemplate);
+        return new LoanPaymentFromExcessAmountTasklet(loanAccountDomainService, loanRepositoryWrapper, perLoanTransactionTemplate,
+                externalIdFactory);
     }
 }

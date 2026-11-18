@@ -1927,13 +1927,14 @@ public final class LoanProductDataValidator {
 
         // Loans keep their own copy of the parking flag, and leaving accrual-periodic accounting drops the parking
         // mapping: every loan that still parks would then journal parked cash nowhere (cash) or fail (upfront). Turning
-        // the product flag off only affects new loans, so it does not lift this. Loans in any status that still hold a
-        // parked pool also count (a closed loan's pool is reclassified by the nightly job).
+        // the product flag off only affects new loans, so it does not lift this. Closed loans count too: reversing a
+        // sweep reopens a closed loan, and its next sweep would then be journaled under the new rule. Loans in any
+        // other status that still hold a parked pool also count.
         if (accountingRuleType != null && !AccountingValidations.isAccrualPeriodicBasedAccounting(accountingRuleType)
                 && loanProduct.getAccountingRule() != null
                 && AccountingValidations.isAccrualPeriodicBasedAccounting(loanProduct.getAccountingRule().getValue())
                 && loanRepository.countLoansWithExcessPaymentParking(loanProduct.getId(), List.of(LoanStatus.SUBMITTED_AND_PENDING_APPROVAL,
-                        LoanStatus.APPROVED, LoanStatus.ACTIVE, LoanStatus.OVERPAID)) > 0) {
+                        LoanStatus.APPROVED, LoanStatus.ACTIVE, LoanStatus.OVERPAID, LoanStatus.CLOSED_OBLIGATIONS_MET)) > 0) {
             baseDataValidator.reset().parameter(ACCOUNTING_RULE).failWithCode("not.allowed.while.loans.have.excess.payment.parking");
         }
 

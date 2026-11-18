@@ -1442,10 +1442,6 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                 populateCreditDebitMaps(loanProductId, principalAmount, paymentTypeId,
                         AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(), AccrualAccountsForLoan.GOODWILL_CREDIT.getValue(),
                         glAccountBalanceHolder);
-            } else if (loanTransactionDTO.getTransactionType().isRepaymentFromExcessAmount()) {
-                populateCreditDebitMaps(loanProductId, principalAmount, paymentTypeId,
-                        AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(), AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue(),
-                        glAccountBalanceHolder);
             } else if (loanTransactionDTO.getTransactionType().isRepayment()) {
                 populateCreditDebitMaps(loanProductId, principalAmount, paymentTypeId,
                         AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
@@ -1475,10 +1471,6 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                         AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(),
                         AccrualAccountsForLoan.INCOME_FROM_GOODWILL_CREDIT_INTEREST.getValue(), glAccountBalanceHolder);
 
-            } else if (loanTransactionDTO.getTransactionType().isRepaymentFromExcessAmount()) {
-                populateCreditDebitMaps(loanProductId, interestAmount, paymentTypeId,
-                        AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(), AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue(),
-                        glAccountBalanceHolder);
             } else if (loanTransactionDTO.getTransactionType().isRepayment()) {
                 populateCreditDebitMaps(loanProductId, interestAmount, paymentTypeId,
                         AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
@@ -1514,10 +1506,6 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                         AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(),
                         AccrualAccountsForLoan.INCOME_FROM_GOODWILL_CREDIT_FEES.getValue(), glAccountBalanceHolder);
 
-            } else if (loanTransactionDTO.getTransactionType().isRepaymentFromExcessAmount()) {
-                populateCreditDebitMaps(loanProductId, feesAmountSansTax, paymentTypeId,
-                        AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(), AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue(),
-                        glAccountBalanceHolder);
             } else if (loanTransactionDTO.getTransactionType().isRepayment()) {
                 populateCreditDebitMaps(loanProductId, feesAmountSansTax, paymentTypeId,
                         AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
@@ -1560,10 +1548,6 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                         AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(),
                         AccrualAccountsForLoan.INCOME_FROM_GOODWILL_CREDIT_PENALTY.getValue(), glAccountBalanceHolder);
 
-            } else if (loanTransactionDTO.getTransactionType().isRepaymentFromExcessAmount()) {
-                populateCreditDebitMaps(loanProductId, penaltiesAmountSansTax, paymentTypeId,
-                        AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(), AccrualAccountsForLoan.EXCESS_PAYMENT_PARKING.getValue(),
-                        glAccountBalanceHolder);
             } else if (loanTransactionDTO.getTransactionType().isRepayment()) {
                 populateCreditDebitMaps(loanProductId, penaltiesAmountSansTax, paymentTypeId,
                         AccrualAccountsForLoan.INCOME_FROM_RECOVERY.getValue(), AccrualAccountsForLoan.FUND_SOURCE.getValue(),
@@ -1854,7 +1838,8 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
             }
         }
 
-        // excess payment parking
+        // Parked part of a repayment: credited to the excess payment parking liability (only REPAYMENT
+        // transactions park).
         if (MathUtil.isGreaterThanZero(excessPaymentAmount)) {
             totalDebitAmount = totalDebitAmount.add(excessPaymentAmount);
             final GLAccount account = this.helper.getLinkedGLAccountForLoanProduct(loanProductId,
@@ -1864,11 +1849,6 @@ public class AccrualBasedAccountingProcessorForLoan implements AccountingProcess
                 accountMap.put(account, amount);
             } else {
                 accountMap.put(account, excessPaymentAmount);
-            }
-
-            if (loanTransactionDTO.getTransactionType().isGoodwillCredit()) {
-                populateDebitAccountEntry(loanProductId, excessPaymentAmount, AccrualAccountsForLoan.GOODWILL_CREDIT.getValue(),
-                        debitAccountMapForGoodwillCredit, paymentTypeId);
             }
         }
 

@@ -112,6 +112,7 @@ import org.apache.fineract.portfolio.loanaccount.service.LoanBalanceService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanChargeService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanDownPaymentHandlerService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanJournalEntryPoster;
+import org.apache.fineract.portfolio.loanaccount.service.LoanOverduePenaltyPreTransactionEventService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanRefundService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanScheduleService;
 import org.apache.fineract.portfolio.loanaccount.service.LoanTransactionProcessingService;
@@ -125,6 +126,7 @@ import org.apache.fineract.portfolio.paymentdetail.domain.PaymentDetail;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.data.PostDatedChecksStatus;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDatedChecks;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDatedChecksRepository;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -170,6 +172,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
     private final LoanJournalEntryPoster journalEntryPoster;
     private final LoanScheduleHistoryWritePlatformService loanScheduleHistoryWritePlatformService;
     private final ForeclosureChargeHelper foreclosureChargeHelper;
+    // Resolved lazily: the penalty service depends (through the charge service) on this service.
+    private final ObjectProvider<LoanOverduePenaltyPreTransactionEventService> overduePenaltyEventServiceProvider;
 
     @Transactional
     @Override
@@ -317,6 +321,13 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         // disable all active standing orders linked to this loan if status
         // changes to closed
         disableStandingInstructionsLinkedToClosedLoan(loan);
+
+        // A repayment value-dated before due dates that have since passed parks on its own date. Settle those due dates
+        // from the pool now, each dated on its due date, as the nightly job would have done had the money arrived in
+        // time. Runs before the payoff reclassification, which then finds nothing left to move.
+        if (newRepaymentTransaction.isRepayment() && DateUtils.isBeforeBusinessDate(transactionDate)) {
+            settleParkedExcessForDueDatesFrom(loan, transactionDate.plusDays(1), true);
+        }
 
         reclassifyParkedExcessOnPayoff(loan, newRepaymentTransaction, holidayDetailDto);
 
@@ -853,9 +864,6 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         // reprocess then processes it as a new transaction (no reverse-and-replay of a persisted copy) and it is
         // persisted together with the payment afterwards.
         final LoanTransaction excessRepayment = applyExcessToForeclosureDetail(loan, foreClosureDate, foreCloseDetail, currency);
-        if (excessRepayment != null) {
-            newTransactions.add(excessRepayment);
-        }
 
         LoanTransaction payment = foreclosureChargeHelper.createForeclosurePaymentTransaction(loan, foreCloseDetail, foreClosureDate,
                 externalId);
@@ -868,6 +876,12 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         // When the pool covers the whole payable there is no foreclosure payment; the excess transaction then takes
         // its place for fee sync, charge linking, validation, the note and the post event.
         final LoanTransaction settlingTransaction = payment != null ? payment : excessRepayment;
+        if (settlingTransaction == null) {
+            // Nothing payable and no parked pool to close the loan with: refuse rather than foreclose without a closing
+            // transaction (and without the foreclosure validation, which needs one).
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.foreclosure.nothing.payable",
+                    "Loan: " + loan.getId() + " has no foreclosure amount payable on " + foreClosureDate, loan.getId(), foreClosureDate);
+        }
         if (payment == null && excessRepayment != null) {
             // Consumers identify the closing transaction by this tag; keep that contract when the pool covers it all.
             excessRepayment.updateTransactionMetaData(new TransactionMetaData("FORECLOSURE").serialize());
@@ -877,17 +891,20 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             }
         }
 
-        if (settlingTransaction != null && foreclosureFee.isGreaterThanZero()) {
+        if (foreclosureFee.isGreaterThanZero()) {
             foreclosureChargeHelper.syncForeclosureFeeOnRepaymentSchedule(loan, foreclosureFee);
         }
 
-        if (settlingTransaction != null) {
-            foreclosureChargeHelper.linkForeclosureChargesToPaymentTransactionAndMarkAsPaid(loan, settlingTransaction);
-            loanForeclosureValidator.validateForForeclosure(loan, settlingTransaction.getTransactionDate());
-        }
+        foreclosureChargeHelper.linkForeclosureChargesToPaymentTransactionAndMarkAsPaid(loan, settlingTransaction);
+        loanForeclosureValidator.validateForForeclosure(loan, settlingTransaction.getTransactionDate());
         if (payment != null) {
             payment.updateLoan(loan);
             newTransactions.add(payment);
+        }
+        // Saved after the payment, the order replays use (same date: customer payment, then sweep); replays sort by
+        // LoanTransactionComparator either way.
+        if (excessRepayment != null) {
+            newTransactions.add(excessRepayment);
         }
         loanDownPaymentTransactionValidator.validateAccountStatus(loan, LoanEvent.LOAN_FORECLOSURE);
         // The excess transaction and the payment must stay out of the database until the foreclosure replay has
@@ -956,19 +973,10 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             return null;
         }
 
-        final Money foreclosureTotal = foreCloseDetail.getPrincipal(currency).plus(foreCloseDetail.getInterestCharged(currency))
-                .plus(foreCloseDetail.getFeeChargesCharged(currency)).plus(foreCloseDetail.getPenaltyChargesCharged(currency));
-        final Money excessMoney = Money.of(currency, totalExcess);
-
-        // Parked excess beyond the foreclosure payable cannot be settled by this operation and would strand as a
-        // liability with no owning loan state once the loan closes. Refund the surplus first, then foreclose.
-        if (excessMoney.isGreaterThan(foreclosureTotal)) {
-            throw new GeneralPlatformDomainRuleException("error.msg.loan.foreclosure.parked.excess.exceeds.payable",
-                    "The parked excess amount " + excessMoney.getAmount() + " exceeds the foreclosure payable amount "
-                            + foreclosureTotal.getAmount() + ". Refund the surplus excess before foreclosing the loan.",
-                    excessMoney.getAmount(), foreclosureTotal.getAmount());
-        }
-        final Money excessToApply = excessMoney;
+        // The whole pool goes into the foreclosure: a pool larger than the payable closes the loan and the surplus
+        // becomes the sweep's overpayment portion (loan OVERPAID, refunded with a credit balance refund), so no parked
+        // money is left behind on a closed loan.
+        final Money excessToApply = Money.of(currency, totalExcess);
 
         // Create REPAYMENT_FROM_EXCESS_AMOUNT transaction (actual processing deferred to reprocessing).
         final LoanTransaction excessRepayment = LoanTransaction.repaymentType(LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT,
@@ -1008,8 +1016,8 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
             foreCloseDetail.setPenaltyCharges(foreCloseDetail.getPenaltyChargesCharged(currency).minus(penaltyReduction).getAmount());
         }
 
-        // The whole pool is consumed by the excess repayment (surplus beyond the payable is rejected above);
-        // the foreclosure reprocess resets the pool and rebuilds it (to zero) from the transaction replay.
+        // The whole pool is consumed by the excess repayment (a surplus beyond the payable becomes its overpayment
+        // portion); the foreclosure reprocess resets the pool and rebuilds it (to zero) from the transaction replay.
         return excessRepayment;
     }
 
@@ -1305,7 +1313,6 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         }
     }
 
-    @SuppressWarnings("null")
     /**
      * When a repayment settles every installment while a parked-excess pool is still outstanding, the pool has nothing
      * left to settle and must become overpayment. The reclassification is posted as a REPAYMENT_FROM_EXCESS_AMOUNT for
@@ -1336,6 +1343,94 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
                 true, false);
     }
 
+    @Override
+    public void sweepParkedExcessDueOn(final Loan loan, final LocalDate settleDate, final String note) {
+        final MonetaryCurrency currency = loan.getCurrency();
+        // Normally one sweep settles everything due. The loop re-reads the schedule after each posting (a sweep
+        // replays the loan and can replace installment objects) and stops once nothing due is left or the pool
+        // is empty.
+        final int maxSweeps = loan.getRepaymentScheduleInstallments().size();
+        for (int sweeps = 0; sweeps < maxSweeps; sweeps++) {
+            final BigDecimal pool = loan.getTotalExcessPaymentAmount();
+            if (pool == null || pool.compareTo(BigDecimal.ZERO) <= 0 || !loan.getStatus().isActive()) {
+                return;
+            }
+            final List<LoanRepaymentScheduleInstallment> openInstallments = loan.getRepaymentScheduleInstallments().stream()
+                    .filter(inst -> !inst.isObligationsMet() && inst.getTotalOutstanding(currency).isGreaterThanZero()).toList();
+            if (openInstallments.isEmpty()) {
+                // Reachable only when an installment has obligationsMet=false but nothing outstanding (stale flag).
+                log.warn("Loan [id={}] holds a parked excess pool of {} but has no installment with an outstanding amount;"
+                        + " schedule flags need review.", loan.getId(), pool);
+                return;
+            }
+            // One sweep covers everything due on or before the settle date: the processor settles those installments
+            // in the strategy's own order (OD/ADV pay interest/principal across all of them before fees/penalties).
+            final List<LoanRepaymentScheduleInstallment> dueInstallments = openInstallments.stream()
+                    .filter(inst -> !DateUtils.isAfter(inst.getDueDate(), settleDate)).toList();
+            if (dueInstallments.isEmpty()) {
+                return;
+            }
+            final BigDecimal outstanding = dueInstallments.stream().map(inst -> inst.getTotalOutstanding(currency).getAmount())
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            // When nothing is open beyond the due installments, draw the WHOLE pool rather than capping at the
+            // outstanding amount: the processor applies what is due and returns the surplus as the sweep's overpayment
+            // portion, which is what posts the reclassification journal entry (debit parking liability, credit
+            // overpayment liability). Capping would leave the surplus parked on a loan with nothing left to settle.
+            final boolean hasLaterOpenInstallment = openInstallments.size() > dueInstallments.size();
+            final BigDecimal amount = hasLaterOpenInstallment ? pool.min(outstanding) : pool;
+            // System generated: holiday / non-working-day validation is skipped, deferring it would let delinquency
+            // accrue on money that was parked in time.
+            makeRepayment(LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT, loan, settleDate, amount, null, note,
+                    externalIdFactory.create(), false, null, false, null, true, false);
+        }
+    }
+
+    @Override
+    public void settleParkedExcessForDueDatesFrom(final Loan loan, final LocalDate fromDate, final boolean reconcilePenalties) {
+        if (fromDate == null || !loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking() || !hasParkedExcess(loan)) {
+            return;
+        }
+        final LocalDate businessDate = DateUtils.getBusinessLocalDate();
+        // A sweep is a user transaction for the back-dating check, so a due date before the latest one cannot take a
+        // sweep any more; the nightly job settles what is left, dated the business date.
+        final LocalDate lastUserTransactionDate = loan.getLastUserTransactionDate();
+        final List<LocalDate> dueDates = loan.getRepaymentScheduleInstallments().stream().map(LoanRepaymentScheduleInstallment::getDueDate)
+                .filter(dueDate -> !DateUtils.isBefore(dueDate, fromDate) && !DateUtils.isAfter(dueDate, businessDate)
+                        && !DateUtils.isBefore(dueDate, lastUserTransactionDate))
+                .distinct().sorted().toList();
+        for (final LocalDate dueDate : dueDates) {
+            if (!hasParkedExcess(loan) || !loan.getStatus().isActive()) {
+                return;
+            }
+            if (!hasOpenInstallmentDueOnOrBefore(loan, dueDate)) {
+                continue;
+            }
+            // After a back-dated repayment, penalties levied after the due date (the installment looked overdue until
+            // this money was applied) are removed, and those due by it are applied, before the sweep is sized. The
+            // sweep's own post-event recompute then re-levies through the business date only what is still overdue.
+            // Not after a charge is added: nothing could be levied on a charge that did not exist, and the reconcile
+            // would reverse every accrual dated after the due date.
+            final LoanOverduePenaltyPreTransactionEventService penaltyService = reconcilePenalties
+                    ? overduePenaltyEventServiceProvider.getIfAvailable()
+                    : null;
+            if (penaltyService != null) {
+                penaltyService.reconcileOverduePenaltiesUpToDate(loan, dueDate);
+            }
+            sweepParkedExcessDueOn(loan, dueDate, "Parked excess applied on due date");
+        }
+    }
+
+    private boolean hasParkedExcess(final Loan loan) {
+        final BigDecimal pool = loan.getTotalExcessPaymentAmount();
+        return pool != null && pool.compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    private boolean hasOpenInstallmentDueOnOrBefore(final Loan loan, final LocalDate date) {
+        return loan.getRepaymentScheduleInstallments().stream().anyMatch(inst -> !DateUtils.isAfter(inst.getDueDate(), date)
+                && !inst.isObligationsMet() && inst.getTotalOutstanding(loan.getCurrency()).isGreaterThanZero());
+    }
+
+    @SuppressWarnings("null")
     private void makeRepayment(final Loan loan, final LoanTransaction repaymentTransaction,
             final ScheduleGeneratorDTO scheduleGeneratorDTO) {
         loanChargeValidator.validateRepaymentTypeTransactionNotBeforeAChargeRefund(loan, repaymentTransaction, "created");
