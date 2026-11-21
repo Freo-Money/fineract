@@ -25,6 +25,7 @@ import java.util.Collections;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.core.service.database.RoutingDataSourceServiceFactory;
+import org.apache.fineract.portfolio.client.npa.domain.ClientNpaRepository;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanRepositoryWrapper;
 import org.apache.fineract.portfolio.loanaccount.service.LoanAccrualsProcessingService;
@@ -33,6 +34,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 
+/**
+ * Loan-level NPA only. Client-level NPA is handled by {@link ClientLevelNpaProcessor} via {@link NpaProcessorFactory}.
+ */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -43,6 +47,7 @@ public class LoanNpaUpdateServiceImpl implements LoanNpaUpdateService {
     private final RoutingDataSourceServiceFactory dataSourceServiceFactory;
     private final LoanAccrualsProcessingService loanAccrualsProcessingService;
     private final LoanRepositoryWrapper loanRepositoryWrapper;
+    private final ClientNpaRepository clientNpaRepository;
 
     @Override
     public void updateNpaStatusForLoan(Loan loan, LocalDate businessDate) {
@@ -59,6 +64,10 @@ public class LoanNpaUpdateServiceImpl implements LoanNpaUpdateService {
         LocalDate threshold = businessDate.minusDays(npaDays);
 
         boolean shouldBeNpa = shouldLoanBeNpa(loan, overdueSinceDate, threshold, product);
+        // While client is client-level NPA, keep loan.is_npa true until client exit recalculates each loan
+        if (!shouldBeNpa && loan.isNpa() && isClientNpa(loan.getClientId())) {
+            return;
+        }
         if (shouldBeNpa == loan.isNpa()) {
             return;
         }
@@ -68,10 +77,14 @@ public class LoanNpaUpdateServiceImpl implements LoanNpaUpdateService {
         loanRepositoryWrapper.save(loan);
 
         if (loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()) {
+            // Both callers (COB business step, client-NPA exit) run inside a transaction that has already dirtied
+            // this Loan, so the suspense work must join it: an isolated REQUIRES_NEW update of the same row would
+            // commit a version bump the caller's own flush cannot survive, leaving the suspense posting committed
+            // while the caller rolls back.
             if (shouldBeNpa) {
-                loanAccrualsProcessingService.convertAccrualToSuspenseForNpaLoans(Collections.singletonList(loan.getId()));
+                loanAccrualsProcessingService.convertAccrualToSuspenseForAlreadyNpaLoans(Collections.singletonList(loan.getId()));
             } else {
-                loanAccrualsProcessingService.reverseAccrualSuspenseForNonNpaLoans(Collections.singletonList(loan.getId()));
+                loanAccrualsProcessingService.reverseAccrualSuspenseForAlreadyNonNpaLoans(Collections.singletonList(loan.getId()));
             }
         }
     }
@@ -93,6 +106,28 @@ public class LoanNpaUpdateServiceImpl implements LoanNpaUpdateService {
             return overdueSinceDate == null;
         }
         return overdueSinceDate == null || overdueSinceDate.isAfter(threshold);
+    }
+
+    @Override
+    public boolean wouldBeLoanLevelNpa(final Loan loan, final LocalDate businessDate) {
+        final LoanProduct product = loan.loanProduct();
+        if (product == null || product.getOverdueDaysForNPA() == null || !loan.getStatus().isActive()) {
+            return false;
+        }
+        final LocalDate overdueSinceDate = getOverdueSinceDate(loan.getId());
+        if (overdueSinceDate == null) {
+            return false;
+        }
+        final LocalDate threshold = businessDate.minusDays(product.getOverdueDaysForNPA());
+        // Same entry/keep asymmetry as m_loan.is_npa. Pure entry semantics on an already-flagged loan disagree with
+        // keep on the exact threshold boundary and can flap client exit→re-entry. loan.is_npa may be set by client
+        // contagion; that is a deliberate conservative choice (arrears-completion siblings with any arrears stay
+        // "independently NPA") until per-loan independent-vs-contagion cause is modeled.
+        return shouldLoanBeNpa(loan, overdueSinceDate, threshold, product);
+    }
+
+    private boolean isClientNpa(final Long clientId) {
+        return clientId != null && clientNpaRepository.existsByClientIdAndNpaTrue(clientId);
     }
 
     private LocalDate getOverdueSinceDate(Long loanId) {

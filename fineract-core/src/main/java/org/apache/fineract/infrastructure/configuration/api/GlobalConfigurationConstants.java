@@ -88,5 +88,9 @@ public final class GlobalConfigurationConstants {
 
     public static final String VALIDATE_FORECLOSURE_EXPECTED_AMOUNT = "validate-foreclosure-expected-amount";
 
+    public static final String ENABLE_CLIENT_NPA = "enable-client-npa";
+    public static final String CLIENT_NPA_EXIT_STRATEGY = "client-npa-exit-strategy";
+    public static final String NPA_TRANSACTION_PROCESSING_STRATEGY = "npa-transaction-processing-strategy";
+
     private GlobalConfigurationConstants() {}
 }
