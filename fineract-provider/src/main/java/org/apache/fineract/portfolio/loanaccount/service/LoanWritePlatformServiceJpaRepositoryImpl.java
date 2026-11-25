@@ -1607,6 +1607,14 @@ public class LoanWritePlatformServiceJpaRepositoryImpl implements LoanWritePlatf
                     + " backdated transaction is not allowed. Transaction date cannot be earlier than the charge-off date of the loan",
                     loanId);
         }
+        // Closing writes off an outstanding within the in-arrears tolerance, which the parked money already covers; the
+        // whole pool would then be reclassified to overpayment and refunded.
+        if (loan.getTotalExcessPaymentAmount() != null && loan.getTotalExcessPaymentAmount().compareTo(BigDecimal.ZERO) > 0) {
+            throw new GeneralPlatformDomainRuleException("error.msg.loan.close.not.allowed.with.parked.excess",
+                    "Loan: " + loanId + " Close is not allowed while it holds parked excess payment of "
+                            + loan.getTotalExcessPaymentAmount() + ". Refund or settle the parked amount first.",
+                    loanId, loan.getTotalExcessPaymentAmount());
+        }
 
         businessEventNotifierService.notifyPreBusinessEvent(new LoanCloseBusinessEvent(loan));
 

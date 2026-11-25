@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.EnumUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.fineract.accounting.common.AccountingConstants.AccrualAccountsForLoan;
 import org.apache.fineract.accounting.common.AccountingConstants.LoanProductAccountingParams;
@@ -2917,6 +2918,11 @@ public final class LoanProductDataValidator {
         final String loanScheduleType = this.fromApiJsonHelper.extractStringNamed(LoanProductConstants.LOAN_SCHEDULE_TYPE, element);
         baseDataValidator.reset().parameter(LoanProductConstants.LOAN_SCHEDULE_TYPE).value(loanScheduleType)
                 .isOneOfEnumValues(LoanScheduleType.class);
+        if (!EnumUtils.isValidEnum(LoanScheduleType.class, loanScheduleType)) {
+            // Not a schedule type: parsing it below would turn the validation error recorded above into a server error.
+            // (A value differing only in case passes isOneOfEnumValues and is still rejected later, as before.)
+            return;
+        }
 
         if (!LoanScheduleType.PROGRESSIVE.equals(LoanScheduleType.valueOf(loanScheduleType))
                 && AdvancedPaymentScheduleTransactionProcessor.ADVANCED_PAYMENT_ALLOCATION_STRATEGY
@@ -3178,7 +3184,9 @@ public final class LoanProductDataValidator {
      */
     private void validateParkingSupported(final DataValidatorBuilder baseDataValidator, final String loanScheduleType,
             final String transactionProcessingStrategyCode) {
-        final boolean progressive = LoanScheduleType.PROGRESSIVE.equals(LoanScheduleType.valueOf(loanScheduleType))
+        // Compared by name, not parsed, so an unknown schedule type is left to validateLoanScheduleType instead of
+        // failing here.
+        final boolean progressive = LoanScheduleType.PROGRESSIVE.name().equals(loanScheduleType)
                 || LoanProductConstants.ADVANCED_PAYMENT_ALLOCATION_STRATEGY.equals(transactionProcessingStrategyCode);
         if (progressive) {
             baseDataValidator.reset().parameter("enableExcessPaymentParking").failWithCode("not.supported.for.progressive.loans");

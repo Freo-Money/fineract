@@ -62,9 +62,10 @@ import org.springframework.beans.factory.ObjectProvider;
 
 /**
  * Sizing and dating of the sweeps that settle installments from the parked excess pool: the shared sizing used by the
- * nightly job, and the due-date sweeps posted after a back-dated repayment (with the penalty reconcile before each).
- * Schedule: two installments of 3,120 due 02-01 and 03-01; business date 03-05. The back-dating check
- * (enforce-loan-transaction-not-before-last-user-transaction) is enforced unless a test turns it off.
+ * nightly job, the due-date sweeps posted after a back-dated repayment (with the penalty reconcile before each), and
+ * the date of the sweep that reclassifies the pool on payoff. Schedule: two installments of 3,120 due 02-01 and 03-01;
+ * business date 03-05. The back-dating check (enforce-loan-transaction-not-before-last-user-transaction) is enforced
+ * unless a test turns it off.
  */
 class LoanAccountDomainServiceJpaExcessParkingTest {
 
@@ -373,6 +374,32 @@ class LoanAccountDomainServiceJpaExcessParkingTest {
     }
 
     @Test
+    void aBackDatedPayoffReclassifiesThePoolOnTheLoansLatestTransactionDate() {
+        pool.set(BigDecimal.valueOf(500));
+        payOffSchedule();
+        // Paid off by a transaction dated 02-20 while a later one is dated 03-01: dated 02-20, the sweep would replay
+        // before that one, with installment 2 still open.
+        lenient().when(loan.getLastUserTransactionDate()).thenReturn(DUE_2);
+
+        service.reclassifyParkedExcessOnPayoff(loan, transactionDated(LocalDate.of(2027, 2, 20)), null);
+
+        verifySweep(times(1), DUE_2, BigDecimal.valueOf(500));
+        verifySweepCount(1);
+    }
+
+    @Test
+    void aPayoffThatIsTheLatestTransactionReclassifiesThePoolOnItsOwnDate() {
+        pool.set(BigDecimal.valueOf(500));
+        payOffSchedule();
+        lenient().when(loan.getLastUserTransactionDate()).thenReturn(BUSINESS_DATE);
+
+        service.reclassifyParkedExcessOnPayoff(loan, transactionDated(BUSINESS_DATE), null);
+
+        verifySweep(times(1), BUSINESS_DATE, BigDecimal.valueOf(500));
+        verifySweepCount(1);
+    }
+
+    @Test
     void nothingIsPostedWithoutAPoolOrWithoutParking() {
         pool.set(null);
         service.settleParkedExcessForDueDatesFrom(loan, LocalDate.of(2027, 1, 31), true);
@@ -394,6 +421,20 @@ class LoanAccountDomainServiceJpaExcessParkingTest {
     private void verifySweepCount(final int count) {
         verify(service, times(count)).makeRepayment(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any(), anyBoolean(),
                 any(), any(), anyBoolean());
+    }
+
+    private void payOffSchedule() {
+        for (final LoanRepaymentScheduleInstallment installment : installments) {
+            installment.payInterestComponent(installment.getDueDate(), installment.getInterestOutstanding(CURRENCY));
+            installment.payPrincipalComponent(installment.getDueDate(), installment.getPrincipalOutstanding(CURRENCY));
+            installment.updateObligationsMet(CURRENCY, installment.getDueDate());
+        }
+    }
+
+    private static LoanTransaction transactionDated(final LocalDate date) {
+        final LoanTransaction transaction = Mockito.mock(LoanTransaction.class);
+        lenient().when(transaction.getTransactionDate()).thenReturn(date);
+        return transaction;
     }
 
     private static Money smaller(final Money first, final Money second) {

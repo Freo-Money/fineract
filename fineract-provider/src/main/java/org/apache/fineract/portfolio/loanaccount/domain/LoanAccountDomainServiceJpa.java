@@ -1319,8 +1319,13 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
      * the whole pool: the transaction processor finds no open installment, returns the full amount as the sweep's
      * overpayment portion, and the ledger moves the parking liability to the overpayment liability. Loan state must
      * never drop the pool without such a transaction.
+     * <p>
+     * It is dated on the loan's latest transaction, which is the paying transaction itself unless that was back-dated.
+     * A back-dated one is replayed before the later transactions, so a sweep on its date would run while installments
+     * they paid were still open (and keep the money parked), or before they parked the money it moves (and be refused
+     * as unfunded).
      */
-    private void reclassifyParkedExcessOnPayoff(final Loan loan, final LoanTransaction repaymentTransaction,
+    void reclassifyParkedExcessOnPayoff(final Loan loan, final LoanTransaction repaymentTransaction,
             final HolidayDetailDTO holidayDetailDto) {
         if (repaymentTransaction.isRepaymentFromExcessAmount() || repaymentTransaction.isRecoveryRepayment() || loan.isClosedWrittenOff()
                 || !loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
@@ -1337,8 +1342,13 @@ public class LoanAccountDomainServiceJpa implements LoanAccountDomainService {
         if (!fullyPaidOff) {
             return;
         }
-        log.info("Loan [id={}] paid off with parked excess {} outstanding; reclassifying it to overpayment.", loan.getId(), parkedPool);
-        makeRepayment(LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT, loan, repaymentTransaction.getTransactionDate(), parkedPool, null,
+        final LocalDate latestTransactionDate = loan.getLastUserTransactionDate();
+        final LocalDate reclassificationDate = DateUtils.isAfter(latestTransactionDate, repaymentTransaction.getTransactionDate())
+                ? latestTransactionDate
+                : repaymentTransaction.getTransactionDate();
+        log.info("Loan [id={}] paid off with parked excess {} outstanding; reclassifying it to overpayment on {}.", loan.getId(),
+                parkedPool, reclassificationDate);
+        makeRepayment(LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT, loan, reclassificationDate, parkedPool, null,
                 "Parked excess reclassified to overpayment on payoff", externalIdFactory.create(), false, null, false, holidayDetailDto,
                 true, false);
     }
