@@ -108,4 +108,32 @@ public interface LoanAccountDomainService {
             PaymentDetail paymentDetail, ExternalId txnExternalId);
 
     void createAndSaveLoanScheduleArchive(Loan loan);
+
+    /**
+     * Settles, from the parked excess pool, everything due on or before {@code settleDate} with
+     * REPAYMENT_FROM_EXCESS_AMOUNT transactions dated {@code settleDate}. When no installment is open beyond those due,
+     * the whole pool is drawn so the surplus becomes overpayment in the same transaction. Used by the nightly job and
+     * after back-dated postings, so both size the sweep the same way.
+     */
+    void sweepParkedExcessDueOn(Loan loan, LocalDate settleDate, String note);
+
+    /**
+     * For a parking loan holding a pool, sweeps each installment due date from {@code fromDate} (inclusive) up to the
+     * business date, dated on that due date, so money that reached the pool in time pays the installment on time. With
+     * {@code reconcilePenalties} (after a back-dated repayment) the overdue penalties are reconciled to each due date
+     * first, so penalties levied after it are removed. Due dates before the latest user transaction are left to the
+     * nightly job's business-date sweep, unless {@code reconcilePenalties} is set and the tenant allows back-dating
+     * ({@code enforce-loan-transaction-not-before-last-user-transaction} disabled); even then a due date before a later
+     * charge refund is left.
+     */
+    void settleParkedExcessForDueDatesFrom(Loan loan, LocalDate fromDate, boolean reconcilePenalties);
+
+    /**
+     * For the nightly job: sweeps each due date the job missed (an open installment due before {@code businessDate} and
+     * after the loan's latest sweep), dated on that due date, reconciling the overdue penalties to it first when one
+     * dated after it is active. Nothing is done for an NPA loan, when the penalty reconcile is disabled, or for a due
+     * date a sweep may not be dated on; the job's run-date sweep settles what is left. A date rule that refuses the
+     * sweep (e.g. a closed accounting period) surfaces as a platform domain rule exception.
+     */
+    void settleMissedParkedExcessDueDates(Loan loan, LocalDate businessDate);
 }

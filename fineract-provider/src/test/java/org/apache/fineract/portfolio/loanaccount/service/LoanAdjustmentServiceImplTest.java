@@ -77,6 +77,7 @@ import org.apache.fineract.portfolio.loanaccount.serialization.LoanChargeValidat
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanTransactionValidator;
 import org.apache.fineract.portfolio.loanaccount.serialization.LoanUpdateCommandFromApiJsonDeserializer;
 import org.apache.fineract.portfolio.loanaccount.service.adjustment.LoanAdjustmentServiceImpl;
+import org.apache.fineract.portfolio.loanproduct.domain.LoanProductRelatedDetail;
 import org.apache.fineract.portfolio.note.domain.NoteRepository;
 import org.apache.fineract.portfolio.paymentdetail.service.PaymentDetailWritePlatformService;
 import org.apache.fineract.portfolio.repaymentwithpostdatedchecks.domain.PostDatedChecksRepository;
@@ -232,6 +233,7 @@ class LoanAdjustmentServiceImplTest {
 
         doNothing().when(loanTransactionValidator).validateActivityNotBeforeClientOrGroupTransferDate(any(), any(), any());
         when(loan.isClosedWrittenOff()).thenReturn(false);
+        when(loan.getLoanProductRelatedDetail()).thenReturn(mock(LoanProductRelatedDetail.class));
         when(newTransactionDetail.isRepaymentLikeType()).thenReturn(true);
 
         // Act
@@ -271,6 +273,7 @@ class LoanAdjustmentServiceImplTest {
         // Mock methods called inside adjustExistingTransaction
         doNothing().when(loanTransactionValidator).validateActivityNotBeforeClientOrGroupTransferDate(any(), any(), any());
         when(loan.isClosedWrittenOff()).thenReturn(false);
+        when(loan.getLoanProductRelatedDetail()).thenReturn(mock(LoanProductRelatedDetail.class));
         when(newTransactionDetail.isRepaymentLikeType()).thenReturn(true);
 
         // Act

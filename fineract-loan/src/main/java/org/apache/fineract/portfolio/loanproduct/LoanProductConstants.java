@@ -19,6 +19,16 @@
 package org.apache.fineract.portfolio.loanproduct;
 
 import java.math.BigDecimal;
+import java.util.Set;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.CreocoreLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.FineractStyleLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.InterestPrincipalPenaltyFeesOrderLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.OverdueDueAdvInterestPrincipalOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.OverdueDueAdvPrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.OverdueDueInterestPrincipalOverdueDueFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.OverdueDueInterestPrincipalOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.OverdueDuePrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor;
+import org.apache.fineract.portfolio.loanaccount.domain.transactionprocessor.impl.PrincipalInterestPenaltyFeesOrderLoanRepaymentScheduleTransactionProcessor;
 
 public interface LoanProductConstants {
 
@@ -154,6 +164,23 @@ public interface LoanProductConstants {
     // down-payment related
     String ENABLE_DOWN_PAYMENT = "enableDownPayment";
     String ENABLE_SCHEDULE_ARCHIVE = "enableScheduleArchive";
+    String ENABLE_EXCESS_PAYMENT_PARKING = "enableExcessPaymentParking";
+    /**
+     * Repayment strategies excess payment parking is verified with. Parking settles only what is due on the transaction
+     * date in the strategy's order and parks the rest, so a strategy is only safe here once its handlers are known to
+     * touch nothing but the installments they are handed. The per-installment strategies (mifos-standard, creocore,
+     * interest/principal and principal/interest first) and the overdue/due strategies do so with the default parking
+     * settlement; the "adv" strategies read the whole schedule and override it.
+     */
+    Set<String> EXCESS_PAYMENT_PARKING_SUPPORTED_STRATEGIES = Set.of(FineractStyleLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE,
+            CreocoreLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE,
+            InterestPrincipalPenaltyFeesOrderLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE,
+            PrincipalInterestPenaltyFeesOrderLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE,
+            OverdueDueInterestPrincipalOverdueDueFeesPenaltiesOrderLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE,
+            OverdueDueInterestPrincipalOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE,
+            OverdueDuePrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE,
+            OverdueDueAdvInterestPrincipalOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE,
+            OverdueDueAdvPrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymentScheduleTransactionProcessor.STRATEGY_CODE);
     String DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT = "disbursedAmountPercentageForDownPayment";
     String ENABLE_AUTO_REPAYMENT_DOWN_PAYMENT = "enableAutoRepaymentForDownPayment";
     String REPAYMENT_START_DATE_TYPE = "repaymentStartDateType";

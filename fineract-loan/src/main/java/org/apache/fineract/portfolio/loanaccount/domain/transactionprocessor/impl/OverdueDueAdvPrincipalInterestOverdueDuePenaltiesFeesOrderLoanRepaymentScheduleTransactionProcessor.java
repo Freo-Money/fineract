@@ -196,6 +196,23 @@ public class OverdueDueAdvPrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepay
         return transactionAmountRemaining;
     }
 
+    /**
+     * With excess payment parking the "advance" part of this strategy is switched off: a repayment settles only the
+     * installments due on or before its date (principal then interest across them, then penalties then fees), and the
+     * rest is parked. Without this override the on-time handler would read the loan's whole schedule and pay future
+     * principal and interest with money that should be parked.
+     */
+    @Override
+    protected Money settleInstallmentsDueForExcessParking(final List<LoanRepaymentScheduleInstallment> dueInstallments,
+            final LoanTransaction loanTransaction, final Money amount,
+            final List<LoanTransactionToRepaymentScheduleMapping> transactionMappings, final Set<LoanCharge> charges) {
+        if (dueInstallments.isEmpty() || !amount.isGreaterThanZero()) {
+            return amount;
+        }
+        return handleTransactionThatIsNormalRepaymentAcrossAllInstallmentsThenOverduePenaltiesFees(dueInstallments, loanTransaction, amount,
+                transactionMappings);
+    }
+
     private Money handleTransactionThatIsNormalRepaymentAcrossAllInstallmentsThenOverduePenaltiesFees(
             final List<LoanRepaymentScheduleInstallment> installments, final LoanTransaction loanTransaction,
             final Money transactionAmountUnprocessed, final List<LoanTransactionToRepaymentScheduleMapping> transactionMappings) {

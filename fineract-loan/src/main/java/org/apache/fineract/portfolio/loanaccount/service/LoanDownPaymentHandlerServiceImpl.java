@@ -136,6 +136,7 @@ public class LoanDownPaymentHandlerServiceImpl implements LoanDownPaymentHandler
                 && adjustedTransaction == null // covers reversals
                 && !loan.isForeclosure() //
                 && !loan.hasChargesAffectedByBackdatedRepaymentLikeTransaction(loanTransaction)
+                && !isDatedOnAnExcessSweep(loan, loanTransaction)
                 && loanTransactionProcessingService.canProcessLatestTransactionOnly(loan, loanTransaction, currentInstallment); //
         if (processLatest) {
             loanTransactionProcessingService.processLatestTransaction(loan.getTransactionProcessingStrategyCode(), loanTransaction,
@@ -235,5 +236,22 @@ public class LoanDownPaymentHandlerServiceImpl implements LoanDownPaymentHandler
         } else {
             return null;
         }
+    }
+
+    /**
+     * On a parking loan a sweep of the parked excess sorts after every customer transaction of its date
+     * ({@link org.apache.fineract.portfolio.loanaccount.domain.LoanTransactionComparator}). A transaction dated on a
+     * sweep's date is therefore processed by a replay, in that order, instead of being appended after the sweep:
+     * appended, it would be allocated differently from every later replay, which would then reverse and replace it
+     * (even within the same request, through the penalty recompute).
+     */
+    private static boolean isDatedOnAnExcessSweep(final Loan loan, final LoanTransaction loanTransaction) {
+        if (loanTransaction.isRepaymentFromExcessAmount() || !loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()) {
+            return false;
+        }
+        return loan.getLoanTransactions().stream()
+                .anyMatch(transaction -> transaction != loanTransaction && transaction.isNotReversed()
+                        && transaction.isRepaymentFromExcessAmount()
+                        && DateUtils.isEqual(transaction.getTransactionDate(), loanTransaction.getTransactionDate()));
     }
 }

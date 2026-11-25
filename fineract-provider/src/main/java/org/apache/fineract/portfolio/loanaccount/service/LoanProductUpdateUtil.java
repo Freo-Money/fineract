@@ -504,6 +504,13 @@ public class LoanProductUpdateUtil {
             loanProduct.getLoanProductRelatedDetail().setEnableDownPayment(newValue);
         }
 
+        if (command.isChangeInBooleanParameterNamed(LoanProductConstants.ENABLE_EXCESS_PAYMENT_PARKING,
+                loanProduct.getLoanProductRelatedDetail().isEnableExcessPaymentParking())) {
+            final boolean newValue = command.booleanPrimitiveValueOfParameterNamed(LoanProductConstants.ENABLE_EXCESS_PAYMENT_PARKING);
+            actualChanges.put(LoanProductConstants.ENABLE_EXCESS_PAYMENT_PARKING, newValue);
+            loanProduct.getLoanProductRelatedDetail().setEnableExcessPaymentParking(newValue);
+        }
+
         if (command.isChangeInBigDecimalParameterNamed(LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT,
                 loanProduct.getLoanProductRelatedDetail().getDisbursedAmountPercentageForDownPayment())) {
             BigDecimal newValue = command.bigDecimalValueOfParameterNamed(LoanProductConstants.DISBURSED_AMOUNT_PERCENTAGE_DOWN_PAYMENT);

@@ -191,6 +191,33 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
     @Transactional
     @Override
     public CommandProcessingResult addLoanCharge(final Long loanId, final JsonCommand command) {
+        try {
+            return addLoanChargeAndReprocess(loanId, command);
+        } catch (GeneralPlatformDomainRuleException e) {
+            throw refusalForUnfundedExcessSweep(e);
+        }
+    }
+
+    static final String UNFUNDED_EXCESS_SWEEP_ON_REPLAY = "error.msg.loan.excess.sweep.unfunded.on.replay";
+
+    /**
+     * On a parking loan, a back-dated charge can reopen an installment that a repayment's parked money now pays first,
+     * leaving a later sweep of the parked excess (REPAYMENT_FROM_EXCESS_AMOUNT) without the money it applied; the
+     * replay refuses that. Report it as a charge that cannot be added, with the remedy. Any other refusal is returned
+     * unchanged.
+     */
+    static RuntimeException refusalForUnfundedExcessSweep(final GeneralPlatformDomainRuleException e) {
+        if (!UNFUNDED_EXCESS_SWEEP_ON_REPLAY.equals(e.getGlobalisationMessageCode())) {
+            return e;
+        }
+        final String defaultUserMessage = "This charge cannot be added: with it, a 'Repayment From Excess Amount' would apply more than"
+                + " is parked, because money parked earlier would pay the charge's installment first. Reverse the 'Repayment From"
+                + " Excess Amount' transactions dated after the charge's date, latest first, then add the charge. The installments"
+                + " they paid are then settled again from what is parked or paid later, so some may show as paid late.";
+        return new LoanChargeCannotBeAddedException("loanCharge", "excess.sweep.would.be.unfunded", defaultUserMessage, e);
+    }
+
+    private CommandProcessingResult addLoanChargeAndReprocess(final Long loanId, final JsonCommand command) {
         this.loanChargeApiJsonValidator.validateAddLoanCharge(command.json());
 
         Loan loan = this.loanAssembler.assembleFrom(loanId);
@@ -306,6 +333,10 @@ public class LoanChargeWritePlatformServiceImpl implements LoanChargeWritePlatfo
                 && loan.isFeeCompoundingEnabledForInterestRecalculation()) {
             loanAccrualsProcessingService.processAccrualsOnInterestRecalculation(loan, true, true);
         }
+        // Parking loan holding a pool: a charge that lands on an installment already due (e.g. a bounce charge on a due
+        // date the pool already paid, or a post-maturity fee on an overpaid loan) is settled from the pool on that due
+        // date, as the nightly job would have done. A charge on an installment not yet due waits for its due date.
+        this.loanAccountDomainService.settleParkedExcessForDueDatesFrom(loan, transactionDate, false);
         this.loanAccountDomainService.setLoanDelinquencyTag(loan, DateUtils.getBusinessLocalDate());
 
         businessEventNotifierService.notifyPostBusinessEvent(new LoanAddChargeBusinessEvent(loanCharge));

@@ -39,6 +39,17 @@ public class LoanTransactionComparator implements Comparator<LoanTransaction> {
         if (o1.isAccrualActivity() != o2.isAccrualActivity()) {
             return o1.isAccrualActivity() ? 1 : -1;
         }
+        // On the same date a sweep of the parked excess (REPAYMENT_FROM_EXCESS_AMOUNT) comes after the
+        // transactions that
+        // can fund or settle installments: it can only spend money parked by repayments dated on or before it, and a
+        // repayment replaced by a replay gets a later submitted date that would otherwise sort it after the sweep it
+        // funded. Credit balance refunds and chargebacks come after the sweep, because they pay out the overpayment a
+        // payoff sweep reclassifies. These are whole-type ranks ahead of the submitted/created dates to keep the
+        // ordering transitive.
+        result = Integer.compare(sameDateRank(o1), sameDateRank(o2));
+        if (result != 0) {
+            return result;
+        }
         result = DateUtils.compareWithNullsLast(o1.getSubmittedOnDate(), o2.getSubmittedOnDate());
         if (result != 0) {
             return result;
@@ -60,5 +71,28 @@ public class LoanTransactionComparator implements Comparator<LoanTransaction> {
             return result;
         }
         return 0;
+    }
+
+    private static int sameDateRank(final LoanTransaction transaction) {
+        final LoanTransactionType type = transaction.getTypeOf();
+        if (type == LoanTransactionType.REPAYMENT_FROM_EXCESS_AMOUNT) {
+            return 1;
+        }
+        // Only on parking loans (all transactions compared belong to the same loan, so the rank stays consistent);
+        // other loans keep their existing same-date order for refunds and chargebacks.
+        // A write-off is booked after that day's sweep too: it writes off what the sweep left open.
+        // A recovery repayment shares its rank, so a same-day write-off and recovery keep their posting
+        // order (write-off first).
+        if ((type == LoanTransactionType.CREDIT_BALANCE_REFUND || type == LoanTransactionType.CHARGEBACK
+                || type == LoanTransactionType.WRITEOFF || type == LoanTransactionType.RECOVERY_REPAYMENT)
+                && isExcessParkingLoan(transaction.getLoan())) {
+            return 2;
+        }
+        return 0;
+    }
+
+    private static boolean isExcessParkingLoan(final Loan loan) {
+        return loan != null && loan.getLoanProductRelatedDetail() != null
+                && loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking();
     }
 }

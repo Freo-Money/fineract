@@ -22,6 +22,8 @@ import static java.math.BigDecimal.ZERO;
 import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction.accrualAdjustment;
 import static org.apache.fineract.portfolio.loanaccount.domain.LoanTransaction.accrueTransaction;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
@@ -31,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -38,6 +41,7 @@ import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
+import org.apache.fineract.infrastructure.core.exception.GeneralPlatformDomainRuleException;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
 import org.apache.fineract.infrastructure.core.service.MathUtil;
@@ -46,6 +50,7 @@ import org.apache.fineract.organisation.monetary.domain.Money;
 import org.apache.fineract.organisation.monetary.domain.MoneyHelper;
 import org.apache.fineract.portfolio.loanaccount.data.LoanChargePaidDetail;
 import org.apache.fineract.portfolio.loanaccount.data.TransactionChangeData;
+import org.apache.fineract.portfolio.loanaccount.data.TransactionMetaData;
 import org.apache.fineract.portfolio.loanaccount.domain.ChangedTransactionDetail;
 import org.apache.fineract.portfolio.loanaccount.domain.Loan;
 import org.apache.fineract.portfolio.loanaccount.domain.LoanCharge;
@@ -110,6 +115,22 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
     public ChangedTransactionDetail reprocessLoanTransactions(final LocalDate disbursementDate,
             final List<LoanTransaction> transactionsPostDisbursement, final MonetaryCurrency currency,
             final List<LoanRepaymentScheduleInstallment> installments, final Set<LoanCharge> charges) {
+
+        // Decide new-vs-existing before anything below can issue a query: an auto-flush (e.g. the rounding-mode lookup
+        // in the charge-payment pass) would hand a not-yet-processed transaction an id and wrongly route it to the
+        // reverse-and-replace path.
+        final Set<LoanTransaction> newTransactions = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (final LoanTransaction loanTransaction : transactionsPostDisbursement) {
+            if (loanTransaction.getId() == null) {
+                newTransactions.add(loanTransaction);
+            }
+        }
+
+        if (!transactionsPostDisbursement.isEmpty()) {
+            final Loan loan = transactionsPostDisbursement.get(0).getLoan();
+            loan.subtractFromTotalExcessPaymentAmount(
+                    Money.of(loan.getCurrency(), Optional.ofNullable(loan.getTotalExcessPaymentAmount()).orElse(BigDecimal.ZERO)));
+        }
 
         if (charges != null) {
             for (final LoanCharge loanCharge : charges) {
@@ -237,7 +258,7 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
 
             if (loanTransaction.isRepaymentLikeType() || loanTransaction.isInterestWaiver() || loanTransaction.isRecoveryRepayment()) {
                 // pass through for new transactions
-                if (loanTransaction.getId() == null) {
+                if (newTransactions.contains(loanTransaction)) {
                     processLatestTransaction(loanTransaction, new TransactionCtx(currency, installments, charges, overpaymentHolder, null));
                     loanTransaction.adjustInterestComponent();
                 } else {
@@ -329,10 +350,12 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
             if (loanTransaction.isRepaymentLikeType() || loanTransaction.isInterestWaiver() || loanTransaction.isRecoveryRepayment()) {
                 loanTransaction.resetDerivedComponents();
             }
+            // Schedule generation replays transactions for projection only - it must never mutate the loan-level
+            // parked-excess pool, else every schedule projection inflates or drains it.
             if (loanTransaction.isInterestWaiver()) {
-                processTransaction(loanTransaction, currency, installments, loanCharges, null);
+                processTransaction(loanTransaction, currency, installments, loanCharges, null, false);
             } else {
-                unProcessed = processTransaction(loanTransaction, currency, installments, loanCharges, null);
+                unProcessed = processTransaction(loanTransaction, currency, installments, loanCharges, null, false);
             }
         }
         return unProcessed;
@@ -715,6 +738,12 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
 
     protected Money processTransaction(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
             final List<LoanRepaymentScheduleInstallment> installments, final Set<LoanCharge> charges, Money amountToProcess) {
+        return processTransaction(loanTransaction, currency, installments, charges, amountToProcess, true);
+    }
+
+    private Money processTransaction(final LoanTransaction loanTransaction, final MonetaryCurrency currency,
+            final List<LoanRepaymentScheduleInstallment> installments, final Set<LoanCharge> charges, Money amountToProcess,
+            final boolean mutateLoanPool) {
         int installmentIndex = 0;
 
         final LocalDate transactionDate = loanTransaction.getTransactionDate();
@@ -722,34 +751,360 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
         if (amountToProcess != null) {
             transactionAmountUnprocessed = amountToProcess;
         }
-        List<LoanTransactionToRepaymentScheduleMapping> transactionMappings = new ArrayList<>();
+        final boolean systemGenerated = loanTransaction.isRepaymentFromExcessAmount();
+        // Schedule generation feeds this method synthetic, loan-less repayments (see
+        // AbstractCumulativeLoanScheduleGenerator early-payment handling); they are projections and never park.
+        final Loan loan = loanTransaction.getLoan();
+        // Only REPAYMENT transactions park (never charge payments or sweeps). The broken-period interest repayment
+        // collected at
+        // disbursement is never parked: it is journaled as an interest receipt before it is processed, so parking it
+        // would split it differently from its journal entry. Any other repayment dated before a due date parks.
+        final boolean enableParking = loan != null && loan.getLoanProductRelatedDetail().isEnableExcessPaymentParking()
+                && loanTransaction.isRepayment() && !isBpiRepaymentCollectedAtDisbursement(loan, loanTransaction);
+        // The persisted parked amount is the replay marker: it is read before this pass and re-stamped (or zeroed)
+        // by every path below, so it can never go stale.
+        final Money persistedExcess = loanTransaction.getExcessPayment(currency);
 
-        for (final LoanRepaymentScheduleInstallment currentInstallment : installments) {
-            if (transactionAmountUnprocessed.isGreaterThanZero()) {
-                if (currentInstallment.isNotFullyPaidOff()) {
-                    if (isTransactionInAdvanceOfInstallment(installmentIndex, installments, transactionDate)) {
-                        transactionAmountUnprocessed = handleTransactionThatIsPaymentInAdvanceOfInstallment(currentInstallment,
-                                installments, loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
-                    } else if (isTransactionALateRepaymentOnInstallment(installmentIndex, installments, transactionDate)) {
-                        transactionAmountUnprocessed = handleTransactionThatIsALateRepaymentOfInstallment(currentInstallment, installments,
-                                loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
-                    } else {
-                        transactionAmountUnprocessed = handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment,
-                                loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
-                    }
+        if (systemGenerated) {
+            List<LoanTransactionToRepaymentScheduleMapping> transactionMappings = new ArrayList<>();
+
+            transactionAmountUnprocessed = settleInstallmentsDueForExcessParking(installmentsDueOnOrBefore(installments, transactionDate),
+                    loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
+
+            loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+
+            // A sweep is sized from what was due when it was posted. When a replay finds less to settle (an earlier
+            // transaction was adjusted, or a charge was waived), the part it cannot apply stays parked on the sweep
+            // itself while any installment is still open, instead of turning into overpayment on a loan that still
+            // owes money. Once nothing is open the remainder is a genuine overpayment: that is how a payoff or
+            // final-installment sweep reclassifies the leftover pool.
+            final boolean anyInstallmentOpen = installments.stream().anyMatch(LoanRepaymentScheduleInstallment::isNotFullyPaidOff);
+            final Money reParked = anyInstallmentOpen ? transactionAmountUnprocessed : Money.zero(currency);
+            loanTransaction.setExcessPayment(reParked);
+            final TransactionMetaData sweepMetaData = TransactionMetaData.deserialize(loanTransaction.getTransactionMetaData());
+            final boolean closingTransaction = sweepMetaData != null && "FORECLOSURE".equals(sweepMetaData.getTransactionSubType());
+            if (reParked.isGreaterThanZero() && !closingTransaction) {
+                // Never overwrite the FORECLOSURE sub-type consumers use to identify the closing transaction.
+                tagExcessSettlementMetaData(loanTransaction);
+            } else {
+                untagExcessSettlementMetaData(loanTransaction);
+            }
+            if (mutateLoanPool && loan != null) {
+                final Money consumedAmount = loanTransaction.getAmount(currency).minus(reParked);
+                final Money available = Money.of(currency, loan.getTotalExcessPaymentAmount());
+                if (consumedAmount.isGreaterThan(available)) {
+                    // A sweep can only ever draw what earlier repayments parked. Reaching this point means the
+                    // operation being applied (typically reversing the repayment that funded the sweep) would leave
+                    // installments paid with money that no longer exists; refuse it rather than clamp and drift.
+                    throw new GeneralPlatformDomainRuleException("error.msg.loan.excess.sweep.unfunded.on.replay",
+                            "Repayment from excess amount of " + consumedAmount.getAmount() + " on loan " + loan.getId()
+                                    + " exceeds the parked excess pool " + available.getAmount()
+                                    + " when replayed. Reverse the 'Repayment From Excess Amount' transaction(s) first.",
+                            loan.getId(), consumedAmount.getAmount(), available.getAmount());
                 }
+                loan.subtractFromTotalExcessPaymentAmount(consumedAmount);
             }
 
-            installmentIndex++;
+            return transactionAmountUnprocessed.minus(reParked);
         }
-        if (loanTransaction.isChargePayment()) {
-            // Charge payments are processed one charge at a time; accumulate the portions into the installment
-            // mapping so that multiple charges hitting the same installment are summed instead of overwritten.
-            loanTransaction.addLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+
+        if (!enableParking) {
+            // Not parked on this pass: clear any marker so a replay never carries a stale parked portion.
+            loanTransaction.setExcessPayment(Money.zero(currency));
+            untagExcessSettlementMetaData(loanTransaction);
+            List<LoanTransactionToRepaymentScheduleMapping> transactionMappings = new ArrayList<>();
+
+            for (final LoanRepaymentScheduleInstallment currentInstallment : installments) {
+                if (transactionAmountUnprocessed.isGreaterThanZero()) {
+                    if (currentInstallment.isNotFullyPaidOff()) {
+                        if (isTransactionInAdvanceOfInstallment(installmentIndex, installments, transactionDate)) {
+                            transactionAmountUnprocessed = handleTransactionThatIsPaymentInAdvanceOfInstallment(currentInstallment,
+                                    installments, loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
+                        } else if (isTransactionALateRepaymentOnInstallment(installmentIndex, installments, transactionDate)) {
+                            transactionAmountUnprocessed = handleTransactionThatIsALateRepaymentOfInstallment(currentInstallment,
+                                    installments, loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
+                        } else {
+                            transactionAmountUnprocessed = handleTransactionThatIsOnTimePaymentOfInstallment(currentInstallment,
+                                    loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
+                        }
+                    }
+                }
+
+                installmentIndex++;
+            }
+            if (loanTransaction.isChargePayment()) {
+                // Charge payments are processed one charge at a time; accumulate the portions into the installment
+                // mapping so that multiple charges hitting the same installment are summed instead of overwritten.
+                loanTransaction.addLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+            } else {
+                loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+            }
+            return transactionAmountUnprocessed;
+        }
+
+        // EXCESS PAYMENT PARKING FLOW
+        List<LoanTransactionToRepaymentScheduleMapping> transactionMappings = new ArrayList<>();
+
+        // Replay of an already-parked transaction honours its persisted parked amount, capped by what is left after
+        // the installments already due are settled: due installments always come first, and otherwise the pool only
+        // moves through REPAYMENT_FROM_EXCESS_AMOUNT transactions, so a later schedule change (foreclosure collapse,
+        // reschedule) does not silently re-allocate parked money. If settling a reopened installment shrinks the
+        // parked amount below what a later sweep consumed, that sweep's replay is refused as unfunded.
+        // A first processing (no marker) computes the parked amount from the schedule.
+        final boolean honourPersistedExcess = persistedExcess.isGreaterThanZero();
+        Money amountToPark = Money.zero(currency);
+        if (honourPersistedExcess) {
+            // Installments due on or before the transaction date come first, exactly as on the first
+            // processing: one can have been reopened since (a bounced earlier repayment reversed, a back-dated
+            // charge), and parking ahead of it would leave it overdue with the money sitting in the pool. The
+            // one exception is a repayment dated on a foreclosure's date: the foreclosure collapses the
+            // schedule onto that date, so only strictly earlier due dates count and the parked amount is kept
+            // (the foreclosure sweep that consumed it replays after).
+            final boolean onForeclosureCollapseDate = loan != null && loan.isForeclosure() && !installments.isEmpty()
+                    && DateUtils.isEqual(transactionDate, installments.get(installments.size() - 1).getDueDate());
+            final List<LoanRepaymentScheduleInstallment> settleFirst = onForeclosureCollapseDate
+                    ? installmentsDueBefore(installments, transactionDate)
+                    : installmentsDueOnOrBefore(installments, transactionDate);
+            transactionAmountUnprocessed = settleInstallmentsDueForExcessParking(settleFirst, loanTransaction, transactionAmountUnprocessed,
+                    transactionMappings, charges);
+            amountToPark = persistedExcess.isGreaterThan(transactionAmountUnprocessed) ? transactionAmountUnprocessed : persistedExcess;
+            transactionAmountUnprocessed = transactionAmountUnprocessed.minus(amountToPark);
+        }
+
+        // Everything due on or before the transaction date is settled in the strategy's own order. Only those
+        // installments are handed over, so no strategy can reach a not-yet-due installment and spend money that is
+        // meant to be parked.
+        transactionAmountUnprocessed = settleInstallmentsDueForExcessParking(installmentsDueOnOrBefore(installments, transactionDate),
+                loanTransaction, transactionAmountUnprocessed, transactionMappings, charges);
+
+        if (transactionAmountUnprocessed.isGreaterThanZero()) {
+            final LoanRepaymentScheduleInstallment nextOpenInstallment = installments.stream()
+                    .filter(installment -> installment.isNotFullyPaidOff() && transactionDate.isBefore(installment.getDueDate()))
+                    .findFirst().orElse(null);
+            if (nextOpenInstallment != null) {
+                // Settle any already-levied charges (penalties/fees whose charge due date is on or before the
+                // transaction date) on the next installment before parking.
+                transactionAmountUnprocessed = settleAccruedDueChargesBeforeParking(nextOpenInstallment, installments, loanTransaction,
+                        transactionAmountUnprocessed, transactionMappings, charges);
+
+                // Whatever is left in front of a not-yet-due installment is parked (on top of the honoured marker
+                // when the replay could not apply the previously-allocated part the same way).
+                amountToPark = amountToPark.plus(transactionAmountUnprocessed);
+                transactionAmountUnprocessed = Money.zero(currency);
+            }
+        }
+
+        if (amountToPark.isGreaterThanZero()) {
+            tagExcessSettlementMetaData(loanTransaction);
+            loanTransaction.setExcessPayment(amountToPark);
+            if (mutateLoanPool) {
+                loanTransaction.getLoan().addToTotalExcessPaymentAmount(amountToPark);
+            }
         } else {
-            loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+            loanTransaction.setExcessPayment(Money.zero(currency));
+            untagExcessSettlementMetaData(loanTransaction);
         }
+
+        loanTransaction.updateLoanTransactionToRepaymentScheduleMappings(transactionMappings);
+
+        // Anything still unprocessed here found no open installment to settle and nothing to park against: the loan
+        // is fully paid and the remainder is a genuine overpayment, not parked excess.
         return transactionAmountUnprocessed;
+    }
+
+    /**
+     * Settles, in this strategy's order, the installments of an excess-parking loan that are due on or before the
+     * transaction date. Used for parked repayments and for REPAYMENT_FROM_EXCESS_AMOUNT sweeps. Only the given
+     * installments may be touched: whatever this returns is parked (repayment) or kept parked (sweep) by the caller.
+     * <p>
+     * The default hands each open installment to the strategy's late or on-time handler, passing the due installments
+     * as the schedule, so strategies that allocate across "all overdue and due installments" do so within them.
+     * Strategies whose handlers read the loan's whole schedule themselves must override this.
+     */
+    protected Money settleInstallmentsDueForExcessParking(final List<LoanRepaymentScheduleInstallment> dueInstallments,
+            final LoanTransaction loanTransaction, final Money amount,
+            final List<LoanTransactionToRepaymentScheduleMapping> transactionMappings, final Set<LoanCharge> charges) {
+        final LocalDate transactionDate = loanTransaction.getTransactionDate();
+        Money remaining = amount;
+        for (final LoanRepaymentScheduleInstallment installment : dueInstallments) {
+            if (!remaining.isGreaterThanZero()) {
+                break;
+            }
+            if (!installment.isNotFullyPaidOff()) {
+                continue;
+            }
+            if (DateUtils.isAfter(transactionDate, installment.getDueDate())) {
+                remaining = handleTransactionThatIsALateRepaymentOfInstallment(installment, dueInstallments, loanTransaction, remaining,
+                        transactionMappings, charges);
+            } else {
+                remaining = handleTransactionThatIsOnTimePaymentOfInstallment(installment, loanTransaction, remaining, transactionMappings,
+                        charges);
+            }
+        }
+        return remaining;
+    }
+
+    /**
+     * Charge order used when already-levied charges of the next installment are settled before parking. Strategies that
+     * pay fees before penalties override this.
+     */
+    protected boolean isFeesBeforePenaltiesForExcessParking() {
+        return false;
+    }
+
+    /**
+     * The repayment LoanDisbursementService creates for broken-period interest collected at disbursement: a repayment
+     * dated on the disbursement date for exactly the loan's broken-period interest. It carries no tag of its own, so it
+     * is recognised by these properties (which also holds for data created before this check existed).
+     */
+    private static boolean isBpiRepaymentCollectedAtDisbursement(final Loan loan, final LoanTransaction loanTransaction) {
+        final BigDecimal bpi = loan.getBrokenPeriodInterest();
+        return loan.isBpiCollectedAtDisbursement() && bpi != null && bpi.compareTo(BigDecimal.ZERO) > 0
+                && loan.getDisbursementDate() != null && DateUtils.isEqual(loanTransaction.getTransactionDate(), loan.getDisbursementDate())
+                && loanTransaction.getAmount() != null && loanTransaction.getAmount().compareTo(bpi) == 0;
+    }
+
+    private static List<LoanRepaymentScheduleInstallment> installmentsDueOnOrBefore(
+            final List<LoanRepaymentScheduleInstallment> installments, final LocalDate date) {
+        return installments.stream().filter(installment -> !installment.getDueDate().isAfter(date)).toList();
+    }
+
+    private static List<LoanRepaymentScheduleInstallment> installmentsDueBefore(final List<LoanRepaymentScheduleInstallment> installments,
+            final LocalDate date) {
+        return installments.stream().filter(installment -> installment.getDueDate().isBefore(date)).toList();
+    }
+
+    /**
+     * Marks the transaction as an excess settlement without discarding metadata already present on it (e.g. gateway
+     * payloads set at creation). Unparseable existing metadata is left untouched rather than overwritten.
+     */
+    private void tagExcessSettlementMetaData(final LoanTransaction loanTransaction) {
+        final String existingMetaData = loanTransaction.getTransactionMetaData();
+        if (existingMetaData == null || existingMetaData.isBlank()) {
+            loanTransaction.updateTransactionMetaData("{\"transactionSubType\":\"" + EXCESS_SETTLEMENT_SUB_TYPE + "\"}");
+            return;
+        }
+        try {
+            final JsonObject metaData = JsonParser.parseString(existingMetaData).getAsJsonObject();
+            metaData.addProperty("transactionSubType", EXCESS_SETTLEMENT_SUB_TYPE);
+            loanTransaction.updateTransactionMetaData(metaData.toString());
+        } catch (RuntimeException e) {
+            log.warn("Could not merge EXCESS_SETTLEMENT sub-type into existing transaction metadata of loan transaction [id={}]; "
+                    + "keeping the existing metadata unchanged.", loanTransaction.getId(), e);
+        }
+    }
+
+    private static final String EXCESS_SETTLEMENT_SUB_TYPE = "EXCESS_SETTLEMENT";
+
+    /**
+     * Counterpart of {@link #tagExcessSettlementMetaData}: a transaction that ends a processing pass with nothing
+     * parked must not keep advertising itself as an excess settlement. Other metadata is preserved.
+     */
+    private void untagExcessSettlementMetaData(final LoanTransaction loanTransaction) {
+        final String existingMetaData = loanTransaction.getTransactionMetaData();
+        if (existingMetaData == null || !existingMetaData.contains(EXCESS_SETTLEMENT_SUB_TYPE)) {
+            return;
+        }
+        try {
+            final JsonObject metaData = JsonParser.parseString(existingMetaData).getAsJsonObject();
+            if (metaData.has("transactionSubType") && EXCESS_SETTLEMENT_SUB_TYPE.equals(metaData.get("transactionSubType").getAsString())) {
+                metaData.remove("transactionSubType");
+                loanTransaction.updateTransactionMetaData(metaData.size() == 0 ? null : metaData.toString());
+            }
+        } catch (RuntimeException e) {
+            log.warn("Could not remove EXCESS_SETTLEMENT sub-type from transaction metadata of loan transaction [id={}]; "
+                    + "keeping the existing metadata unchanged.", loanTransaction.getId(), e);
+        }
+    }
+
+    /**
+     * Before parking the remainder of a repayment against a not-yet-due installment, settle any charges on that
+     * installment that have already been levied (charge due date on or before the transaction date). Such charges -
+     * typically accrued/overdue penalties - are current dues even though the installment's principal and interest are
+     * not yet payable, so they must be collected rather than diverted to the excess pool. Principal and interest are
+     * intentionally left untouched so parking still defers them. Returns the transaction amount still unprocessed after
+     * the due charges have been paid.
+     */
+    private Money settleAccruedDueChargesBeforeParking(final LoanRepaymentScheduleInstallment installment,
+            final List<LoanRepaymentScheduleInstallment> installments, final LoanTransaction loanTransaction, Money amountRemaining,
+            final List<LoanTransactionToRepaymentScheduleMapping> transactionMappings, final Set<LoanCharge> charges) {
+        if (charges == null || charges.isEmpty() || amountRemaining == null || !amountRemaining.isGreaterThanZero()) {
+            return amountRemaining;
+        }
+        final MonetaryCurrency currency = amountRemaining.getCurrency();
+        final LocalDate transactionDate = loanTransaction.getTransactionDate();
+        final Integer installmentNumber = installment.getInstallmentNumber();
+
+        // Only charges that belong to THIS installment's period are candidates: paying a charge attached to a later
+        // installment out of this installment's fee component would settle a not-yet-due fee here and leave the
+        // actually-due charge open. Installment fees fall due with the installment itself, so they are never "already
+        // levied" in front of a not-yet-due installment.
+        final LocalDate periodStart = installment.getFromDate();
+        final LocalDate periodEnd = installment.getDueDate();
+        final boolean isFirstPeriod = installmentNumber
+                .equals(LoanRepaymentScheduleProcessingWrapper.fetchFirstNormalInstallmentNumber(installments));
+
+        Money duePenaltyOutstanding = Money.zero(currency);
+        Money dueFeeOutstanding = Money.zero(currency);
+        for (final LoanCharge charge : charges) {
+            if (!charge.isActive() || charge.isPaid() || charge.isWaived() || charge.isInstalmentFee()) {
+                continue;
+            }
+            final LocalDate chargeDueDate = charge.getDueLocalDate();
+            if (chargeDueDate == null || chargeDueDate.isAfter(transactionDate)) {
+                continue;
+            }
+            if (periodStart != null && !charge.isDueInPeriod(periodStart, periodEnd, isFirstPeriod)) {
+                continue;
+            }
+            final Money outstanding = charge.getAmountOutstanding(currency);
+            if (!outstanding.isGreaterThanZero()) {
+                continue;
+            }
+            if (charge.isPenaltyCharge()) {
+                duePenaltyOutstanding = duePenaltyOutstanding.plus(outstanding);
+            } else {
+                dueFeeOutstanding = dueFeeOutstanding.plus(outstanding);
+            }
+        }
+
+        // Never pay more than what is actually outstanding on this installment.
+        final Money installmentPenalty = installment.getPenaltyChargesOutstanding(currency);
+        final Money installmentFee = installment.getFeeChargesOutstanding(currency);
+        final Money payablePenalty = duePenaltyOutstanding.isGreaterThan(installmentPenalty) ? installmentPenalty : duePenaltyOutstanding;
+        final Money payableFee = dueFeeOutstanding.isGreaterThan(installmentFee) ? installmentFee : dueFeeOutstanding;
+        if (!payablePenalty.isGreaterThanZero() && !payableFee.isGreaterThanZero()) {
+            return amountRemaining;
+        }
+
+        final Money zero = Money.zero(currency);
+        Money penaltyPaid = zero;
+        Money feePaid = zero;
+
+        // In the strategy's charge order: penalties first, then fees, unless the strategy pays fees first.
+        final boolean feesFirst = isFeesBeforePenaltiesForExcessParking();
+        if (feesFirst && payableFee.isGreaterThanZero() && amountRemaining.isGreaterThanZero()) {
+            final Money cap = amountRemaining.isGreaterThan(payableFee) ? payableFee : amountRemaining;
+            feePaid = installment.payFeeChargesComponent(transactionDate, cap);
+            amountRemaining = amountRemaining.minus(feePaid);
+        }
+        if (payablePenalty.isGreaterThanZero() && amountRemaining.isGreaterThanZero()) {
+            final Money cap = amountRemaining.isGreaterThan(payablePenalty) ? payablePenalty : amountRemaining;
+            penaltyPaid = installment.payPenaltyChargesComponent(transactionDate, cap);
+            amountRemaining = amountRemaining.minus(penaltyPaid);
+        }
+        if (!feesFirst && payableFee.isGreaterThanZero() && amountRemaining.isGreaterThanZero()) {
+            final Money cap = amountRemaining.isGreaterThan(payableFee) ? payableFee : amountRemaining;
+            feePaid = installment.payFeeChargesComponent(transactionDate, cap);
+            amountRemaining = amountRemaining.minus(feePaid);
+        }
+
+        if (penaltyPaid.plus(feePaid).isGreaterThanZero()) {
+            loanTransaction.updateComponents(zero, zero, feePaid, penaltyPaid);
+            transactionMappings.add(
+                    LoanTransactionToRepaymentScheduleMapping.createFrom(loanTransaction, installment, zero, zero, feePaid, penaltyPaid));
+        }
+        return amountRemaining;
     }
 
     protected Set<LoanCharge> extractFeeCharges(final Set<LoanCharge> loanCharges) {
