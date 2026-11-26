@@ -65,6 +65,22 @@ public class OverdueDuePrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymen
         return STRATEGY_NAME;
     }
 
+    @Override
+    protected boolean isInstallmentDueWindowApplicable() {
+        return true;
+    }
+
+    /**
+     * Installments inside the configured due window are allocated together with overdue installments (overdue/due
+     * passes), even when nothing is overdue yet.
+     */
+    @Override
+    protected boolean isTransactionALateRepaymentOnInstallment(final int installmentIndex,
+            final List<LoanRepaymentScheduleInstallment> installments, final LocalDate transactionDate) {
+        return super.isTransactionALateRepaymentOnInstallment(installmentIndex, installments, transactionDate)
+                || isInstallmentInDueWindow(installments.get(installmentIndex), transactionDate);
+    }
+
     /**
      * For early/'in advance' repayments, uses the same logic as on-time payments.
      */
@@ -143,8 +159,10 @@ public class OverdueDuePrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymen
             // First pass: Pay Principal+Interest for each overdue/due installment
             for (final LoanRepaymentScheduleInstallment installment : installments) {
                 if ((installment.isPrincipalNotCompleted(currency) || installment.isInterestDue(currency))
-                        && (installment.isOverdueOn(loanTransaction.getTransactionDate()) || installment.getInstallmentNumber()
-                                .equals(currentInstallmentBasedOnTransactionDate.getInstallmentNumber()))
+                        && (installment.isOverdueOn(loanTransaction.getTransactionDate())
+                                || installment.getInstallmentNumber()
+                                        .equals(currentInstallmentBasedOnTransactionDate.getInstallmentNumber())
+                                || isInstallmentInDueWindow(installment, loanTransaction.getTransactionDate()))
                         && transactionAmountRemaining.isGreaterThanZero()) {
 
                     Money principalPortion = Money.zero(currency);
@@ -176,8 +194,10 @@ public class OverdueDuePrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepaymen
             for (final LoanRepaymentScheduleInstallment installment : installments) {
                 if ((installment.getPenaltyChargesOutstanding(currency).isGreaterThanZero()
                         || installment.getFeeChargesOutstanding(currency).isGreaterThanZero())
-                        && (installment.isOverdueOn(loanTransaction.getTransactionDate()) || installment.getInstallmentNumber()
-                                .equals(currentInstallmentBasedOnTransactionDate.getInstallmentNumber()))
+                        && (installment.isOverdueOn(loanTransaction.getTransactionDate())
+                                || installment.getInstallmentNumber()
+                                        .equals(currentInstallmentBasedOnTransactionDate.getInstallmentNumber())
+                                || isInstallmentInDueWindow(installment, loanTransaction.getTransactionDate()))
                         && transactionAmountRemaining.isGreaterThanZero()) {
 
                     Money principalPortion = Money.zero(currency);

@@ -59,6 +59,11 @@ public class InterestPrincipalPenaltyFeesOrderLoanRepaymentScheduleTransactionPr
         return STRATEGY_NAME;
     }
 
+    @Override
+    protected boolean isInstallmentDueWindowApplicable() {
+        return true;
+    }
+
     /**
      * For early/'in advance' repayments, pay off in the same way as on-time payments, interest first, principal,
      * penalties and charges.

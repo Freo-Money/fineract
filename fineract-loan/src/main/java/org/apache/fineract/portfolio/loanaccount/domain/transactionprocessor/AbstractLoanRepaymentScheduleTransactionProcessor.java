@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.fineract.infrastructure.configuration.domain.ConfigurationDomainService;
 import org.apache.fineract.infrastructure.configuration.service.TemporaryConfigurationServiceContainer;
 import org.apache.fineract.infrastructure.core.service.DateUtils;
 import org.apache.fineract.infrastructure.core.service.ExternalIdFactory;
@@ -88,10 +89,51 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
     protected final LoanChargeValidator loanChargeValidator;
     protected final LoanBalanceService loanBalanceService;
     private LoanProductRoundingModeService loanProductRoundingModeService;
+    private ConfigurationDomainService configurationDomainService;
 
     @Autowired(required = false)
     public void setLoanProductRoundingModeService(final LoanProductRoundingModeService loanProductRoundingModeService) {
         this.loanProductRoundingModeService = loanProductRoundingModeService;
+    }
+
+    @Autowired(required = false)
+    public void setConfigurationDomainService(final ConfigurationDomainService configurationDomainService) {
+        this.configurationDomainService = configurationDomainService;
+    }
+
+    /**
+     * Whether this strategy honours the global 'installment-due-window-days' configuration. Off by default; strategies
+     * opt in by overriding.
+     */
+    protected boolean isInstallmentDueWindowApplicable() {
+        return false;
+    }
+
+    /**
+     * Date to compare against installment due dates when deciding whether an installment is due. For strategies that
+     * opt in via {@link #isInstallmentDueWindowApplicable()}, shifted forward by the global
+     * 'installment-due-window-days' so that an installment is treated as due from that many days before its due date.
+     * Overdue checks must keep using the actual transaction date.
+     */
+    protected LocalDate getDueWindowReferenceDate(final LocalDate transactionDate) {
+        if (!isInstallmentDueWindowApplicable() || configurationDomainService == null || transactionDate == null) {
+            return transactionDate;
+        }
+        return transactionDate.plusDays(configurationDomainService.retrieveInstallmentDueWindowDays());
+    }
+
+    /**
+     * True when a due window is configured (and applicable to this strategy) and the transaction falls inside the
+     * installment's window: dueDate - window &lt;= transactionDate &lt;= dueDate. Several installments can be in the
+     * window at the same time.
+     */
+    protected boolean isInstallmentInDueWindow(final LoanRepaymentScheduleInstallment installment, final LocalDate transactionDate) {
+        final LocalDate referenceDate = getDueWindowReferenceDate(transactionDate);
+        if (referenceDate == null || !DateUtils.isAfter(referenceDate, transactionDate)) {
+            return false;
+        }
+        return !DateUtils.isAfter(transactionDate, installment.getDueDate())
+                && !DateUtils.isBefore(referenceDate, installment.getDueDate());
     }
 
     protected MathContext resolveMathContext(final Loan loan) {
@@ -405,12 +447,13 @@ public abstract class AbstractLoanRepaymentScheduleTransactionProcessor implemen
      * This method is responsible for checking if the current transaction is 'an advance/early payment' based on the
      * details passed through.
      *
-     * Default implementation is check transaction date is before installment due date.
+     * Default implementation is check transaction date is before installment due date (minus the configured due
+     * window).
      */
     protected boolean isTransactionInAdvanceOfInstallment(final int installmentIndex,
             final List<LoanRepaymentScheduleInstallment> installments, final LocalDate transactionDate) {
         final LoanRepaymentScheduleInstallment currentInstallment = installments.get(installmentIndex);
-        return DateUtils.isBefore(transactionDate, currentInstallment.getDueDate());
+        return DateUtils.isBefore(getDueWindowReferenceDate(transactionDate), currentInstallment.getDueDate());
     }
 
     /**

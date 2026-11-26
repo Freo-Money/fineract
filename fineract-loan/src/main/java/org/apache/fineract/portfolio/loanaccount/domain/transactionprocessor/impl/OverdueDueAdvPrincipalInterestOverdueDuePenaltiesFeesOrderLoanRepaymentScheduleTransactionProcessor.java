@@ -70,6 +70,11 @@ public class OverdueDueAdvPrincipalInterestOverdueDuePenaltiesFeesOrderLoanRepay
     }
 
     @Override
+    protected boolean isInstallmentDueWindowApplicable() {
+        return true;
+    }
+
+    @Override
     public boolean isInterestFirstRepaymentScheduleTransactionProcessor() {
         return false;
     }
