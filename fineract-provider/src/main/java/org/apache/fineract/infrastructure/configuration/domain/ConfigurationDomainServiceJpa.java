@@ -622,4 +622,18 @@ public class ConfigurationDomainServiceJpa implements ConfigurationDomainService
             return null;
         }
     }
+
+    @Override
+    public long retrieveInstallmentDueWindowDays() {
+        try {
+            final GlobalConfigurationPropertyData property = getGlobalConfigurationPropertyData(
+                    GlobalConfigurationConstants.INSTALLMENT_DUE_WINDOW_DAYS);
+            if (!property.isEnabled() || property.getValue() == null || property.getValue() < 0) {
+                return 0L;
+            }
+            return property.getValue();
+        } catch (Exception e) {
+            return 0L;
+        }
+    }
 }

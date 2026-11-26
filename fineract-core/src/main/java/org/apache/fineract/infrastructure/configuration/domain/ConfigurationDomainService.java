@@ -187,4 +187,12 @@ public interface ConfigurationDomainService {
      * @return the last imported loan ID, or null if not configured
      */
     Long retrieveMigrationLastImportedLoanId();
+
+    /**
+     * Number of days before an installment's due date from which the installment is treated as due (not in advance)
+     * during repayment allocation.
+     *
+     * @return the window in days; 0 when the configuration is disabled or not set
+     */
+    long retrieveInstallmentDueWindowDays();
 }
