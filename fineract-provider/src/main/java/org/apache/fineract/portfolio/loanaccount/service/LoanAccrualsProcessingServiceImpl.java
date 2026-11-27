@@ -366,17 +366,8 @@ public class LoanAccrualsProcessingServiceImpl implements LoanAccrualsProcessing
     private void addAccruals(@NonNull final Loan loan, @NonNull LocalDate tillDate, final boolean periodic, final boolean isFinal,
             final boolean addJournal, final boolean chargeOnDueDate) {
         // For non-final accruals: only process if loan is open
-        // For final accruals: skip if loan is already closed/overpaid (prevents duplicate accruals after repayment
-        // closure)
-        // Exception: processIncomeAndAccrualTransactionOnLoanClosure handles non-NPA closed loans separately
         if ((!isFinal && !loan.isOpen()) || loan.isChargedOff() || !loan.isPeriodicAccrualAccountingEnabledOnLoanProduct()
                 || loan.isContractTermination()) {
-            return;
-        }
-        // Additional check for final accruals: skip if loan is closed/overpaid (to prevent duplicates after repayment)
-        // This prevents creating accruals when processAccrualsOnLoanClosure is called after loan is already closed via
-        // repayment
-        if (isFinal && (loan.isClosed() || loan.getStatus().isOverpaid())) {
             return;
         }
 
